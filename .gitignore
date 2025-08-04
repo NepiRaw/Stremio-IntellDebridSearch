@@ -106,3 +106,15 @@ dist
 
 # VS-Code folder
 .vscode
+
+# Test
+tests/
+test/
+scripts/
+script/
+test-*
+debug-*
+TODELETE-*
+
+# Plan
+*Plan*.md

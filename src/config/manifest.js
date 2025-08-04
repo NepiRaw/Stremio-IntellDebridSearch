@@ -1,4 +1,4 @@
-import packageInfo from "./../../package.json" with { type: "json" };
+import packageInfo from "../../package.json" with { type: "json" };
 
 // Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/responses/manifest.md
 function getManifest(config = {}) {
@@ -37,7 +37,7 @@ function getCatalogs(config) {
 
     return [
         {
-            "id": `debridsearch`,
+            "id": `IntellDebridSearch`,
             "name": `Intelligent Debrid Search - ${config.DebridProvider}`,
             "type": "other",
             "extra": [

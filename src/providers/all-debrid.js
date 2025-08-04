@@ -5,10 +5,10 @@ if (!process.env.ADDON_URL) {
 
 import AllDebridClient from 'all-debrid-api'
 import Fuse from 'fuse.js'
-import { isVideo } from './util/extension-util.js'
-import PTT from './util/parse-torrent-title.js'
-import { processTorrentDetails } from './util/debrid-processor.js'
-import { BadTokenError } from './util/error-codes.js'
+import { isVideo } from '../stream/metadata-extractor.js'
+import PTT from '../utils/parse-torrent-title.js'
+import { BadTokenError } from '../utils/error-handler.js'
+import { processTorrentDetails } from '../utils/debrid-processor.js'
 import { encode } from 'urlencode'
 
 // AllDebrid-specific URL builder

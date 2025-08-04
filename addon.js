@@ -1,8 +1,9 @@
 import { addonBuilder } from "stremio-addon-sdk"
-import StreamProvider from './lib/stream-provider.js'
-import CatalogProvider from './lib/catalog-provider.js'
-import { getManifest } from './lib/util/manifest.js'
+import StreamProvider from './src/stream-provider.js'
+import CatalogProvider from './src/catalog-provider.js'
+import { getManifest } from './src/config/manifest.js'
 
+import { logger } from './src/utils/logger.js';
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
 const STALE_REVALIDATE_AGE = 1 * 60 // 1 min
 const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
@@ -14,7 +15,7 @@ builder.defineCatalogHandler((args) => {
         const debugArgs = structuredClone(args)
         if (args.config?.DebridApiKey)
             debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-        console.log("Request for catalog with args: " + JSON.stringify(debugArgs))
+        logger.info("Request for catalog with args: " + JSON.stringify(debugArgs))
 
         // Request to Debrid Search
         if (args.id == 'debridsearch') {
@@ -26,7 +27,7 @@ builder.defineCatalogHandler((args) => {
             if (args.extra.search) {
                 CatalogProvider.searchTorrents(args.config, args.extra.search)
                     .then(metas => {
-                        console.log("Response metas: " + JSON.stringify(metas))
+                        logger.info("Response metas: " + JSON.stringify(metas))
                         resolve({
                             metas,
                             ...enrichCacheParams()
@@ -37,7 +38,7 @@ builder.defineCatalogHandler((args) => {
                 // Standard catalog request
                 CatalogProvider.listTorrents(args.config, args.extra.skip)
                     .then(metas => {
-                        console.log("Response metas: " + JSON.stringify(metas))
+                        logger.info("Response metas: " + JSON.stringify(metas))
                         resolve({
                             metas
                         })
@@ -62,13 +63,13 @@ builder.defineStreamHandler(args => {
         const debugArgs = structuredClone(args)
         if (args.config?.DebridApiKey)
             debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-        console.log("Request for streams with args: " + JSON.stringify(debugArgs))
+        logger.info("Request for streams with args: " + JSON.stringify(debugArgs))
 
         switch (args.type) {
             case 'movie':
                 StreamProvider.getMovieStreams(args.config, args.type, args.id)
                     .then(streams => {
-                        console.log("Response streams: " + JSON.stringify(streams))
+                        logger.info("Response streams: " + JSON.stringify(streams))
                         resolve({
                             streams,
                             ...enrichCacheParams()
@@ -79,7 +80,7 @@ builder.defineStreamHandler(args => {
             case 'series':
                 StreamProvider.getSeriesStreams(args.config, args.type, args.id)
                     .then(streams => {
-                        console.log("Response streams: " + JSON.stringify(streams))
+                        logger.info("Response streams: " + JSON.stringify(streams))
                         resolve({
                             streams,
                             ...enrichCacheParams()

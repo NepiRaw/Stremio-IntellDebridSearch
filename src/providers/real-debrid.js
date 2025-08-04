@@ -1,10 +1,9 @@
 import RealDebridClient from 'real-debrid-api'
 import Fuse from 'fuse.js'
-import { isVideo } from './util/extension-util.js'
-import PTT from './util/parse-torrent-title.js'
-import { BadTokenError, AccessDeniedError } from './util/error-codes.js'
-import { FILE_TYPES } from './util/file-types.js'
+import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
+import PTT from '../utils/parse-torrent-title.js'
 import { encode } from 'urlencode'
+import { BadTokenError } from '../utils/error-handler.js'
 
 async function searchFiles(fileType, apiKey, searchKey, threshold) {
     console.log("Search " + fileType.description + " with searchKey: " + searchKey)

@@ -1,13 +1,13 @@
 import Router from 'router'
 import addonInterface from "./addon.js"
-import landingTemplate from "./lib/util/landingTemplate.js"
-import StreamProvider from './lib/stream-provider.js'
+import landingTemplate from "./public/landing-template.js"
+import StreamProvider from './src/stream-provider.js'
 import { decode } from 'urlencode'
 import qs from 'querystring'
 import requestIp from 'request-ip'
-import { getManifest } from './lib/util/manifest.js'
-import { parseConfiguration } from './lib/util/configuration.js'
-import { BadTokenError, BadRequestError, AccessDeniedError } from './lib/util/error-codes.js'
+import { getManifest } from './src/config/manifest.js'
+import { parseConfiguration } from './src/utils/configuration.js'
+import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
 
 const router = new Router();
 

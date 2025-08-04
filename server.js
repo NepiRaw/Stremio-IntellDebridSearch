@@ -9,6 +9,7 @@ import rateLimit from 'express-rate-limit'
 import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 
+import { logger } from './src/utils/logger.js';
 const app = express()
 app.enable('trust proxy')
 app.use(cors())
@@ -36,7 +37,7 @@ app.use(rateLimiter)
 
 app.use((req, res, next) => serverless(req, res, next))
 app.listen(process.env.PORT || 55771, () => {
-    console.log(`Started addon at: http://127.0.0.1:${process.env.PORT || 55771}`)
+    logger.info(`Started addon at: http://127.0.0.1:${process.env.PORT || 55771}`)
 })
 
 // https://stremio.github.io/stremio-publish-addon/index.html

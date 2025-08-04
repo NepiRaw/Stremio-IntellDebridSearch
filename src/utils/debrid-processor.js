@@ -1,4 +1,4 @@
-import { isVideo } from './extension-util.js';
+import { isVideo } from '../stream/metadata-extractor.js';
 import PTT, { romanToNumber } from './parse-torrent-title.js';
 
 /**

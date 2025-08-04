@@ -1,9 +1,7 @@
 import { TorboxApi } from '@torbox/torbox-api'
 import Fuse from 'fuse.js'
-import { isVideo } from './util/extension-util.js'
-import PTT from './util/parse-torrent-title.js'
-import { BadTokenError, AccessDeniedError } from './util/error-codes.js'
-import { FILE_TYPES } from './util/file-types.js'
+import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
+import PTT from '../utils/parse-torrent-title.js'
 
 const API_BASE_URL = 'https://api.torbox.app'
 const API_VERSION = 'v1'

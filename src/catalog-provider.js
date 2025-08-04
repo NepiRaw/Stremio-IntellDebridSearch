@@ -1,10 +1,10 @@
-import DebridLink from './debrid-link.js'
-import RealDebrid from './real-debrid.js'
-import AllDebrid from './all-debrid.js'
-import TorBox from './torbox.js'
-import Premiumize from './premiumize.js'
-import { advancedSearch } from './advanced-search.js'
-import { BadRequestError } from './util/error-codes.js'
+import DebridLink from './providers/debrid-link.js'
+import RealDebrid from './providers/real-debrid.js'
+import AllDebrid from './providers/all-debrid.js'
+import TorBox from './providers/torbox.js'
+import Premiumize from './providers/premiumize.js'
+import { coordinateSearch } from './search/coordinator.js'
+import { BadRequestError } from './utils/error-handler.js'
 
 async function searchTorrents(config, searchKey) {
     let tmdbApiKey = config.TmdbApiKey
@@ -36,8 +36,8 @@ async function searchTorrents(config, searchKey) {
             threshold: 0.1,            
             providers // Add providers to params object
         }
-        const searchResult = await advancedSearch(params)
-        // Handle both array and object return formats from advancedSearch
+        const searchResult = await coordinateSearch(params)
+        // Handle both array and object return formats from coordinateSearch
         const torrents = Array.isArray(searchResult) ? searchResult : searchResult.results
         return torrents.map(torrent => toMeta(torrent))
     }
