@@ -1,14 +1,15 @@
-import { TorboxApi } from '@torbox/torbox-api'
+﻿import { TorboxApi } from '@torbox/torbox-api'
 import Fuse from 'fuse.js'
 import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
 import PTT from '../utils/parse-torrent-title.js'
+import { logger } from '../utils/logger.js'
 
 const API_BASE_URL = 'https://api.torbox.app'
 const API_VERSION = 'v1'
 const API_VALIDATION_OPTIONS = { responseValidation: false }
 
 async function searchFiles(fileType, apiKey, searchKey, threshold) {
-    console.log("Search " + fileType.description + " with searchKey: " + searchKey)
+    logger.debug("Search " + fileType.description + " with searchKey: " + searchKey)
 
     const files = await listFilesParallel(fileType, apiKey)
     let results = []
@@ -16,7 +17,7 @@ async function searchFiles(fileType, apiKey, searchKey, threshold) {
         results = files.map(result => toTorrent(apiKey, result))
     else if (fileType == FILE_TYPES.DOWNLOADS)
         results = files.map(result => toDownload(result))
-    // console.log(fileType.description + ": " + JSON.stringify(results))
+    // logger.debug(fileType.description + ": " + JSON.stringify(results))
 
     const fuse = new Fuse(results, {
         keys: ['info.title'],
@@ -170,7 +171,7 @@ async function listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
 }
 
 function handleError(err) {
-    console.log(err)
+    logger.debug(err)
     
     // Handle TorBox-specific error codes
     if (err?.response?.data?.error === 'invalid_token' || err?.response?.status === 401) {

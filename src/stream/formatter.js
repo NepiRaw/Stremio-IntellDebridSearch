@@ -8,6 +8,7 @@ import { extractQualityDisplay,
          TECHNICAL_PATTERNS, CLEANUP_PATTERNS, LANGUAGE_PATTERNS, 
          SOURCE_PATTERNS, CODEC_PATTERNS, AUDIO_PATTERNS, 
          COMPREHENSIVE_TECH_PATTERNS } from '../utils/media-patterns.js';
+import { logger } from '../utils/logger.js';
 import { FILE_TYPES } from '../utils/file-types.js';
 
 const STREAM_NAME_MAP = {
@@ -224,20 +225,20 @@ export function extractSeriesInfo(videoName, containerName) {
         /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/
     ];
     
-    console.log(`[extractSeriesInfo] Checking for episode names in: "${name}"`);
-    console.log(`[extractSeriesInfo] Series title: "${title}"`);
+    logger.debug(`[extractSeriesInfo] Checking for episode names in: "${name}"`);
+    logger.debug(`[extractSeriesInfo] Series title: "${title}"`);
     
     for (const pattern of episodePatterns) {
         const match = name.match(pattern);
         if (match && match[1] && match[1].trim().length > 2) {
             const content = match[1].trim();
-            console.log(`[extractSeriesInfo] Found episode name pattern: "${content}"`);
+            logger.debug(`[extractSeriesInfo] Found episode name pattern: "${content}"`);
             
             // Skip technical patterns
             if (content.match(/^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i) || 
                 content.match(/^[A-Z0-9]{8}$/i) || // Skip hashes
                 content.match(/^(VRV|Multiple Subtitle|1080p|720p|480p)$/i)) {
-                console.log(`[extractSeriesInfo] Skipping technical pattern: "${content}"`);
+                logger.debug(`[extractSeriesInfo] Skipping technical pattern: "${content}"`);
                 continue;
             }
             
@@ -247,14 +248,14 @@ export function extractSeriesInfo(videoName, containerName) {
             const normalizedTitle = cleanTitleForComparison.toLowerCase();
             const normalizedContent = content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
             
-            console.log(`[extractSeriesInfo] Normalized title for comparison: "${normalizedTitle}"`);
-            console.log(`[extractSeriesInfo] Normalized content: "${normalizedContent}"`);
+            logger.debug(`[extractSeriesInfo] Normalized title for comparison: "${normalizedTitle}"`);
+            logger.debug(`[extractSeriesInfo] Normalized content: "${normalizedContent}"`);
             
             // Check if the episode name is too similar to the series title
             const titleWords = normalizedTitle.split(' ').filter(word => word.length > 3);
             const isRedundant = titleWords.some(word => {
                 if (word.length > 4 && normalizedContent.includes(word)) {
-                    console.log(`[extractSeriesInfo] Found redundant word: "${word}" in "${normalizedContent}"`);
+                    logger.debug(`[extractSeriesInfo] Found redundant word: "${word}" in "${normalizedContent}"`);
                     return true;
                 }
                 return false;
@@ -262,14 +263,14 @@ export function extractSeriesInfo(videoName, containerName) {
             
             // Also skip if episode name is just the series title or contains too much of it
             const similarity = calculateStringSimilarity(normalizedTitle, normalizedContent);
-            console.log(`[extractSeriesInfo] Similarity: ${similarity}, Redundant: ${isRedundant}`);
+            logger.debug(`[extractSeriesInfo] Similarity: ${similarity}, Redundant: ${isRedundant}`);
             
             if (!isRedundant && similarity < 0.7 && content.length > 3) {
-                console.log(`[extractSeriesInfo] ✅ Using episode name: "${content}"`);
+                logger.debug(`[extractSeriesInfo] ✅ Using episode name: "${content}"`);
                 episodeName = content;
                 break;
             } else {
-                console.log(`[extractSeriesInfo] ❌ Rejecting episode name: "${content}" (redundant: ${isRedundant}, similarity: ${similarity})`);
+                logger.debug(`[extractSeriesInfo] ❌ Rejecting episode name: "${content}" (redundant: ${isRedundant}, similarity: ${similarity})`);
             }
         }
     }
@@ -484,9 +485,9 @@ export function formatStreamTitle(details, video, type, icon, knownSeasonEpisode
             
             if (shouldOverride) {
                 seasonEpisode = knownSeasonEpisodeStr;
-                console.log(`[formatStreamTitle] Using advanced search season/episode: ${knownSeasonEpisodeStr} (filename had: ${seriesInfo.seasonEpisode})`);
+                logger.debug(`[formatStreamTitle] Using advanced search season/episode: ${knownSeasonEpisodeStr} (filename had: ${seriesInfo.seasonEpisode})`);
             } else {
-                console.log(`[formatStreamTitle] Keeping filename season/episode: ${seriesInfo.seasonEpisode} (advanced search: ${knownSeasonEpisodeStr})`);
+                logger.debug(`[formatStreamTitle] Keeping filename season/episode: ${seriesInfo.seasonEpisode} (advanced search: ${knownSeasonEpisodeStr})`);
             }
         }
         

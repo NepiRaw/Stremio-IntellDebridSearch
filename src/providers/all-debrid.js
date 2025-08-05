@@ -10,6 +10,7 @@ import PTT from '../utils/parse-torrent-title.js'
 import { BadTokenError } from '../utils/error-handler.js'
 import { processTorrentDetails } from '../utils/debrid-processor.js'
 import { encode } from 'urlencode'
+import { logger } from '../utils/logger.js'
 
 // AllDebrid-specific URL builder
 function buildStreamUrl(apiKey, torrentId, file) {
@@ -18,13 +19,13 @@ function buildStreamUrl(apiKey, torrentId, file) {
 }
 
 async function searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-    console.log("Search torrents with searchKey: " + searchKey)
+    logger.debug(`[alldebrid] Search torrents with searchKey: ${searchKey}`)
 
     const torrentsResults = await listTorrentsParallel(apiKey, 1, 1000)
     let torrents = torrentsResults.map(torrentsResult => {
         return toTorrent(torrentsResult)
     })
-    // console.log("torrents: " + JSON.stringify(torrents))
+    // logger.debug("[alldebrid] torrents: " + JSON.stringify(torrents))
     const fuse = new Fuse(torrents, {
         keys: ['info.title'],
         threshold: threshold,
@@ -45,7 +46,7 @@ async function getTorrentDetails(apiKey, id) {
         const response = await AD.magnet.status(id);
 
         if (!response?.data?.magnets) {
-            console.error(`[Error AllDebrid] No magnets found for ID ${id}`);
+            logger.error(`[alldebrid] No magnets found for ID ${id}`);
             return null;
         }
 
@@ -58,7 +59,7 @@ async function getTorrentDetails(apiKey, id) {
             urlBuilder: buildStreamUrl
         });
     } catch (err) {
-        console.error(`[Error AllDebrid] Failed to fetch details for ID ${id}:`, err);
+        logger.error(`[alldebrid] Failed to fetch details for ID ${id}:`, err);
         return handleError(err);
     }
 }
@@ -135,7 +136,7 @@ async function listTorrentsParallel(apiKey) {
 }
 
 function handleError(err) {
-    console.log(err)
+    logger.debug(`[alldebrid] Error details:`, err)
     if (err && err.code === 'AUTH_BAD_APIKEY') {
         return Promise.reject(BadTokenError)
     }

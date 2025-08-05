@@ -1,5 +1,6 @@
-import { isVideo } from '../stream/metadata-extractor.js';
+﻿import { isVideo } from '../stream/metadata-extractor.js';
 import PTT, { romanToNumber } from './parse-torrent-title.js';
+import { logger } from './logger.js';
 
 /**
  * Enhanced parsing that handles roman numerals and missing seasons
@@ -78,7 +79,7 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
     }
 
     if (!item) {
-        console.error(`[${source}] No valid torrent/magnet item`);
+        logger.error(`[${source}] No valid torrent/magnet item`);
         return { videos: [] };
     }
 
@@ -101,7 +102,7 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
     }
 
     if (!allFiles.length) {
-        console.error(`[${source}] No files found in any data source`);
+        logger.error(`[${source}] No files found in any data source`);
         return { videos: [] };
     }
 
@@ -126,7 +127,7 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
             }
         });
 
-    console.log(`[${source}] Processed ${videos.length} video files for torrent: ${item.filename || item.name}`);
+    logger.debug(`[${source}] Processed ${videos.length} video files for torrent: ${item.filename || item.name}`);
 
     // Return enriched object with complete data
     return {

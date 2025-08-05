@@ -1,10 +1,11 @@
-import DebridLink from './providers/debrid-link.js'
+﻿import DebridLink from './providers/debrid-link.js'
 import RealDebrid from './providers/real-debrid.js'
 import AllDebrid from './providers/all-debrid.js'
 import TorBox from './providers/torbox.js'
 import Premiumize from './providers/premiumize.js'
 import { coordinateSearch } from './search/coordinator.js'
 import { BadRequestError } from './utils/error-handler.js'
+import { logger } from './utils/logger.js'
 
 async function searchTorrents(config, searchKey) {
     let tmdbApiKey = config.TmdbApiKey
@@ -13,12 +14,12 @@ async function searchTorrents(config, searchKey) {
     // Fallback to environment variables if API keys are not provided in config
     if (!tmdbApiKey && process.env.TMDB_API_KEY) {
         tmdbApiKey = process.env.TMDB_API_KEY;
-        console.log('[catalog-provider] Using TMDb API key from environment variables');
+        logger.debug('[catalog-provider] Using TMDb API key from environment variables');
     }
     
     if (!traktApiKey && process.env.TRAKT_API_KEY) {
         traktApiKey = process.env.TRAKT_API_KEY;
-        console.log('[catalog-provider] Using Trakt API key from environment variables');
+        logger.debug('[catalog-provider] Using Trakt API key from environment variables');
     }
     
     const apiKey = config.DebridLinkApiKey ? config.DebridLinkApiKey : config.DebridApiKey

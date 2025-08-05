@@ -1,7 +1,35 @@
 /**
- * Error handling utilities and custom error classes
- * Provides consistent error handling across the addon
+ * Error handling /**
+ * Custom error class for authentication issues
  */
+export class BadTokenError extends Error {
+    constructor(message = 'Invalid or expired API token', provider = null, originalError = null) {
+        super(message);
+        this.name = 'BadTokenError';
+        this.provider = provider;
+        this.originalError = originalError;
+        
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, BadTokenError);
+        }
+    }
+}
+
+/**
+ * Custom error class for access denied issues
+ */
+export class AccessDeniedError extends Error {
+    constructor(message = 'Access denied by provider', provider = null, originalError = null) {
+        super(message);
+        this.name = 'AccessDeniedError';
+        this.provider = provider;
+        this.originalError = originalError;
+        
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, AccessDeniedError);
+        }
+    }
+}
 
 /**
  * Custom error class for provider-specific issues
@@ -17,22 +45,6 @@ export class ProviderError extends Error {
         // Maintain proper stack trace for where our error was thrown
         if (Error.captureStackTrace) {
             Error.captureStackTrace(this, ProviderError);
-        }
-    }
-}
-
-/**
- * Custom error class for bad token/authentication issues
- */
-export class BadTokenError extends Error {
-    constructor(message, provider = null, originalError = null) {
-        super(message);
-        this.name = 'BadTokenError';
-        this.provider = provider;
-        this.originalError = originalError;
-        
-        if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, BadTokenError);
         }
     }
 }
@@ -314,8 +326,8 @@ export function isRetryableError(err) {
 }
 
 // Legacy Error Codes (for backward compatibility with existing code)
-export const AccessDeniedError = { code: 'ACCESS_DENIED' };
 export const BadRequestError = { code: 'BAD_REQUEST' };
+export const LEGACY_ACCESS_DENIED_ERROR = { code: 'ACCESS_DENIED' };
 
 // Enhanced Error Codes
 export const ERROR_CODES = {

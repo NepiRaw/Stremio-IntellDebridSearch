@@ -4,13 +4,14 @@ import { isVideo } from '../stream/metadata-extractor.js'
 import PTT from '../utils/parse-torrent-title.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { encode } from 'urlencode'
+import { logger } from '../utils/logger.js'
 
 async function searchTorrents(apiKey, searchKey, threshold = 0.3) {
-    console.log("Search torrents with searchKey: " + searchKey)
+    logger.debug(`[debridlink] Search torrents with searchKey: ${searchKey}`)
 
     let torrentsResults = await listTorrentsParallel(apiKey)
     let torrents = torrentsResults.map(torrentsResult => toTorrent(torrentsResult))
-    // console.log("torrents: " + JSON.stringify(torrents))
+    // logger.debug(`[debridlink] torrents:`, JSON.stringify(torrents))
     const fuse = new Fuse(torrents, {
         keys: ['info.title'],
         threshold: threshold,
@@ -137,7 +138,7 @@ function toTorrentDetails(item) {
 }
 
 function handleError(err) {
-    console.log(err)
+    logger.error(err)
     if (err === 'badToken') {
         return Promise.reject(BadTokenError)
     }

@@ -4,9 +4,10 @@ import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
 import PTT from '../utils/parse-torrent-title.js'
 import { encode } from 'urlencode'
 import { BadTokenError } from '../utils/error-handler.js'
+import { logger } from '../utils/logger.js'
 
 async function searchFiles(fileType, apiKey, searchKey, threshold) {
-    console.log("Search " + fileType.description + " with searchKey: " + searchKey)
+    logger.debug(`[realdebrid] Search ${fileType.description} with searchKey: ${searchKey}`)
 
     const files = await listFilesParrallel(fileType, apiKey, 1, 1000)
     let results = []
@@ -15,7 +16,7 @@ async function searchFiles(fileType, apiKey, searchKey, threshold) {
     else if (fileType == FILE_TYPES.DOWNLOADS)
         results = files.map(result => {return toDownload(result)})
     results.map(result => result.fileType = fileType)
-    // console.log(fileType.description + " " + JSON.stringify(results))
+    // logger.debug(`[realdebrid] ${fileType.description} results:`, JSON.stringify(results))
     const fuse = new Fuse(results, {
         keys: ['info.title'],
         threshold: threshold,
@@ -153,13 +154,17 @@ async function listFilesParrallel(fileType, apiKey, page = 1, pageSize = 50) {
 }
 
 function handleError(err) {
-    console.log(err)
-    const errData = err.response.data
+    logger.debug(`[realdebrid] Error details:`, err)
+    const errData = err.response?.data
     if (errData && errData.error_code === 8) {
         return Promise.reject(BadTokenError)
     }
     if (errData && accessDeniedError(errData)) {
-        return Promise.reject(AccessDeniedError)
+        // Create access denied error with proper structure
+        const accessError = new Error('Access denied by provider');
+        accessError.name = 'AccessDeniedError';
+        accessError.code = 'ACCESS_DENIED';
+        return Promise.reject(accessError)
     }
     return Promise.reject(err)
 }

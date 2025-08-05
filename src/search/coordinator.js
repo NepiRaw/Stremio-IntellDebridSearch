@@ -1,480 +1,39 @@
 /**
- * Search Coordinator - Main advancedSearch function properly refactored
- * This is the EXACT working advancedSearch function but using modular APIs
- * 
- * Key process (copied exactly from working addon):
- * 1. Get alternative titles from TMDb using api/tmdb.js
- * 2. Fetch ALL torrents from the selected provider (bulk fetch)
- * 3. Pre-filter by keyword inclusion  
- * 4. Use Fuse.js for fuzzy matching
- * 5. Deep content analysis for season/episode matching
+ * Search Coordinator Module
+ * Orchestrates multi-phase search across different providers and APIs
+ * Two-phase approach: fast title matching, then deep content analysis
  */
 
 import { logger } from '../utils/logger.js';
-import { fetchTMDbAlternativeTitles } from '../api/tmdb.js';
-import { extractKeywords } from '../search/keyword-extractor.js';
-import { getEpisodeMapping } from '../search/episode-mapper.js';
-import { analyzeTorrent } from '../search/torrent-analyzer.js';
-import { sortMovieStreamsByQuality, deduplicateStreams } from '../stream/quality-processor.js';
-import { toStream, filterSeason, filterEpisode, filterYear } from '../stream/stream-builder.js';
-import Fuse from 'fuse.js';
-import parseTorrentTitleModule from '../utils/parse-torrent-title.js';
+import { extractKeywords } from './keyword-extractor.js';
+import parseTorrentTitle from '../utils/parse-torrent-title.js';
 import { FILE_TYPES } from '../utils/file-types.js';
-
-// Extract functions from the module
-const { parse: parseTorrentTitle } = parseTorrentTitleModule;
-
-// Simple in-memory cache for anime season info to avoid repeated API calls
-const animeSeasonCache = new Map();
-const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+import { fetchTMDbAlternativeTitles } from '../api/tmdb.js';
+import { getEpisodeMapping } from '../api/trakt.js';
+import { analyzeTorrent } from './torrent-analyzer.js';
+import Fuse from 'fuse.js';
 
 /**
- * Fetch anime season information from MyAnimeList via Jikan API
- * @param {string} titleQuery - The anime title to search for
- * @returns {Promise<Array>} - Array of anime seasons with episode counts and season numbers
+ * Get basic title information without complete metadata
  */
-export async function fetchAnimeSeasonInfo(titleQuery) {
-    if (!titleQuery || typeof titleQuery !== 'string') {
-        return [];
-    }
-
-    // Check cache first
-    const cacheKey = titleQuery.toLowerCase().trim();
-    const cached = animeSeasonCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-        console.log(`[anime-search] Using cached data for: ${titleQuery}`);
-        return cached.data;
-    }
-
-    try {
-        console.log(`[anime-search] Fetching anime info for: ${titleQuery}`);
-        
-        // Fetch initial search results
-        const searchUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(titleQuery)}&limit=10`;
-        const searchResponse = await fetch(searchUrl, {
-            headers: { Accept: 'application/json' }
-        });
-        
-        if (!searchResponse.ok) {
-            console.warn(`[anime-search] Search failed: ${searchResponse.status}`);
-            return [];
-        }
-        
-        const searchData = await searchResponse.json();
-        
-        // Select relevant entries (TV + Special)
-        const entries = searchData.data?.filter(entry => {
-            return ['TV', 'Special'].includes(entry.type) &&
-                   entry.titles?.some(title => 
-                       title.title.toLowerCase().includes(titleQuery.toLowerCase())
-                   );
-        }) || [];
-        
-        if (entries.length === 0) {
-            console.log(`[anime-search] No matching anime found for: ${titleQuery}`);
-            return [];
-        }
-        
-        // Get unique MAL IDs
-        const malIds = [...new Set(entries.map(entry => entry.mal_id))];
-        console.log(`[anime-search] Found ${malIds.length} unique anime entries`);
-        
-        // Fetch detailed info for each MAL ID with proper rate limiting
-        const animeList = [];
-        let successfulFetches = 0;
-        let lastRequestTime = 0;
-        
-        // Rate limiting: Max 3 requests per second (1000ms / 3 = 334ms minimum between requests)
-        const MIN_REQUEST_INTERVAL = 334; // milliseconds
-        
-        for (let i = 0; i < malIds.length; i++) {
-            const malId = malIds[i];
-            
-            try {
-                // Ensure proper rate limiting - wait at least 334ms between requests
-                const now = Date.now();
-                const timeSinceLastRequest = now - lastRequestTime;
-                
-                if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-                    const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-                    console.log(`[anime-search] Rate limiting: waiting ${waitTime}ms before next request`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                }
-                
-                lastRequestTime = Date.now();
-                console.log(`[anime-search] Fetching details for MAL ID ${malId} (${i + 1}/${malIds.length})`);
-                
-                const detailUrl = `https://api.jikan.moe/v4/anime/${malId}`;
-                const detailResponse = await fetch(detailUrl, {
-                    headers: { Accept: 'application/json' }
-                });
-                
-                if (!detailResponse.ok) {
-                    if (detailResponse.status === 429) {
-                        console.warn(`[anime-search] ⚠️  Rate limited (HTTP 429) for MAL ID ${malId}, waiting 1 second and retrying...`);
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        
-                        // Retry once after rate limit
-                        const retryResponse = await fetch(detailUrl, {
-                            headers: { Accept: 'application/json' }
-                        });
-                        
-                        if (!retryResponse.ok) {
-                            console.warn(`[anime-search] Retry failed for MAL ID ${malId}: HTTP ${retryResponse.status}`);
-                            continue;
-                        }
-                        
-                        const retryData = await retryResponse.json();
-                        const anime = retryData.data;
-                        
-                        if (!anime) {
-                            console.warn(`[anime-search] No data found for MAL ID ${malId} after retry`);
-                            continue;
-                        }
-                        
-                        // Parse aired date
-                        const dateObj = anime.aired?.prop?.from;
-                        let airedFrom = null;
-                        if (dateObj?.year && dateObj?.month && dateObj?.day) {
-                            const month = dateObj.month.toString().padStart(2, '0');
-                            const day = dateObj.day.toString().padStart(2, '0');
-                            airedFrom = `${dateObj.year}-${month}-${day}`;
-                        }
-                        
-                        animeList.push({
-                            mal_id: malId,
-                            title: anime.title,
-                            type: anime.type,
-                            aired_from: airedFrom,
-                            year: anime.year,
-                            season: anime.season,
-                            episodes: anime.episodes || 0
-                        });
-                        
-                        successfulFetches++;
-                        console.log(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId} after retry: ${anime.title} (${anime.episodes} episodes)`);
-                        continue;
-                    } else {
-                        console.warn(`[anime-search] Failed to fetch details for MAL ID ${malId}: HTTP ${detailResponse.status}`);
-                        continue;
-                    }
-                }
-                
-                const detailData = await detailResponse.json();
-                const anime = detailData.data;
-                
-                if (!anime) {
-                    console.warn(`[anime-search] No data found for MAL ID ${malId}`);
-                    continue;
-                }
-                
-                // Parse aired date
-                const dateObj = anime.aired?.prop?.from;
-                let airedFrom = null;
-                if (dateObj?.year && dateObj?.month && dateObj?.day) {
-                    const month = dateObj.month.toString().padStart(2, '0');
-                    const day = dateObj.day.toString().padStart(2, '0');
-                    airedFrom = `${dateObj.year}-${month}-${day}`;
-                }
-                
-                animeList.push({
-                    mal_id: malId,
-                    title: anime.title,
-                    type: anime.type,
-                    aired_from: airedFrom,
-                    year: anime.year,
-                    season: anime.season,
-                    episodes: anime.episodes || 0
-                });
-                
-                successfulFetches++;
-                console.log(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId}: ${anime.title} (${anime.episodes} episodes)`);
-                
-            } catch (error) {
-                console.warn(`[anime-search] Error fetching details for MAL ID ${malId}:`, error.message);
-                // Continue to next MAL ID instead of failing completely
-                continue;
-            }
-        }
-        
-        console.log(`[anime-search] Successfully fetched ${successfulFetches}/${malIds.length} anime details`);
-        
-        if (animeList.length === 0) {
-            console.warn(`[anime-search] No anime details could be fetched for any MAL ID`);
-            return [];
-        }
-        
-        // Sort by air date and assign season numbers intelligently
-        const sorted = animeList
-            .filter(anime => anime.aired_from)
-            .sort((a, b) => new Date(a.aired_from) - new Date(b.aired_from));
-
-        let seasonIndex = 1;
-        const result = sorted.map((anime, index) => {
-            if (anime.type === 'Special') {
-                return {
-                    ...anime,
-                    season_number: 'S00'
-                };
-            }
-            
-            // Detect if this is a part/continuation of the previous season
-            let actualSeasonNumber = seasonIndex;
-            
-            if (index > 0) {
-                const currentTitle = anime.title.toLowerCase();
-                const previousAnime = sorted[index - 1];
-                const previousTitle = previousAnime.title.toLowerCase();
-                
-                // Check if this is a "Part 2", "Part II", "Cour 2", etc. of the same season
-                const isPartContinuation = (
-                    (currentTitle.includes('part 2') || currentTitle.includes('part ii') || 
-                     currentTitle.includes('cour 2') || currentTitle.includes('cours 2') ||
-                     currentTitle.includes('season part 2')) &&
-                    previousTitle.includes('season') && currentTitle.includes('season') &&
-                    // Check if they share the same season number pattern (e.g., "2nd season")
-                    (currentTitle.match(/(\d+)(?:st|nd|rd|th)\s*season/) || [])[1] === 
-                    (previousTitle.match(/(\d+)(?:st|nd|rd|th)\s*season/) || [])[1]
-                );
-                
-                if (isPartContinuation && previousAnime.type !== 'Special') {
-                    // Use the same season number as the previous anime
-                    actualSeasonNumber = seasonIndex - 1;
-                    console.log(`[anime-search] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
-                } else {
-                    seasonIndex++;
-                    actualSeasonNumber = seasonIndex - 1;
-                }
-            } else {
-                seasonIndex++;
-                actualSeasonNumber = seasonIndex - 1;
-            }
-            
-            return {
-                ...anime,
-                season_number: `S${actualSeasonNumber.toString().padStart(2, '0')}`
-            };
-        });
-        
-        console.log(`[anime-search] Found ${result.length} anime seasons:`, 
-            result.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
-        
-        // Cache the result to avoid repeated API calls
-        animeSeasonCache.set(cacheKey, {
-            data: result,
-            timestamp: Date.now()
-        });
-        
-        return result;
-        
-    } catch (error) {
-        console.warn('[anime-search] Failed to fetch anime season info:', error);
-        return [];
-    }
+export function getBasicTitleInfo(searchKey, type) {
+    const cleanedTitle = extractKeywords(searchKey);
+    return {
+        title: cleanedTitle,
+        normalizedTitle: cleanedTitle.toLowerCase(),
+        type: type
+    };
 }
 
 /**
- * Map Stremio episode number to correct anime season and episode
- * @param {Array} animeSeasons - Array of anime season info from fetchAnimeSeasonInfo
- * @param {number} targetSeason - Original season from Stremio (usually 1)
- * @param {number} targetEpisode - Original episode from Stremio
- * @returns {Object|null} - Mapped season and episode info or null
+ * Get search strategy based on content type and metadata availability
  */
-export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
-    if (!animeSeasons?.length || !targetEpisode) {
-        return null;
-    }
-    
-    // Filter out specials for episode counting
-    const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
-    
-    if (mainSeasons.length === 0) {
-        return null;
-    }
-    
-    console.log(`[anime-mapping] Mapping S${targetSeason}E${targetEpisode} across ${mainSeasons.length} seasons`);
-    
-    // Group seasons by season_number and combine episode counts for parts/cours
-    const seasonGroups = new Map();
-    
-    for (const season of mainSeasons) {
-        const seasonNum = season.season_number;
-        if (seasonGroups.has(seasonNum)) {
-            // Combine episodes for season parts (e.g., Season 2 + Season 2 Part 2)
-            const existing = seasonGroups.get(seasonNum);
-            existing.episodes += season.episodes;
-            existing.titles.push(season.title);
-        } else {
-            seasonGroups.set(seasonNum, {
-                season_number: seasonNum,
-                episodes: season.episodes,
-                titles: [season.title],
-                type: season.type,
-                aired_from: season.aired_from
-            });
-        }
-    }
-    
-    // Convert back to array and sort by season number
-    const combinedSeasons = Array.from(seasonGroups.values()).sort((a, b) => {
-        const aNum = parseInt(a.season_number.replace('S', ''));
-        const bNum = parseInt(b.season_number.replace('S', ''));
-        return aNum - bNum;
-    });
-    
-    // IMPORTANT: Check if the requested season exists and has enough episodes
-    // Only map to a different season if the episode number exceeds what's available
-    const requestedSeasonNum = `S${targetSeason.toString().padStart(2, '0')}`;
-    const requestedSeasonData = combinedSeasons.find(s => s.season_number === requestedSeasonNum);
-    
-    if (requestedSeasonData && targetEpisode <= requestedSeasonData.episodes) {
-        console.log(`[anime-mapping] ❌ No mapping needed: S${targetSeason}E${targetEpisode} exists in requested season (${requestedSeasonData.episodes} episodes available)`);
-        return null;
-    }
-    
-    // Only proceed with mapping if the episode exceeds the capacity of the requested season
-    if (requestedSeasonData) {
-        console.log(`[anime-mapping] Episode ${targetEpisode} exceeds S${targetSeason} capacity (${requestedSeasonData.episodes} episodes), attempting cross-season mapping`);
-    } else {
-        console.log(`[anime-mapping] S${targetSeason} not found in anime data, attempting cross-season mapping for episode ${targetEpisode}`);
-    }
-    
-    let cumulativeEpisodes = 0;
-    
-    for (const season of combinedSeasons) {
-        const seasonStart = cumulativeEpisodes + 1;
-        const seasonEnd = cumulativeEpisodes + season.episodes;
-        
-        console.log(`[anime-mapping] ${season.season_number}: Episodes ${seasonStart}-${seasonEnd} (${season.episodes} total)`);
-        
-        if (targetEpisode >= seasonStart && targetEpisode <= seasonEnd) {
-            const mappedEpisode = targetEpisode - cumulativeEpisodes;
-            const mappedSeason = parseInt(season.season_number.replace('S', ''));
-            
-            console.log(`[anime-mapping] ✅ Mapped S${targetSeason}E${targetEpisode} → S${mappedSeason}E${mappedEpisode}`);
-            
-            return {
-                originalSeason: targetSeason,
-                originalEpisode: targetEpisode,
-                mappedSeason: mappedSeason,
-                mappedEpisode: mappedEpisode,
-                animeTitle: season.titles.join(' + '),
-                seasonInfo: season
-            };
-        }
-        
-        cumulativeEpisodes += season.episodes;
-    }
-    
-    console.log(`[anime-mapping] ❌ Episode ${targetEpisode} not found in any season (total episodes: ${cumulativeEpisodes})`);
-    return null;
-}
-
-/**
- * Select the best title variations for anime search based on country priority
- * @param {string} originalTitle - Original search title
- * @param {Array} alternativeTitlesWithCountry - Alternative titles with country info from TMDb
- * @param {string} contentType - 'anime' or 'series' to determine country priorities
- * @returns {Array<string>} - Prioritized list of title variations for search
- */
-export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWithCountry, contentType = 'anime') {
-    const titleVariations = [];
-    
-    // 1. Always include the original title first
-    titleVariations.push(originalTitle);
-    
-    if (!alternativeTitlesWithCountry || alternativeTitlesWithCountry.length === 0) {
-        console.log(`[advanced-search] No alternative titles available for ${contentType} search`);
-        return titleVariations;
-    }
-    
-    console.log(`[advanced-search] Selecting ${contentType} titles from ${alternativeTitlesWithCountry.length} alternatives using anime-specific prioritization`);
-    
-    const addedTitles = new Set([originalTitle.toLowerCase()]);
-    
-    // Helper function to get titles for a country in their original TMDb order
-    const getTitlesForCountry = (countryCode) => {
-        return alternativeTitlesWithCountry
-            .filter(alt => alt.country === countryCode);
+export function getSearchStrategy(type, season, episode, alternativeTitles) {
+    return {
+        useMultiplePhases: type === 'series' && season && episode,
+        useTitleVariations: alternativeTitles.length > 0,
+        useAnimeSearch: type === 'series'
     };
-    
-    // Helper function to add a title if it's unique and valid
-    const addTitle = (title, countryCode, label) => {
-        const normalizedForComparison = title.toLowerCase();
-        if (!addedTitles.has(normalizedForComparison) && title.length > 2) {
-            titleVariations.push(title);
-            addedTitles.add(normalizedForComparison);
-            console.log(`[advanced-search] Added ${countryCode} ${label}: "${title}"`);
-            return true;
-        }
-        return false;
-    };
-    
-    // Anime-specific prioritization: 1st JP → 1st US → 2nd JP → 2nd US → 1st FR → other countries
-    const jpTitles = getTitlesForCountry('JP');
-    const usTitles = getTitlesForCountry('US');
-    const frTitles = getTitlesForCountry('FR');
-    
-    console.log(`[advanced-search] Available titles by country - JP: ${jpTitles.length}, US: ${usTitles.length}, FR: ${frTitles.length}`);
-    
-    let jpIndex = 0;
-    let usIndex = 0;
-    let frIndex = 0;
-    
-    const maxTotalTitles = 8;
-    
-    // 1st JP title
-    if (jpIndex < jpTitles.length && titleVariations.length < maxTotalTitles) {
-        addTitle(jpTitles[jpIndex].title, 'JP', `title #${jpIndex + 1} (priority)`);
-        jpIndex++;
-    }
-    
-    // 1st US title
-    if (usIndex < usTitles.length && titleVariations.length < maxTotalTitles) {
-        addTitle(usTitles[usIndex].title, 'US', `title #${usIndex + 1} (priority)`);
-        usIndex++;
-    }
-    
-    // 2nd JP title
-    if (jpIndex < jpTitles.length && titleVariations.length < maxTotalTitles) {
-        addTitle(jpTitles[jpIndex].title, 'JP', `title #${jpIndex + 1} (priority)`);
-        jpIndex++;
-    }
-    
-    // 2nd US title
-    if (usIndex < usTitles.length && titleVariations.length < maxTotalTitles) {
-        addTitle(usTitles[usIndex].title, 'US', `title #${usIndex + 1} (priority)`);
-        usIndex++;
-    }
-    
-    // 1st French title
-    if (frIndex < frTitles.length && titleVariations.length < maxTotalTitles) {
-        addTitle(frTitles[frIndex].title, 'FR', `title #${frIndex + 1} (priority)`);
-        frIndex++;
-    }
-    
-    // Fill remaining slots with first title from other priority countries
-    const otherCountries = ['GB', 'DE', 'ES', 'IT', 'KR', 'CN', 'TW', 'XX'];
-    for (const countryCode of otherCountries) {
-        if (titleVariations.length >= maxTotalTitles) break;
-        
-        const countryTitles = getTitlesForCountry(countryCode);
-        if (countryTitles.length > 0) {
-            addTitle(countryTitles[0].title, countryCode, 'first title');
-        }
-    }
-    
-    // If we still have slots, add remaining JP and US titles
-    while (titleVariations.length < maxTotalTitles && (jpIndex < jpTitles.length || usIndex < usTitles.length)) {
-        if (jpIndex < jpTitles.length) {
-            titleVariations.push(jpTitles[jpIndex++]);
-        }
-        if (titleVariations.length < maxTotalTitles && usIndex < usTitles.length) {
-            titleVariations.push(usTitles[usIndex++]);
-        }
-    }
-
-    return titleVariations;
 }
 
 /**
@@ -578,7 +137,7 @@ export async function coordinateSearch(params) {
                 id: item.id,
                 name: item.filename,
                 type: 'other',
-                info: parseTorrentTitle(item.filename),
+                info: parseTorrentTitle.parse(item.filename),
                 size: item.size,
                 created: new Date(item.completionDate)
             }));
@@ -590,7 +149,7 @@ export async function coordinateSearch(params) {
                 id: item.id.split('-')[0],
                 name: item.name,
                 type: 'other',
-                info: parseTorrentTitle(item.name),
+                info: parseTorrentTitle.parse(item.name),
                 size: item.size,
                 created: new Date(item.created * 1000)
             }));
@@ -602,7 +161,7 @@ export async function coordinateSearch(params) {
                 id: item.id,
                 name: item.filename,
                 type: 'other',
-                info: parseTorrentTitle(item.filename),
+                info: parseTorrentTitle.parse(item.filename),
                 size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
                 created: new Date(item.added) // RealDebrid uses 'added' field
             }));
@@ -614,7 +173,7 @@ export async function coordinateSearch(params) {
                 id: item.id,
                 name: item.name,
                 type: 'other',
-                info: parseTorrentTitle(item.name),
+                info: parseTorrentTitle.parse(item.name),
                 size: item.size,
                 created: new Date(item.created_at)
             }));
@@ -626,7 +185,7 @@ export async function coordinateSearch(params) {
                 id: item.id,
                 name: item.name,
                 type: 'other',
-                info: parseTorrentTitle(item.name),
+                info: parseTorrentTitle.parse(item.name),
                 size: item.size,
                 created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
             }));
@@ -723,10 +282,23 @@ export async function coordinateSearch(params) {
     // Log Phase 1 summary
     if (titleMatches.length === 0) {
         logger.info('❌ [coordinator] No title matches found in Phase 1');
-        return [];
+        
+        // For movies, return empty results immediately (no anime fallback needed)
+        if (type === 'movie') {
+            logger.info('[coordinator] Movie content with no matches - returning empty results');
+            return [];
+        }
+        
+        // For series, continue to Phase 3 (anime fallback) if we have season/episode info
+        if (type === 'series' && season && episode) {
+            logger.info('[coordinator] Series with no Phase 1 matches - proceeding to Phase 3 anime fallback');
+        } else {
+            logger.info('[coordinator] Series without season/episode info - returning empty results');
+            return [];
+        }
+    } else {
+        logger.info(`[coordinator] Phase 1 complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
     }
-
-    logger.info(`[coordinator] Phase 1 complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
     
     // For movies or when no episode info needed, return Phase 1 results
     if (type === 'movie' || (!season && !episode)) {
@@ -739,12 +311,15 @@ export async function coordinateSearch(params) {
     }
 
     // ========== PHASE 2: DEEP CONTENT ANALYSIS ==========
-    logger.info('[coordinator] Phase 2: Deep content analysis for episode matching');
+    let matches = [];
     
-    // Batch fetch torrent details to avoid individual API calls
-    const torrentsNeedingDetails = titleMatches.filter(match => 
-        providers[provider]?.getTorrentDetails && !match.item.videos
-    );
+    if (titleMatches.length > 0) {
+        logger.info('[coordinator] Phase 2: Deep content analysis for episode matching');
+        
+        // Batch fetch torrent details to avoid individual API calls
+        const torrentsNeedingDetails = titleMatches.filter(match => 
+            providers[provider]?.getTorrentDetails && !match.item.videos
+        );
     
     if (torrentsNeedingDetails.length > 0) {
         logger.info(`[coordinator] Batch fetching details for ${torrentsNeedingDetails.length} torrents`);
@@ -771,7 +346,7 @@ export async function coordinateSearch(params) {
     });
 
     // Filter to only matching episodes and extract specific video files    
-    const matches = analyzedResults
+    matches = analyzedResults
         .filter(result => {
             const hasMatch = result.analysis.hasMatchingEpisode;
             if (!hasMatch) {
@@ -806,8 +381,144 @@ export async function coordinateSearch(params) {
             }
         });
         
-    logger.info(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);
-    logger.info(`[coordinator] Performance summary: ${allRawResults.length} total → ${titleMatches.length} title matches → ${matches.length} final results`);
+        logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);
+    } else {
+        logger.debug('[coordinator] Phase 2 skipped: No title matches from Phase 1');
+    }
+    
+    logger.debug(`[coordinator] Performance summary: ${allRawResults.length} total → ${titleMatches.length} title matches → ${matches.length} final results`);
+    
+    // ========== PHASE 3: ANIME SEASON CHECK (Final fallback) ==========
+    if (matches.length === 0 && type === 'series' && season && episode) {
+        // Check if this is Season 0 (specials/OVA) - don't do anime mapping for S00
+        if (parseInt(season) === 0) {
+            logger.info('[coordinator] Season 0 (specials/OVA) detected - skipping anime mapping phase');
+            logger.info('[coordinator] For S00 episodes, we only look for direct S00E{episode} matches');
+            
+            return {
+                results: [],
+                absoluteEpisode: absoluteEpisode
+            };
+        }
+        
+        logger.info('[coordinator] Phase 3: Trying anime season mapping as final fallback');
+        
+        try {
+            // Import anime functions - moved to jikan.js for better organization
+            const { fetchAnimeSeasonInfo, mapAnimeEpisode, selectTitleVariationsForAnime } = await import('../api/jikan.js');
+            
+            // Use country-aware title selection for anime searches
+            const titleVariations = selectTitleVariationsForAnime(
+                searchKey, 
+                alternativeTitles, 
+                'anime'
+            );
+            
+            logger.info(`[coordinator] Country-prioritized anime search with ${titleVariations.length} title variations:`, titleVariations);
+            
+            // Try each title variation until we find anime seasons
+            let animeSeasons = [];
+            let successfulTitle = null;
+            
+            for (const titleVariation of titleVariations) {
+                logger.info(`[coordinator] Trying anime search with: "${titleVariation}"`);
+                animeSeasons = await fetchAnimeSeasonInfo(titleVariation);
+                
+                if (animeSeasons.length > 0) {
+                    successfulTitle = titleVariation;
+                    logger.info(`[coordinator] ✅ Found anime seasons with country-prioritized title: "${titleVariation}"`);
+                    console.log(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`, 
+                        animeSeasons.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
+                    break;
+                } else {
+                    logger.info(`[coordinator] ❌ No anime found for: "${titleVariation}"`);
+                }
+            }
+            
+            if (animeSeasons.length > 0) {
+                // Try to map the episode to correct season
+                const episodeMapping = mapAnimeEpisode(animeSeasons, parseInt(season), parseInt(episode));
+                
+                if (episodeMapping) {
+                    logger.info(`[coordinator] Anime mapping found using "${successfulTitle}": S${season}E${episode} → S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
+                    
+                    // OPTIMIZATION: Instead of full recursive search, reuse existing data and only re-analyze
+                    logger.info('[coordinator] Optimized anime retry: Re-analyzing existing torrents with new season/episode');
+                    
+                    // Re-analyze the same torrents we already found with the new season/episode
+                    const reAnalyzedResults = titleMatches.map(match => {
+                        const analysis = analyzeTorrent(
+                            match.item, 
+                            parseInt(episodeMapping.mappedSeason), 
+                            parseInt(episodeMapping.mappedEpisode), 
+                            absoluteEpisode
+                        );
+                        return {
+                            torrent: match.item,
+                            analysis,
+                            score: match.score
+                        };
+                    });
+                    
+                    // Extract matching episodes with new criteria
+                    const animeMatches = reAnalyzedResults
+                        .filter(result => {
+                            const hasMatch = result.analysis.hasMatchingEpisode;
+                            if (hasMatch) {
+                                logger.info(`[coordinator] ✅ ANIME MATCH: ${result.torrent.name} - Found S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
+                            }
+                            return hasMatch;
+                        })
+                        .flatMap(result => {
+                            // For containers, return each matching video as a separate result
+                            if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
+                                const extractedVideos = result.analysis.matchingFiles.map(video => ({
+                                    ...result.torrent,
+                                    name: video.name,
+                                    size: video.size,
+                                    info: {
+                                        ...(result.torrent.info || {}),
+                                        ...(video.info || {})
+                                    },
+                                    // Keep track that this is from a container and anime mapping was used
+                                    containerName: result.torrent.name,
+                                    isExtractedVideo: true,
+                                    animeMapping: episodeMapping,
+                                    videos: [video]
+                                }));
+                                
+                                return extractedVideos;
+                            }
+                            // For direct files, return as is with anime mapping info
+                            return [{
+                                ...result.torrent,
+                                animeMapping: episodeMapping
+                            }];
+                        });
+                    
+                    if (animeMatches.length > 0) {
+                        logger.info(`[coordinator] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
+                        
+                        return {
+                            results: animeMatches,
+                            absoluteEpisode: absoluteEpisode,
+                            animeMapping: episodeMapping, // Pass the complete mapping object instead of just true
+                            mappedSeason: episodeMapping.mappedSeason,
+                            mappedEpisode: episodeMapping.mappedEpisode
+                        };
+                    } else {
+                        logger.info('[coordinator] ❌ Optimized anime retry failed: No results found with mapped season/episode');
+                    }
+                } else {
+                    logger.info('[coordinator] No anime episode mapping found');
+                }
+            } else {
+                logger.info('[coordinator] No anime seasons found for any country-prioritized title variation');
+            }
+        } catch (error) {
+            logger.warn('[coordinator] Anime season check failed:', error);
+        }
+    }
     
     return {
         results: matches,

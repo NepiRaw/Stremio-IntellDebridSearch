@@ -4,6 +4,7 @@
  */
 
 import { extractQualityDisplay, extractQualityInfo } from '../utils/media-patterns.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Extract quality information from video and torrent details with emoji indicators
@@ -16,7 +17,7 @@ export function extractQuality(video, details) {
     const torrentName = details.name || '';
     const combinedName = `${torrentName} ${videoName}`;
     
-    console.log(`[extractQuality] Analyzing: "${combinedName}"`);
+    logger.debug(`[extractQuality] Analyzing: "${combinedName}"`);
     
     // Use centralized quality extraction with fallback support
     const fallbackInfo = {
@@ -24,7 +25,7 @@ export function extractQuality(video, details) {
     };
     
     const quality = extractQualityDisplay(combinedName, fallbackInfo);
-    console.log(`[extractQuality] Found quality: ${quality}`);
+    logger.debug(`[extractQuality] Found quality: ${quality}`);
     
     return quality;
 }
@@ -105,7 +106,7 @@ export function deduplicateStreams(streams) {
             seen.add(uniqueKey);
             deduplicated.push(stream);
         } else {
-            console.log(`[deduplicateStreams] Skipping duplicate: ${videoFileName}`);
+            logger.debug(`[deduplicateStreams] Skipping duplicate: ${videoFileName}`);
         }
     }
     

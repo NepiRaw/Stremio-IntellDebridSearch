@@ -43,6 +43,8 @@ const SOURCE_PATTERNS = [
     { pattern: /\b(WEBDL|WEB-DL|WEB\.DL)(?:\d+p?)?\b/i, source: 'WEB-DL', displayName: 'WEB-DL', score: 12, emoji: '🌐' },
     // Web Rip patterns - enhanced to catch WebRip1080p, WEBRip720p, etc
     { pattern: /\b(WEBRIP|WEB-RIP|WEB\.RIP|WEBRIP)(?:\d+p?)?\b/i, source: 'WEBRip', displayName: 'WEB-Rip', score: 10, emoji: '🌐' },
+    // Plain WEB pattern (treat as WEB-DL) - for titles like "1080p.WEB.x264"
+    { pattern: /\b(WEB)(?:\d+p?)?\b/i, source: 'WEB-DL', displayName: 'WEB-DL', score: 12, emoji: '🌐' },
     // HDTV patterns - stream-provider.js line 657 & advanced-search.js
     { pattern: /\bHDTV\b/i, source: 'HDTV', displayName: 'HDTV', score: 5, emoji: '📺' }
 ];
@@ -72,6 +74,7 @@ const LANGUAGE_PATTERNS = [
     
     // French variations (ordered by specificity) - stream-provider.js lines 1010-1017
     { pattern: /\bTRUEFRENCH\b/i, language: 'TrueFrench', displayName: 'TrueFrench', emoji: '🇫🇷' },
+    { pattern: /\bSUBFRENCH\b/i, language: 'SubFrench', displayName: 'SubFrench', emoji: '🇫🇷' },
     { pattern: /\bVOSTFR\b/i, language: 'VOSTFR', displayName: 'VOSTFR', emoji: '🇫🇷' },
     { pattern: /\b(FRENCH|FRANCAIS)\b/i, language: 'French', displayName: 'French', emoji: '🇫🇷' },
     { pattern: /\bVFF\b/i, language: 'VFF', displayName: 'VFF', emoji: '🇫🇷' },

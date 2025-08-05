@@ -392,32 +392,6 @@ function landingTemplate(manifest, config) {
         </select>
         <label class="label-to-top" for="DebridApiKey">Debrid API Key</label>
         <input type="text" id="DebridApiKey" name="DebridApiKey" class="full-width" required>
-        <label class="label-to-top" for="TraktApiKey">Trakt API Key <span style='color:#bdbdbd;font-size:1.5vh;'>(optional)
-            <span class="api-tooltip">?
-                <span class="tooltiptext" style="width:32vh;left:50%;margin-left:-16vh;">
-                    <b>Why add Trakt or TMDb API keys?</b><br>
-                    <ul style='margin-top:0.5vh;'>
-                        <li><b>TMDb API Key</b> enables advanced title and episode matching, especially for non-English or alternate titles, and improves accuracy for obscure or international content.</li>
-                        <li><b>Trakt API Key</b> allows the addon to match absolute episode numbers (for anime, specials, or shows with non-standard numbering), ensuring you get the correct episode even for complex series.</li>
-                        <li>Both are <b>optional</b> – the addon works without them, but adding them gives you the best search and matching experience!</li>
-                    </ul>
-                </span>
-            </span>
-        </span></label>
-        <input type="text" id="TraktApiKey" name="TraktApiKey" class="full-width" placeholder="Optional">
-        <label class="label-to-top" for="TmdbApiKey">TMDb API Key <span style='color:#bdbdbd;font-size:1.5vh;'>(optional)
-            <span class="api-tooltip">?
-                <span class="tooltiptext" style="width:32vh;left:50%;margin-left:-16vh;">
-                    <b>Why add Trakt or TMDb API keys?</b><br>
-                    <ul style='margin-top:0.5vh;'>
-                        <li><b>TMDb API Key</b> enables advanced title and episode matching, especially for non-English or alternate titles, and improves accuracy for obscure or international content.</li>
-                        <li><b>Trakt API Key</b> allows the addon to match absolute episode numbers (for anime, specials, or shows with non-standard numbering), ensuring you get the correct episode even for complex series.</li>
-                        <li>Both are <b>optional</b> – the addon works without them, but adding them gives you the best search and matching experience!</li>
-                    </ul>
-                </span>
-            </span>
-        </span></label>
-        <input type="text" id="TmdbApiKey" name="TmdbApiKey" class="full-width" placeholder="Optional">
         <div class="show-catalog-row" style="display:flex;align-items:center;gap:1.2vh;">
             <input class="show-catalog-checkbox" type="checkbox" id="ShowCatalog" name="ShowCatalog" value="true" style="margin:0 1.2vh 0 0;position:relative;top:0.1vh;" />
             <label class="show-catalog-label" for="ShowCatalog" style="margin:0;">
@@ -441,8 +415,6 @@ function landingTemplate(manifest, config) {
 	console.log("${config.Catalog}")
 	$('#DebridProvider option[value="${config.DebridProvider}"]').attr("selected", "selected");
 	$('#DebridApiKey').val("${config.DebridApiKey || ''}");
-	$('#TraktApiKey').val("${config.TraktApiKey || ''}");
-	$('#TmdbApiKey').val("${config.TmdbApiKey || ''}");
 	$('#ShowCatalog').prop('checked', ${config.ShowCatalog || false});
 
 	installLink.onclick = (e) => {

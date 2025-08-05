@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Jikan API client for anime season information
  * EXACT WORKING FUNCTIONS extracted from working addon advanced-search.js
  */
@@ -23,12 +23,12 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
     const cacheKey = titleQuery.toLowerCase().trim();
     const cached = animeSeasonCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-        console.log(`[anime-search] Using cached data for: ${titleQuery}`);
+        logger.debug(`[anime-search] Using cached data for: ${titleQuery}`);
         return cached.data;
     }
 
     try {
-        console.log(`[anime-search] Fetching anime info for: ${titleQuery}`);
+        logger.debug(`[anime-search] Fetching anime info for: ${titleQuery}`);
         
         // Fetch initial search results
         const searchUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(titleQuery)}&limit=10`;
@@ -37,7 +37,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         });
         
         if (!searchResponse.ok) {
-            console.warn(`[anime-search] Search failed: ${searchResponse.status}`);
+            logger.warn(`[anime-search] Search failed: ${searchResponse.status}`);
             return [];
         }
         
@@ -52,13 +52,13 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         }) || [];
         
         if (entries.length === 0) {
-            console.log(`[anime-search] No matching anime found for: ${titleQuery}`);
+            logger.debug(`[anime-search] No matching anime found for: ${titleQuery}`);
             return [];
         }
         
         // Get unique MAL IDs
         const malIds = [...new Set(entries.map(entry => entry.mal_id))];
-        console.log(`[anime-search] Found ${malIds.length} unique anime entries`);
+        logger.debug(`[anime-search] Found ${malIds.length} unique anime entries`);
         
         // Fetch detailed info for each MAL ID with proper rate limiting
         const animeList = [];
@@ -78,12 +78,12 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 
                 if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
                     const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-                    console.log(`[anime-search] Rate limiting: waiting ${waitTime}ms before next request`);
+                    logger.debug(`[anime-search] Rate limiting: waiting ${waitTime}ms before next request`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                 }
                 
                 lastRequestTime = Date.now();
-                console.log(`[anime-search] Fetching details for MAL ID ${malId} (${i + 1}/${malIds.length})`);
+                logger.debug(`[anime-search] Fetching details for MAL ID ${malId} (${i + 1}/${malIds.length})`);
                 
                 const detailUrl = `https://api.jikan.moe/v4/anime/${malId}`;
                 const detailResponse = await fetch(detailUrl, {
@@ -92,7 +92,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 
                 if (!detailResponse.ok) {
                     if (detailResponse.status === 429) {
-                        console.warn(`[anime-search] ⚠️  Rate limited (HTTP 429) for MAL ID ${malId}, waiting 1 second and retrying...`);
+                        logger.warn(`[anime-search] ⚠️  Rate limited (HTTP 429) for MAL ID ${malId}, waiting 1 second and retrying...`);
                         await new Promise(resolve => setTimeout(resolve, 1000));
                         
                         // Retry once after rate limit
@@ -101,7 +101,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                         });
                         
                         if (!retryResponse.ok) {
-                            console.warn(`[anime-search] Retry failed for MAL ID ${malId}: HTTP ${retryResponse.status}`);
+                            logger.warn(`[anime-search] Retry failed for MAL ID ${malId}: HTTP ${retryResponse.status}`);
                             continue;
                         }
                         
@@ -109,7 +109,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                         const anime = retryData.data;
                         
                         if (!anime) {
-                            console.warn(`[anime-search] No data found for MAL ID ${malId} after retry`);
+                            logger.warn(`[anime-search] No data found for MAL ID ${malId} after retry`);
                             continue;
                         }
                         
@@ -133,10 +133,10 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                         });
                         
                         successfulFetches++;
-                        console.log(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId} after retry: ${anime.title} (${anime.episodes} episodes)`);
+                        logger.debug(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId} after retry: ${anime.title} (${anime.episodes} episodes)`);
                         continue;
                     } else {
-                        console.warn(`[anime-search] Failed to fetch details for MAL ID ${malId}: HTTP ${detailResponse.status}`);
+                        logger.warn(`[anime-search] Failed to fetch details for MAL ID ${malId}: HTTP ${detailResponse.status}`);
                         continue;
                     }
                 }
@@ -145,7 +145,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 const anime = detailData.data;
                 
                 if (!anime) {
-                    console.warn(`[anime-search] No data found for MAL ID ${malId}`);
+                    logger.warn(`[anime-search] No data found for MAL ID ${malId}`);
                     continue;
                 }
                 
@@ -169,19 +169,19 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 });
                 
                 successfulFetches++;
-                console.log(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId}: ${anime.title} (${anime.episodes} episodes)`);
+                logger.debug(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId}: ${anime.title} (${anime.episodes} episodes)`);
                 
             } catch (error) {
-                console.warn(`[anime-search] Error fetching details for MAL ID ${malId}:`, error.message);
+                logger.warn(`[anime-search] Error fetching details for MAL ID ${malId}:`, error.message);
                 // Continue to next MAL ID instead of failing completely
                 continue;
             }
         }
         
-        console.log(`[anime-search] Successfully fetched ${successfulFetches}/${malIds.length} anime details`);
+        logger.debug(`[anime-search] Successfully fetched ${successfulFetches}/${malIds.length} anime details`);
         
         if (animeList.length === 0) {
-            console.warn(`[anime-search] No anime details could be fetched for any MAL ID`);
+            logger.warn(`[anime-search] No anime details could be fetched for any MAL ID`);
             return [];
         }
         
@@ -221,7 +221,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 if (isPartContinuation && previousAnime.type !== 'Special') {
                     // Use the same season number as the previous anime
                     actualSeasonNumber = seasonIndex - 1;
-                    console.log(`[anime-search] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
+                    logger.debug(`[anime-search] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
                 } else {
                     seasonIndex++;
                     actualSeasonNumber = seasonIndex - 1;
@@ -237,7 +237,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
             };
         });
         
-        console.log(`[anime-search] Found ${result.length} anime seasons:`, 
+        logger.info(`[anime-search] ✅ Found ${result.length} anime seasons for "${titleQuery}":`, 
             result.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
         
         // Cache the result to avoid repeated API calls
@@ -249,7 +249,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         return result;
         
     } catch (error) {
-        console.warn('[anime-search] Failed to fetch anime season info:', error);
+        logger.warn('[anime-search] Failed to fetch anime season info:', error);
         return [];
     }
 }
@@ -263,4 +263,208 @@ export function getRateLimiterStatus() {
         cacheSize: animeSeasonCache.size,
         cacheKeys: Array.from(animeSeasonCache.keys())
     };
+}
+
+/**
+ * Map Stremio episode number to correct anime season and episode
+ * @param {Array} animeSeasons - Array of anime season info from fetchAnimeSeasonInfo
+ * @param {number} targetSeason - Original season from Stremio (usually 1)
+ * @param {number} targetEpisode - Original episode from Stremio
+ * @returns {Object|null} - Mapped season and episode info or null
+ */
+export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
+    if (!animeSeasons?.length || !targetEpisode) {
+        return null;
+    }
+    
+    // Filter out specials for episode counting
+    const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
+    
+    if (mainSeasons.length === 0) {
+        return null;
+    }
+    
+    logger.debug(`[anime-mapping] Mapping S${targetSeason}E${targetEpisode} across ${mainSeasons.length} seasons`);
+    
+    // Group seasons by season_number and combine episode counts for parts/cours
+    const seasonGroups = new Map();
+    
+    for (const season of mainSeasons) {
+        const seasonNum = season.season_number;
+        if (seasonGroups.has(seasonNum)) {
+            // Combine episodes for season parts (e.g., Season 2 + Season 2 Part 2)
+            const existing = seasonGroups.get(seasonNum);
+            existing.episodes += season.episodes;
+            existing.titles.push(season.title);
+        } else {
+            seasonGroups.set(seasonNum, {
+                season_number: seasonNum,
+                episodes: season.episodes,
+                titles: [season.title],
+                type: season.type,
+                aired_from: season.aired_from
+            });
+        }
+    }
+    
+    // Convert back to array and sort by season number
+    const combinedSeasons = Array.from(seasonGroups.values()).sort((a, b) => {
+        const aNum = parseInt(a.season_number.replace('S', ''));
+        const bNum = parseInt(b.season_number.replace('S', ''));
+        return aNum - bNum;
+    });
+    
+    // IMPORTANT: Check if the requested season exists and has enough episodes
+    // Only map to a different season if the episode number exceeds what's available
+    const requestedSeasonNum = `S${targetSeason.toString().padStart(2, '0')}`;
+    const requestedSeasonData = combinedSeasons.find(s => s.season_number === requestedSeasonNum);
+    
+    if (requestedSeasonData && targetEpisode <= requestedSeasonData.episodes) {
+        logger.info(`[anime-mapping] ❌ No mapping needed: S${targetSeason}E${targetEpisode} exists in requested season (${requestedSeasonData.episodes} episodes available)`);
+        return null;
+    }
+    
+    // Only proceed with mapping if the episode exceeds the capacity of the requested season
+    if (requestedSeasonData) {
+        logger.info(`[anime-mapping] ✅ Episode ${targetEpisode} exceeds S${targetSeason} capacity (${requestedSeasonData.episodes} episodes), attempting cross-season mapping`);
+    } else {
+        logger.info(`[anime-mapping] ✅ S${targetSeason} not found in anime data, attempting cross-season mapping for episode ${targetEpisode}`);
+    }
+    
+    let cumulativeEpisodes = 0;
+    
+    for (const season of combinedSeasons) {
+        const seasonStart = cumulativeEpisodes + 1;
+        const seasonEnd = cumulativeEpisodes + season.episodes;
+        
+        logger.info(`[anime-mapping] ${season.season_number}: Episodes ${seasonStart}-${seasonEnd} (${season.episodes} total)`);
+        
+        if (targetEpisode >= seasonStart && targetEpisode <= seasonEnd) {
+            const mappedEpisode = targetEpisode - cumulativeEpisodes;
+            const mappedSeason = parseInt(season.season_number.replace('S', ''));
+            
+            logger.info(`[anime-mapping] ✅ SUCCESS: Mapped S${targetSeason}E${targetEpisode} → S${mappedSeason}E${mappedEpisode}`);
+            
+            return {
+                originalSeason: targetSeason,
+                originalEpisode: targetEpisode,
+                mappedSeason: mappedSeason,
+                mappedEpisode: mappedEpisode,
+                animeTitle: season.titles.join(' + '),
+                seasonInfo: season
+            };
+        }
+        
+        cumulativeEpisodes += season.episodes;
+    }
+    
+    logger.debug(`[anime-mapping] ❌ Episode ${targetEpisode} not found in any season (total episodes: ${cumulativeEpisodes})`);
+    return null;
+}
+
+/**
+ * Select the best title variations for anime search based on country priority
+ * @param {string} originalTitle - Original search title
+ * @param {Array} alternativeTitlesWithCountry - Alternative titles with country info from TMDb
+ * @param {string} contentType - 'anime' or 'series' to determine country priorities
+ * @returns {Array<string>} - Prioritized list of title variations for search
+ */
+export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWithCountry, contentType = 'anime') {
+    const titleVariations = [];
+    
+    // 1. Always include the original title first
+    titleVariations.push(originalTitle);
+    
+    if (!alternativeTitlesWithCountry || alternativeTitlesWithCountry.length === 0) {
+        logger.debug(`[advanced-search] No alternative titles available for ${contentType} search`);
+        return titleVariations;
+    }
+    
+    logger.debug(`[advanced-search] Selecting ${contentType} titles from ${alternativeTitlesWithCountry.length} alternatives using anime-specific prioritization`);
+    
+    const addedTitles = new Set([originalTitle.toLowerCase()]);
+    
+    // Helper function to get titles for a country in their original TMDb order
+    const getTitlesForCountry = (countryCode) => {
+        return alternativeTitlesWithCountry
+            .filter(alt => alt.country === countryCode);
+    };
+    
+    // Helper function to add a title if it's unique and valid
+    const addTitle = (title, countryCode, label) => {
+        const normalizedForComparison = title.toLowerCase();
+        if (!addedTitles.has(normalizedForComparison) && title.length > 2) {
+            titleVariations.push(title);
+            addedTitles.add(normalizedForComparison);
+            logger.debug(`[advanced-search] Added ${countryCode} ${label}: "${title}"`);
+            return true;
+        }
+        return false;
+    };
+    
+    // Anime-specific prioritization: 1st JP → 1st US → 2nd JP → 2nd US → 1st FR → other countries
+    const jpTitles = getTitlesForCountry('JP');
+    const usTitles = getTitlesForCountry('US');
+    const frTitles = getTitlesForCountry('FR');
+    
+    logger.debug(`[advanced-search] Available titles by country - JP: ${jpTitles.length}, US: ${usTitles.length}, FR: ${frTitles.length}`);
+    
+    let jpIndex = 0;
+    let usIndex = 0;
+    let frIndex = 0;
+    
+    const maxTotalTitles = 8;
+    
+    // 1st JP title
+    if (jpIndex < jpTitles.length && titleVariations.length < maxTotalTitles) {
+        addTitle(jpTitles[jpIndex].title, 'JP', `title #${jpIndex + 1} (priority)`);
+        jpIndex++;
+    }
+    
+    // 1st US title
+    if (usIndex < usTitles.length && titleVariations.length < maxTotalTitles) {
+        addTitle(usTitles[usIndex].title, 'US', `title #${usIndex + 1} (priority)`);
+        usIndex++;
+    }
+    
+    // 2nd JP title
+    if (jpIndex < jpTitles.length && titleVariations.length < maxTotalTitles) {
+        addTitle(jpTitles[jpIndex].title, 'JP', `title #${jpIndex + 1} (priority)`);
+        jpIndex++;
+    }
+    
+    // 2nd US title
+    if (usIndex < usTitles.length && titleVariations.length < maxTotalTitles) {
+        addTitle(usTitles[usIndex].title, 'US', `title #${usIndex + 1} (priority)`);
+        usIndex++;
+    }
+    
+    // 1st French title
+    if (frIndex < frTitles.length && titleVariations.length < maxTotalTitles) {
+        addTitle(frTitles[frIndex].title, 'FR', `title #${frIndex + 1} (priority)`);
+        frIndex++;
+    }
+    
+    // Fill remaining slots with first title from other priority countries
+    const otherCountries = ['GB', 'DE', 'ES', 'IT', 'KR', 'CN', 'TW', 'XX'];
+    for (const countryCode of otherCountries) {
+        if (titleVariations.length >= maxTotalTitles) break;
+        
+        const countryTitles = getTitlesForCountry(countryCode);
+        if (countryTitles.length > 0) {
+            addTitle(countryTitles[0].title, countryCode, 'first title');
+        }
+    }
+    
+    // If we still have slots, add remaining JP and US titles
+    while (titleVariations.length < maxTotalTitles && (jpIndex < jpTitles.length || usIndex < usTitles.length)) {
+        if (jpIndex < jpTitles.length) {
+            titleVariations.push(jpTitles[jpIndex++]);
+        }
+        if (titleVariations.length < maxTotalTitles && usIndex < usTitles.length) {
+            titleVariations.push(usTitles[usIndex++]);
+        }
+    }
+
+    return titleVariations;
 }

@@ -60,7 +60,8 @@ class StreamProvider {
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
             
             // Perform search using the modular coordinator
-            const searchResults = await coordinateSearch({
+            // Directly set TMDb and Trakt API keys from environment variables
+            const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
                 provider: config.DebridProvider,
                 searchKey: cinemetaDetails.name,
@@ -70,11 +71,14 @@ class StreamProvider {
                 episode: null,
                 threshold: 0.3,
                 providers,
-                tmdbApiKey: config.TmdbApiKey,
-                traktApiKey: config.TraktAppiKey
+                tmdbApiKey: process.env.TMDB_API_KEY,
+                traktApiKey: process.env.TRAKT_API_KEY
             });
 
-            logger.debug(`[stream-provider] Search found ${searchResults.length} results for movie ${imdbId}`);
+            // Extract results from coordinator response (it returns {results: [...], absoluteEpisode: ...})
+            const searchResults = searchResponse?.results || searchResponse || [];
+
+            logger.debug(`[stream-provider] Search found ${searchResults?.length || 0} results for movie ${imdbId}`);
 
             if (!searchResults || searchResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for movie ${imdbId}`);
@@ -85,7 +89,23 @@ class StreamProvider {
             const streams = [];
             for (const result of searchResults) {
                 try {
-                    const stream = toStream(result, 'movie', null, result.variantInfo, null);
+                    // Get detailed torrent information with video files
+                    // The search results are basic torrent objects, we need full details
+                    const provider = providers[config.DebridProvider];
+                    if (!provider || !provider.getTorrentDetails) {
+                        logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
+                        continue;
+                    }
+
+                    // Fetch detailed torrent information including video files
+                    const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id);
+                    
+                    if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
+                        logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
+                        continue;
+                    }
+
+                    const stream = toStream(torrentDetails, 'movie', null, result.variantInfo, null);
                     
                     if (stream && stream.url) {
                         streams.push(stream);
@@ -166,7 +186,6 @@ class StreamProvider {
             // Setup providers
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
 
-            // Perform search using the modular coordinator
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
                 provider: config.DebridProvider,
@@ -177,14 +196,22 @@ class StreamProvider {
                 episode,
                 threshold: 0.3,
                 providers,
-                tmdbApiKey: config.TmdbApiKey,
-                traktApiKey: config.TraktAppiKey
+                tmdbApiKey: process.env.TMDB_API_KEY,
+                traktApiKey: process.env.TRAKT_API_KEY
             });
 
             // Extract results from coordinator response
             const searchResults = searchResponse.results || [];
 
             logger.debug(`[stream-provider] Search found ${searchResults.length} results for series ${imdbId} S${season}E${episode}`);
+
+            // Determine which season/episode to use for filtering
+            const filterSeason = searchResponse.animeMapping ? searchResponse.mappedSeason : season;
+            const targetEpisode = searchResponse.animeMapping ? searchResponse.mappedEpisode : episode;
+            
+            if (searchResponse.animeMapping) {
+                logger.info(`[stream-provider] Using anime mapping: S${season}E${episode} → S${filterSeason}E${targetEpisode}`);
+            }
 
             if (!searchResults || searchResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for series ${imdbId} S${season}E${episode}`);
@@ -195,12 +222,42 @@ class StreamProvider {
             const streams = [];
             for (const result of searchResults) {
                 try {
+                    // Get detailed torrent information with video files
+                    // The search results are basic torrent objects, we need full details
+                    const provider = providers[config.DebridProvider];
+                    if (!provider || !provider.getTorrentDetails) {
+                        logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
+                        continue;
+                    }
+
+                    // Fetch detailed torrent information including video files
+                    const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id);
+                    
+                    if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
+                        logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
+                        continue;
+                    }
+
+                    // Filter torrent to only contain episodes matching the requested season/episode
+                    // Use mapped season/episode if anime mapping is active
+                    const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode, searchResponse.absoluteEpisode);
+                    if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
+                        logger.debug(`[stream-provider] No matching episodes found in torrent ${result.id} for S${filterSeason}E${targetEpisode}${searchResponse.animeMapping ? ` (mapped from S${season}E${episode})` : ''}`);
+                        continue;
+                    }
+
                     const knownSeasonEpisode = {
-                        season,
-                        episode,
+                        season, // Use original season for stream metadata
+                        episode, // Use original episode for stream metadata  
                         absoluteEpisode: searchResponse.absoluteEpisode
                     };
-                    const stream = toStream(result, 'series', knownSeasonEpisode, result.variantInfo, null);
+                    const stream = toStream(torrentDetails, 'series', knownSeasonEpisode, result.variantInfo, null);
+                    
+                    // Add anime mapping indicator if anime mapping was used
+                    if (stream && stream.url && searchResponse.animeMapping) {
+                        const mapping = searchResponse.animeMapping;
+                        stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
+                    }
                     
                     if (stream && stream.url) {
                         streams.push(stream);

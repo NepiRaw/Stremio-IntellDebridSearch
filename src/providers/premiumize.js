@@ -1,12 +1,13 @@
-import PremiumizeClient from 'premiumize-api'
+﻿import PremiumizeClient from 'premiumize-api'
 import Fuse from 'fuse.js'
 import { isVideo } from '../stream/metadata-extractor.js'
 import PTT from '../utils/parse-torrent-title.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { encode } from 'urlencode'
+import { logger } from '../utils/logger.js'
 
 async function searchFiles(apiKey, searchKey, threshold = 0.3) {
-    console.log("Search files with searchKey: " + searchKey)
+    logger.debug("Search files with searchKey: " + searchKey)
 
     let files = await listFiles(apiKey)
     let torrents = files.map(file => toTorrent(file))
@@ -85,7 +86,7 @@ function toTorrentDetails(item) {
 }
 
 function handleError(err) {
-    console.log(err)
+    logger.debug(err)
     
     // Handle Premiumize-specific error codes
     if (err?.response?.status === 401 || err?.message?.includes('401')) {
