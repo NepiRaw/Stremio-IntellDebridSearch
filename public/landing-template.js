@@ -1,502 +1,940 @@
 const STYLESHEET = `
-* {
-	box-sizing: border-box;
-}
+        /* Define CSS Variables for the new theme */
+        :root {
+            --color-dark-blue-bg: #0C1226; /* Very dark blue for main background */
+            --color-medium-blue-bg: #1A223F; /* Medium dark blue for containers */
+            --color-light-blue-bg: #2B355A; /* Slightly lighter blue for sections */
+            --color-accent-blue: #4A90E2; /* Vibrant blue for accents/highlights */
+            --color-text-light: #E0F7FA; /* Light cyan for primary text */
+            --color-text-medium: #A0B3D6; /* Medium blue-grey for secondary text */
+            --color-border-subtle: rgba(74, 144, 226, 0.2); /* Subtle blue for borders */
+            --color-border-strong: rgba(74, 144, 226, 0.5); /* Stronger blue for active borders */
+            --color-gradient-start: #4A90E2; /* Gradient start for titles/success */
+            --color-gradient-end: #2561C8; /* Gradient end for titles/success */
+            --color-toggle-off: #192A4A; /* Dark blue for toggle off state */
+            --color-toggle-on: #4A90E2; /* Accent blue for toggle on state */
+            --color-shadow: rgba(0, 0, 0, 0.4); /* General shadow color */
+        }
 
-body,
-html {
-	margin: 0;
-	padding: 0;
-	width: 100%;
-	min-height: 100%;
-}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-html {
-	background-size: auto 100%;
-	background-size: cover;
-	background-position: center center;
-	background-repeat: repeat-y;
-}
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, var(--color-dark-blue-bg) 0%, var(--color-medium-blue-bg) 100%);
+            color: var(--color-text-light);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
 
-body {
-    display: flex;
-    background: linear-gradient(135deg, #2b1055 0%, #7597de 100%);
-    min-height: 100vh;
-    font-family: 'Open Sans', Arial, sans-serif;
-    color: #f5f5f5;
-    letter-spacing: 0.02em;
-}
+        .container {
+            background: rgba(12, 18, 38, 0.9); /* Use var(--color-dark-blue-bg) with opacity */
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px var(--color-shadow);
+            text-align: center;
+            max-width: 700px;
+            width: 100%;
+            animation: slideUp 0.6s ease-out;
+            border: 1px solid var(--color-border-subtle);
+        }
 
-#addon {
-   width: 90vh;
-   margin: 4vh auto;
-   padding: 4vh 10%;
-   background: rgba(20, 20, 40, 0.82);
-   border-radius: 2vh;
-   box-shadow: 0 2vh 4vh rgba(0,0,0,0.25);
-   position: relative;
-   overflow: hidden;
-}
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
-.logo {
-    height: 14vh;
-    width: 14vh;
-    margin: auto;
-    margin-bottom: 3vh;
-    border-radius: 50%;
-    box-shadow: 0 0 2vh #fff3, 0 0 0.5vh #8A5AAB;
-    background: rgba(255,255,255,0.05);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+        .logo {
+            max-width: 120px;
+            height: auto;
+            margin-bottom: 20px;
+            filter: drop-shadow(0 2px 4px var(--color-shadow));
+        }
 
-h1.name {
-    font-size: 5vh;
-    font-weight: 800;
-    background: linear-gradient(90deg, #8A5AAB 30%, #7597de 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 1vh;
-}
+        h1 {
+            color: #fff;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+            text-shadow: 0 2px 4px var(--color-shadow);
+            background: linear-gradient(90deg, var(--color-gradient-start) 30%, var(--color-gradient-end) 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
 
-h2.version {
-    font-size: 2vh;
-    color: #bdbdbd;
-    margin-bottom: 2vh;
-}
+        .version {
+            color: var(--color-text-medium);
+            font-size: 1rem;
+            margin-bottom: 25px;
+            font-weight: 300;
+            letter-spacing: 0.5px;
+        }
 
-h2.description {
-    font-size: 2.2vh;
-    color: #e0e0e0;
-    margin-bottom: 2vh;
-}
+        .description {
+            color: var(--color-text-medium);
+            font-size: 1.2rem;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        
+        .api-keys-section {
+            background: rgba(26, 34, 63, 0.8); /* Use var(--color-medium-blue-bg) with opacity */
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 1px solid var(--color-border-subtle);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
 
-.smart-explain {
-    background: rgba(138,90,171,0.12);
-    border-left: 0.7vh solid #8A5AAB;
-    border-radius: 1vh;
-    padding: 1.5vh 2vh;
-    margin-bottom: 2vh;
-    font-size: 1.7vh;
-    color: #e6e6fa;
-    box-shadow: 0 0.5vh 1vh rgba(138,90,171,0.08);
-}
+        .api-keys-section::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, transparent 50%, rgba(74, 144, 226, 0.1) 100%); /* Use var(--color-accent-blue) with opacity */
+            pointer-events: none;
+        }
 
-input, select {
-    background: #23234a;
-    color: #fff;
-    border: 1px solid #8A5AAB;
-    border-radius: 0.7vh;
-    padding: 1vh 1.5vh;
-    font-size: 2vh;
-    margin-top: 0.5vh;
-    margin-bottom: 1vh;
-    width: 100%;
-    outline: none;
-    transition: border 0.2s;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    box-shadow: 0 0.2vh 0.5vh #0002;
-}
-select {
-    background: #23234a url('data:image/svg+xml;utf8,<svg fill="white" height="16" viewBox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>') no-repeat right 1.5vh center/2vh 2vh;
-    color:rgb(186, 150, 253);
-    cursor: pointer;
-    border: 1px solid #8A5AAB;
-    transition: background 0.2s, color 0.2s;
-}
-select option {
-    background: #23234a;
-    color: #8A5AAB;
-}
-select:focus, select:hover {
-    background-color: #2b1055;
-    color: #e0cfff;
-}
+        .api-keys-section h3 {
+            color: var(--color-accent-blue);
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
 
-.form-element {
-    margin-bottom: 2vh;
-    display: flex;
-    align-items: center;
-}
+        .api-keys-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr); /* 6 columns for flexibility */
+            gap: 15px;
+            margin-top: 15px;
+        }
 
-.label-to-top {
-    margin-bottom: 1vh;
-    width: 30%;
-    min-width: 120px;
-}
+        .api-key-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 10px;
+            background: rgba(74, 144, 226, 0.2); /* Use var(--color-accent-blue) with opacity */
+            border: 1px solid rgba(74, 144, 226, 0.4); /* Use var(--color-accent-blue) with opacity */
+            border-radius: 10px;
+            color: var(--color-text-light);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-align: center;
+            min-height: 60px;
+            backdrop-filter: blur(4px);
+            position: relative;
+            overflow: hidden;
+            grid-column: span 2; /* Default: each button spans 2 columns */
+        }
 
-.label-to-right {
-    margin-left: 1vh !important;
-}
+        /* Last two buttons in the grid */
+        .api-keys-grid a:nth-last-child(-n+2) {
+            grid-column: span 3; /* Each spans 3 columns (1.5x the default) */
+        }
 
-.full-width {
-    width: 100%;
-}
+        .api-key-button:hover {
+            background: rgba(74, 144, 226, 0.3); /* Lighter blue hover background */
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(74, 144, 226, 0.3); /* Blue shadow */
+            border-color: rgba(74, 144, 226, 0.7); /* Lighter blue hover border */
+        }
 
-.show-catalog-label {
-    display: flex;
-    align-items: center;
-    gap: 0.7vh;
-    font-size: 2.2vh;
-    font-weight: 600;
-    padding: 0;
-    line-height: inherit;
-    margin: 0;
-}
+        .api-key-button::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: 0.5s;
+        }
 
-.show-catalog-checkbox {
-    margin-left: 1.2vh;
-    margin-right: 0.5vh;
-    width: 2vh;
-    height: 2vh;
-    accent-color: #8A5AAB;
-    appearance: none;
-    -webkit-appearance: none;
-    background: #23234a;
-    border: 2px solid #8A5AAB;
-    border-radius: 0.5vh;
-    display: inline-block;
-    position: relative;
-    cursor: pointer;
-    transition: border 0.2s, box-shadow 0.2s;
-    vertical-align: middle;
-}
-.show-catalog-checkbox:checked {
-    background: linear-gradient(90deg, #8A5AAB 60%, #7597de 100%);
-    border-color: #7597de;
-}
-.show-catalog-checkbox:checked::after {
-    content: '\u2713';
-    color: #fff;
-    font-size: 1.7vh;
-    position: absolute;
-    left: 0.25vh;
-    top: -0.1vh;
-    font-weight: bold;
-}
-.show-catalog-checkbox:focus {
-    outline: 2px solid #7597de;
-}
+        .api-key-button:hover::before {
+            left: 100%;
+        }
 
-.catalog-tooltip {
-    display: inline-block;
-    position: relative;
-    cursor: pointer;
-    color: #8A5AAB;
-    font-size: 2vh;
-    margin-left: 0.5vh;
-}
-.catalog-tooltip .tooltiptext {
-    visibility: hidden;
-    width: 28vh;
-    background: #23234a;
-    color: #fff;
-    text-align: left;
-    border-radius: 0.7vh;
-    padding: 1vh 1.5vh;
-    position: absolute;
-    z-index: 1;
-    bottom: 120%;
-    left: 50%;
-    margin-left: -14vh;
-    opacity: 0;
-    transition: opacity 0.2s;
-    font-size: 1.7vh;
-    box-shadow: 0 0.5vh 1vh #0003;
-}
-.catalog-tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
-}
+        .api-key-button i {
+            font-size: 1.1rem;
+            color: var(--color-accent-blue);
+        }
 
-button {
-    border: 0;
-    outline: 0;
-    color: white;
-    background: linear-gradient(90deg, #8A5AAB 60%, #7597de 100%);
-    padding: 1.2vh 3.5vh;
-    margin: 2vh auto 0 auto;
-    text-align: center;
-    font-family: 'Open Sans', Arial, sans-serif;
-    font-size: 2.4vh;
-    font-weight: 700;
-    cursor: pointer;
-    display: inline-block;
-    box-shadow: 0 0.5vh 1vh rgba(0, 0, 0, 0.2);
-    border-radius: 1vh;
-    letter-spacing: 0.05em;
-    transition: box-shadow 0.1s, background 0.2s, transform 0.1s;
-    min-width: 18vh;
-}
-button:hover {
-    background: linear-gradient(90deg, #7597de 0%, #8A5AAB 100%);
-    box-shadow: 0 0.2vh 0.5vh #8A5AAB55;
-    transform: translateY(-1px) scale(1.03);
-}
+        /* Media Queries for Responsive Grid */
+        @media (max-width: 768px) {
+            .api-keys-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .api-key-button {
+                grid-column: span 1;
+            }
+            .api-keys-grid a:nth-last-child(-n+2) {
+                grid-column: span 1;
+            }
+        }
 
-#addon {
-   width: 90vh;
-   margin: 4vh auto;
-   padding: 4vh 10%;
-   background: rgba(20, 20, 40, 0.82);
-   border-radius: 2vh;
-   box-shadow: 0 2vh 4vh rgba(0,0,0,0.25);
-   position: relative;
-   overflow: hidden;
-}
+        @media (max-width: 480px) {
+            .api-keys-grid {
+                grid-template-columns: 1fr;
+            }
+        }
 
-.logo {
-	height: 14vh;
-	width: 14vh;
-	margin: auto;
-	margin-bottom: 3vh;
-}
+        .config-section {
+            margin: 30px 0;
+            padding: 25px;
+            background: rgba(12, 18, 38, 0.6); /* Use var(--color-dark-blue-bg) with opacity */
+            border-radius: 15px;
+            box-shadow: 0 5px 15px var(--color-shadow);
+            border: 1px solid var(--color-border-subtle);
+        }
 
-.logo img {
-	width: 100%;
-}
+        .config-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
 
-.name, .version {
-	display: inline-block;
-	vertical-align: top;
-}
+        .config-label {
+            display: block;
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--color-text-light);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-.name {
-	line-height: 5vh;
-	margin: 0;
-}
+        /* Custom Animated Dropdown Styles */
+        .dropdown {
+            position: relative;
+            width: 100%;
+        }
+        
+        .dropdown-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            background: rgba(74, 144, 226, 0.15); /* Use var(--color-accent-blue) with opacity */
+            border: 1px solid var(--color-border-strong);
+            border-radius: 12px;
+            color: var(--color-text-light);
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px var(--color-shadow);
+            font-size: 15px;
+            text-align: left;
+        }
+        
+        .dropdown-btn:hover {
+            background: rgba(74, 144, 226, 0.25); /* Use var(--color-accent-blue) with opacity */
+            border-color: var(--color-accent-blue);
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4); /* Use var(--color-accent-blue) with opacity */
+        }
+        
+        .dropdown-content {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 100%;
+            background: var(--color-dark-blue-bg);
+            border: 1px solid var(--color-border-strong);
+            border-radius: 12px;
+            margin-top: 8px;
+            overflow: hidden;
+            z-index: 100;
+            box-shadow: 0 10px 25px var(--color-shadow);
+            max-height: 0;
+            opacity: 0;
+            transition: 
+                max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease;
+        }
+        
+        .dropdown-content.open {
+            max-height: 300px; /* Adjust as needed for content */
+            opacity: 1;
+        }
+        
+        .dropdown-item { /* This class is now for the debrid provider dropdown items */
+            padding: 14px 20px;
+            color: var(--color-text-light);
+            cursor: pointer;
+            transform: translateY(-10px);
+            opacity: 0;
+            transition: 
+                transform 0.15s ease-out,
+                opacity 0.15s ease-out,
+                background 0s ease,
+                padding 0s ease;
+        }
+        
+        .dropdown-content.open .dropdown-item {
+            transform: translateY(0);
+            opacity: 1;
+            transition-delay: calc(0.03s * var(--i));
+        }
+        
+        /* Instant hover effect for debrid dropdown items */
+        .dropdown-item:hover {
+            background: rgba(74, 144, 226, 0.3) !important; /* Use var(--color-accent-blue) with opacity */
+            padding-left: 25px !important;
+        }
+        
+        .dropdown-item:not(:last-child) {
+            border-bottom: 1px solid var(--color-border-subtle);
+        }
+        
+        .chevron {
+            transition: transform 0.2s ease;
+            color: var(--color-accent-blue);
+        }
+        
+        .chevron.rotate {
+            transform: rotate(180deg);
+        }
 
-.version {
-	position: relative;
-	line-height: 5vh;
-	opacity: 0.8;
-	margin-bottom: 2vh;
-}
+        /* Input field style */
+        .api-key-input-container {
+            position: relative;
+            width: 100%;
+        }
+        
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 12px;
+            font-size: 15px;
+            background-color: rgba(74, 144, 226, 0.15); /* Use var(--color-accent-blue) with opacity */
+            color: var(--color-text-light);
+            transition: all 0.3s ease;
+            cursor: text;
+            box-shadow: 0 2px 4px var(--color-shadow);
+            border: 1px solid var(--color-border-strong);
+            padding-right: 45px; /* Make space for the icon */
+        }
+        
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--color-text-medium);
+            transition: color 0.2s ease;
+        }
 
-.contact {
-	position: absolute;
-	left: 0;
-	bottom: 4vh;
-	width: 100%;
-	text-align: center;
-}
+        .toggle-password:hover {
+            color: var(--color-accent-blue);
+        }
 
-.contact a {
-	font-size: 1.4vh;
-	font-style: italic;
-}
+        /* Fix for browser autofill background and text color */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus, 
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0px 1000px var(--color-medium-blue-bg) inset !important;
+            -webkit-text-fill-color: var(--color-text-light) !important;
+        }
 
-.separator {
-	margin-bottom: 3vh;
-}
+        /* Placeholder text color */
+        input::placeholder { /* For modern browsers */
+            color: var(--color-text-medium);
+            opacity: 0.7;
+        }
+        input::-webkit-input-placeholder { /* For Chrome, Safari, Edge */
+            color: var(--color-text-medium);
+            opacity: 0.7;
+        }
+        input::-moz-placeholder { /* For Firefox */
+            color: var(--color-text-medium);
+            opacity: 0.7;
+        }
+        input:-ms-input-placeholder { /* For Internet Explorer 10-11 */
+            color: var(--color-text-medium);
+            opacity: 0.7;
+        }
 
-.label {
-  font-size: 2.2vh;
-  font-weight: 600;
-  padding: 0;
-  line-height: inherit;
-}
+        input[type="text"]:hover,
+        input[type="password"]:hover {
+            border-color: var(--color-accent-blue);
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4); /* Use var(--color-accent-blue) with opacity */
+        }
 
-.form-element {
-	margin-bottom: 2vh;
-}
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: var(--color-accent-blue);
+            box-shadow: 0 0 15px rgba(74, 144, 226, 0.6); /* Use var(--color-accent-blue) with opacity */
+        }
 
-.label-to-top {
-	margin-bottom: 1vh;
-}
+        .toggle-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 8px 12px 15px;
+            background: rgba(74, 144, 226, 0.4); /* Use var(--color-accent-blue) with opacity */
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            position: relative;
+            flex-grow: 1;
+            border: 1px solid var(--color-border-subtle);
+            cursor: pointer;
+        }
 
-.label-to-right {
-	margin-left: 1vh !important;
-}
+        .toggle-group:hover {
+            background: rgba(74, 144, 226, 0.6); /* Use var(--color-accent-blue) with opacity */
+        }
 
-.full-width {
-	width: 100%;
-}
+        .toggle-label-text {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--color-text-light);
+            font-weight: 500;
+            position: relative;
+            flex-grow: 1;
+            text-align: left;
+        }
 
-.form-grid {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 1.2vh 2vh;
-    align-items: center;
-    margin-bottom: 2vh;
-}
-.form-grid .full-width {
-    width: 100%;
-}
-.form-grid .show-catalog-row {
-    grid-column: 1 / span 2;
-    display: flex;
-    align-items: center;
-    gap: 1.2vh;
-    margin-top: 0.5vh;
-    margin-bottom: 1vh;
-}
+        .toggle-label-text i {
+            color: var(--color-accent-blue);
+            width: 20px;
+            text-align: center;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+            flex-shrink: 0;
+        }
 
-/* Add tooltip CSS for API key info */
-.api-tooltip {
-    display: inline-block;
-    position: relative;
-    cursor: pointer;
-    color: #8A5AAB;
-    font-size: 1.7vh;
-    margin-left: 0.7vh;
-}
-.api-tooltip .tooltiptext {
-    visibility: hidden;
-    background: #23234a;
-    color: #fff;
-    text-align: left;
-    border-radius: 0.7vh;
-    padding: 1vh 1.5vh;
-    position: absolute;
-    z-index: 2;
-    bottom: 120%;
-    opacity: 0;
-    transition: opacity 0.2s;
-    font-size: 1.7vh;
-    box-shadow: 0 0.5vh 1vh #0003;
-}
-.api-tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
-}
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
 
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--color-toggle-off);
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--color-toggle-on);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .install-container {
+            display: inline-flex;
+            position: relative;
+            margin-top: 20px;
+            background: linear-gradient(45deg, var(--color-medium-blue-bg), var(--color-light-blue-bg));
+            border-radius: 50px;
+            box-shadow: 0 5px 15px var(--color-shadow);
+        }
+
+        .install-button {
+            background: transparent;
+            color: var(--color-text-light);
+            border: none;
+            padding: 16px 45px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            z-index: 1;
+            border-radius: 50px 0 0 50px;
+        }
+        
+        .install-button.success {
+            background: var(--color-gradient-start); /* Use accent blue for success state */
+            pointer-events: none;
+        }
+
+        .install-button:hover {
+            background: rgba(74, 144, 226, 0.2); /* Use var(--color-accent-blue) with opacity */
+        }
+
+        .dropdown-toggle {
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--color-text-light);
+            border: none;
+            padding: 0 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            border-radius: 0 50px 50px 0;
+        }
+
+        .dropdown-toggle:hover {
+            background: rgba(74, 144, 226, 0.3); /* Use var(--color-accent-blue) with opacity */
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--color-medium-blue-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px var(--color-shadow);
+            width: 240px;
+            z-index: 10;
+            display: none;
+            margin-top: 5px;
+            border: 1px solid var(--color-border-subtle);
+            max-height: 200px; /* Limit height to enable scrolling */
+            overflow-y: auto; /* Enable vertical scrolling */
+        }
+
+        .dropdown-menu::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            right: 20px;
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 10px solid var(--color-medium-blue-bg);
+        }
+
+        .dropdown-menu.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .dropdown-item-menu { /* This class is now for the install dropdown items */
+            padding: 15px 20px;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--color-text-light);
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .dropdown-item-menu:not(:last-child) {
+            border-bottom: 1px solid var(--color-border-subtle);
+        }
+
+        .dropdown-item-menu:hover {
+            background: rgba(74, 144, 226, 0.1); /* Use var(--color-accent-blue) with opacity */
+            padding-left: 25px;
+            color: var(--color-text-light);
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--color-accent-blue);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px var(--color-shadow);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+            transform: translateX(150%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .footer-badge {
+            margin-top: 30px;
+        }
+        
+        .footer-badge img {
+            height: 28px;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 20px; margin: 10px; }
+            h1 { font-size: 2rem; }
+            .description { font-size: 1.1rem; }
+            .install-container { flex-direction: column; border-radius: 12px; width: 100%; }
+            .install-button { padding: 14px; justify-content: center; border-radius: 12px 12px 0 0; font-size: 1.1rem; }
+            .dropdown-toggle { 
+                padding: 12px; 
+                border-left: none; 
+                border-top: 1px solid rgba(255, 255, 255, 0.1); 
+                border-radius: 0 0 12px 12px; 
+                width: 100%;
+                justify-content: center;
+            }
+            .dropdown-menu { width: 100%; right: 0; }
+            .toggle-switch { width: 40px; height: 20px; }
+            .slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
+            input:checked + .slider:before { transform: translateX(20px); }
+        }
+
+        @media (max-width: 480px) {
+            h1 { font-size: 1.8rem; }
+            .description { font-size: 1rem; }
+            .install-button { padding: 12px; font-size: 1rem; }
+        }
 `
 
 function landingTemplate(manifest, config) {
-    const background = manifest.background || 'https://dl.strem.io/addon-background.jpg'
-    const logo = manifest.logo || 'https://dl.strem.io/addon-logo.png'
-    const contactHTML = manifest.contactEmail ?
-        `<div class="contact">
-			<p>Contact ${manifest.name} creator:</p>
-			<a href="mailto:${manifest.contactEmail}">${manifest.contactEmail}</a>
-		</div>` : ''
+    const logo = manifest.logo || 'https://img.icons8.com/fluency/256/search-in-cloud.png';
+    const name = manifest.name || 'Intelligent Debrid Search';
+    const version = manifest.version || '0.0.0';
+    const description = manifest.description || 'A smarter Stremio add-on to search downloads and torrents in your Debrid cloud.';
 
-    let formHTML = ''
-    let script = ''
+    let contactHTML = '';
+    if (manifest.contactEmail) {
+        contactHTML = '<div class="contact">' +
+            '<p>Contact ' + name + ' creator:</p>' +
+            '<a href="mailto:' + manifest.contactEmail + '">' + manifest.contactEmail + '</a>' +
+        '</div>';
+    }
 
-    formHTML = `
-    <form class="pure-form" id="mainForm">
-    <div class="form-grid">
-        <label class="label-to-top" for="DebridProvider">Debrid Provider</label>
-        <select id="DebridProvider" name="DebridProvider" class="full-width">
-            <option value="" disabled selected>Choose your debrid provider</option>
-            <option value="RealDebrid">RealDebrid</option>
-            <option value="DebridLink">DebridLink</option>
-            <option value="AllDebrid">AllDebrid</option>
-            <option value="Premiumize">Premiumize</option>
-            <option value="TorBox">TorBox</option>
-        </select>
-        <label class="label-to-top" for="DebridApiKey">Debrid API Key</label>
-        <input type="text" id="DebridApiKey" name="DebridApiKey" class="full-width" required>
-        <div class="show-catalog-row" style="display:flex;align-items:center;gap:1.2vh;">
-            <input class="show-catalog-checkbox" type="checkbox" id="ShowCatalog" name="ShowCatalog" value="true" style="margin:0 1.2vh 0 0;position:relative;top:0.1vh;" />
-            <label class="show-catalog-label" for="ShowCatalog" style="margin:0;">
-                Show catalog
-                <span class="catalog-tooltip">?
-                    <span class="tooltiptext">If enabled, the addon will show a catalog of all your cloud torrents in Stremio's Discover section. If disabled, only direct search and streaming will be available.</span>
-                </span>
-            </label>
-        </div>
-    </div>
-    </form>
-    <div style="text-align:center;margin-top:2vh;">
-        <a id="installLink" class="install-link" href="#">
-            <button type="button" name="Install">INSTALL</button>
-        </a>
-    </div>
-    <div class="separator"></div>
-`
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${name} - Stremio Addon</title>
+    <link rel="icon" type="image/png" href="${logo}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>${STYLESHEET}</style>
+</head>
+<body>
+    <div class="container">
+        <img src="${logo}" alt="${name} Logo" class="logo" />
+        <h1>${name}</h1>
+        <div class="version">Version ${version}</div>
+        <div class="description">${description}</div>
 
-	script += `
-	console.log("${config.Catalog}")
-	$('#DebridProvider option[value="${config.DebridProvider}"]').attr("selected", "selected");
-	$('#DebridApiKey').val("${config.DebridApiKey || ''}");
-	$('#ShowCatalog').prop('checked', ${config.ShowCatalog || false});
-
-	installLink.onclick = (e) => {
-        if (!mainForm.reportValidity()) {
-            e.preventDefault();
-            return false;
-        }
-        // Let the link open stremio://, do not submit or reset the form
-        return true;
-    };
-
-	const isValidConfig = (config) => {
-	    return config.DebridProvider && config.DebridApiKey
-	}
-
-	const updateLink = () => {
-	    const config = Object.fromEntries(new FormData(mainForm))
-	    if (isValidConfig(config)) {
-	        installLink.href = 'stremio://' + window.location.host + '/' + encodeURIComponent(JSON.stringify(config)) + '/manifest.json'
-	    } else {
-	        installLink.href = '#'
-	    }
-	}
-	mainForm.onchange = updateLink;
-    updateLink();
-    `
-
-    return `
-	<!DOCTYPE html>
-	<html style="background: linear-gradient(135deg, #2b1055 0%, #7597de 100%); background-attachment: fixed;">
-
-	<head>
-		<meta charset="utf-8">
-		<title>${manifest.name} - Stremio Addon</title>
-		<style>${STYLESHEET}</style>
-		<link rel="shortcut icon" href="${logo}" type="image/x-icon">
-		<link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600,700&display=swap" rel="stylesheet">
-      	<script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
-		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/purecss@2.1.0/build/pure-min.css" crossorigin="anonymous">
-	</head>
-
-	<body>
-		<div id="addon">
-			<div class="logo">
-			    <img src="${logo}" style="border-radius:50%;box-shadow:0 0 2vh #fff3;max-width:100%;max-height:100%;background:#fff1;">
-			</div>
-			<h1 class="name">${manifest.name}</h1>
-			<h2 class="version">v${manifest.version || '0.0.0'}</h2>
-			<h2 class="description">${manifest.description || ''}</h2>
-
-            <div class="separator"></div>
-            <p>Report any issues on <a href="https://github.com/MrMonkey42/stremio-addon-debrid-search/issues" target="_blank">Github</a></p>
-            <div class="separator"></div>
-            <div class="smart-explain" style="margin-bottom:2vh;">
-                <b>Get the API Key here:</b>
-                <ul style="margin-top:0.5vh;">
-                    <li><a href="https://real-debrid.com/apitoken" target="_blank">RealDebrid API Key</a></li>
-                    <li><a href="https://debrid-link.fr/webapp/apikey" target="_blank">DebridLink API Key</a></li>
-                    <li><a href="https://alldebrid.com/apikeys" target="_blank">AllDebrid API Key</a></li>
-                    <li><a href="https://www.premiumize.me/account" target="_blank">Premiumize API Key</a></li>
-                    <li><a href="https://torbox.app/settings" target="_blank">TorBox API Key</a></li>
-                    <li><a href="https://trakt.tv/oauth/applications" target="_blank">Trakt API Key</a></li>
-                    <li><a href="https://developer.themoviedb.org/docs/authentication" target="_blank">TMDb API Key</a></li>
-                </ul>
+        <div class="api-keys-section">
+            <h3><i class="fas fa-key"></i> Get Your Debrid API Key</h3>
+            <div class="api-keys-grid">
+                <a href="https://real-debrid.com/apitoken" target="_blank" class="api-key-button">
+                    <i class="fas fa-external-link-alt"></i> RealDebrid
+                </a>
+                <a href="https://debrid-link.fr/webapp/apikey" target="_blank" class="api-key-button">
+                    <i class="fas fa-external-link-alt"></i> DebridLink
+                </a>
+                <a href="https://alldebrid.com/apikeys" target="_blank" class="api-key-button">
+                    <i class="fas fa-external-link-alt"></i> AllDebrid
+                </a>
+                <a href="https://www.premiumize.me/account" target="_blank" class="api-key-button">
+                    <i class="fas fa-external-link-alt"></i> Premiumize
+                </a>
+                <a href="https://torbox.app/settings" target="_blank" class="api-key-button">
+                    <i class="fas fa-external-link-alt"></i> TorBox
+                </a>
             </div>
-            <div class="separator"></div>
+        </div>
 
-			${formHTML}
+        <div class="config-section">
+            <form id="mainForm">
+                <div class="config-group">
+                    <label class="config-label">
+                        <i class="fas fa-server"></i> Debrid Provider
+                    </label>
+                    <div class="dropdown">
+                        <div class="dropdown-btn" id="dropdownButton">
+                            <span id="selectedOption">Choose your debrid provider</span>
+                            <i class="fas fa-chevron-down chevron"></i>
+                        </div>
+                        <div class="dropdown-content" id="dropdownContent">
+                            <div class="dropdown-item" style="--i:1" data-value="RealDebrid">RealDebrid</div>
+                            <div class="dropdown-item" style="--i:2" data-value="DebridLink">DebridLink</div>
+                            <div class="dropdown-item" style="--i:3" data-value="AllDebrid">AllDebrid</div>
+                            <div class="dropdown-item" style="--i:4" data-value="Premiumize">Premiumize</div>
+                            <div class="dropdown-item" style="--i:5" data-value="TorBox">TorBox</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="config-group">
+                    <label for="DebridApiKey" class="config-label">
+                        <i class="fas fa-key"></i> Debrid API Key
+                    </label>
+                    <div class="api-key-input-container">
+                        <input type="password" id="DebridApiKey" name="DebridApiKey" required placeholder="Enter your API key" />
+                        <i class="fas fa-eye toggle-password" id="toggleApiKey"></i>
+                    </div>
+                </div>
+                <div class="toggle-group-wrapper">
+                    <label for="ShowCatalog" class="toggle-group">
+                        <span class="toggle-label-text">
+                            <i class="fas fa-list"></i> Show catalog in Stremio
+                        </span>
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="ShowCatalog" name="ShowCatalog" value="true" />
+                            <span class="slider"></span>
+                        </span>
+                    </label>
+                </div>
+                <div class="config-group">
+                    <p style="color: var(--color-text-medium); font-size: 0.9rem; text-align: left; margin-top: 10px;">
+                        <i class="fas fa-info-circle"></i> When enabled, shows your cloud torrents in Stremio's Discover section.
+                    </p>
+                </div>
+            </form>
+        </div>
 
-			${contactHTML}
-		</div>
-        <script>
-            ${script}
+        <div class="install-container">
+            <button id="mainInstallButton" class="install-button">
+                <i class="fas fa-download"></i> Install Addon
+            </button>
+            <button class="dropdown-toggle" id="dropdownToggle">
+                <i class="fas fa-chevron-down"></i>
+            </button>
+            <div class="dropdown-menu" id="dropdownMenu">
+                <a href="#" class="dropdown-item-menu" data-action="install">
+                    <i class="fas fa-desktop"></i> Install for Desktop
+                </a>
+                <a href="#" class="dropdown-item-menu" data-action="web">
+                    <i class="fas fa-window-maximize"></i> Install for Web
+                </a>
+                <a href="#" class="dropdown-item-menu" data-action="copy">
+                    <i class="fas fa-copy"></i> Copy Manifest URL
+                </a>
+            </div>
+        </div>
 
-            if (typeof updateLink === 'function')
-                updateLink()
-            else
-                installLink.href = 'stremio://' + window.location.host + '/manifest.json'
-        </script>
-    </body>
+        <div class="footer-badge">
+            <a href="https://github.com/NepiRaw/Stremio-IntellDebridSearch" target="_blank" rel="noopener noreferrer">
+                <img src="https://img.shields.io/badge/GitHub-24292E?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repository" />
+            </a>
+        </div>
+        ${contactHTML}
+    </div>
 
-    </html>`
+    <div class="notification" id="notification">
+        <i class="fas fa-check-circle"></i>
+        <span id="notificationText">URL copied to clipboard!</span>
+    </div>
+
+    <script>
+    // --- Begin migrated JS from static HTML ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const elements = {
+            mainInstallButton: document.getElementById('mainInstallButton'),
+            dropdownToggle: document.getElementById('dropdownToggle'),
+            dropdownMenu: document.getElementById('dropdownMenu'),
+            notification: document.getElementById('notification'),
+            notificationText: document.getElementById('notificationText'),
+            mainForm: document.getElementById('mainForm'),
+            debridApiKey: document.getElementById('DebridApiKey'),
+            showCatalog: document.getElementById('ShowCatalog'),
+            dropdownButton: document.getElementById('dropdownButton'),
+            dropdownContent: document.getElementById('dropdownContent'),
+            chevron: document.querySelector('.chevron'),
+            selectedOption: document.getElementById('selectedOption'),
+            toggleApiKey: document.getElementById('toggleApiKey')
+        };
+        let selectedProvider = "";
+        // Toggle API Key visibility
+        elements.toggleApiKey.addEventListener('click', function() {
+            const type = elements.debridApiKey.getAttribute('type') === 'password' ? 'text' : 'password';
+            elements.debridApiKey.setAttribute('type', type);
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+        // Custom dropdown functionality for Debrid Provider
+        elements.dropdownButton.addEventListener('click', function(e) {
+            e.stopPropagation();
+            elements.dropdownContent.classList.toggle('open');
+            elements.chevron.classList.toggle('rotate');
+        });
+        document.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('mouseenter', function() {
+                this.style.transition = 'none';
+                this.style.background = 'rgba(74, 144, 226, 0.3)';
+                this.style.paddingLeft = '25px';
+                setTimeout(function() { item.style.transition = ''; }, 10);
+            });
+            item.addEventListener('mouseleave', function() {
+                this.style.transition = 'none';
+                this.style.background = '';
+                this.style.paddingLeft = '14px';
+                setTimeout(function() { item.style.transition = ''; }, 10);
+            });
+            item.addEventListener('click', function() {
+                selectedProvider = this.dataset.value;
+                elements.selectedOption.textContent = this.textContent;
+                elements.dropdownContent.classList.remove('open');
+                elements.chevron.classList.remove('rotate');
+                elements.dropdownButton.style.background = 'rgba(74, 144, 226, 0.2)';
+                elements.dropdownButton.style.borderColor = 'var(--color-accent-blue)';
+                elements.dropdownButton.style.boxShadow = '0 0 15px rgba(74, 144, 226, 0.6)';
+                setTimeout(function() {
+                    elements.dropdownButton.style.background = 'rgba(74, 144, 226, 0.15)';
+                    elements.dropdownButton.style.boxShadow = '0 2px 4px var(--color-shadow)';
+                    elements.dropdownButton.style.borderColor = 'var(--color-border-strong)';
+                }, 1000);
+            });
+        });
+        document.addEventListener('click', function(e) {
+            if (!elements.dropdownButton.contains(e.target) && !elements.dropdownContent.contains(e.target)) {
+                elements.dropdownContent.classList.remove('open');
+                elements.chevron.classList.remove('rotate');
+            }
+        });
+        elements.dropdownToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            elements.dropdownMenu.classList.toggle('show');
+            if (elements.dropdownMenu.classList.contains('show')) {
+                setTimeout(function() {
+                    var lastItem = elements.dropdownMenu.lastElementChild;
+                    if (lastItem) {
+                        lastItem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'end' });
+                    }
+                }, 10);
+            }
+        });
+        document.querySelectorAll('.dropdown-item-menu').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                handleInstallAction(item.dataset.action);
+                elements.dropdownMenu.classList.remove('show');
+            });
+        });
+        elements.mainInstallButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            handleInstallAction('install');
+        });
+        document.addEventListener('click', function(e) {
+            if (!elements.dropdownMenu.contains(e.target) && !elements.dropdownToggle.contains(e.target) && !elements.mainInstallButton.contains(e.target)) {
+                elements.dropdownMenu.classList.remove('show');
+            }
+        });
+        function isValidConfig() {
+            return selectedProvider && elements.debridApiKey.value.trim() !== '';
+        }
+        function handleInstallAction(action) {
+            if (!isValidConfig()) {
+                showNotification('Please fill in all required fields');
+                return;
+            }
+            var config = {
+                DebridProvider: selectedProvider,
+                DebridApiKey: elements.debridApiKey.value,
+                ShowCatalog: elements.showCatalog.checked
+            };
+            var configString = encodeURIComponent(JSON.stringify(config));
+            var manifestHost = window.location.host;
+            var manifestUrl = 'stremio://' + manifestHost + '/' + configString + '/manifest.json';
+            var webUrl = 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent('https://' + manifestHost + '/' + configString + '/manifest.json');
+            var actions = {
+                install: function() {
+                    updateButtonState(true);
+                    window.location.href = manifestUrl;
+                    setTimeout(function() { updateButtonState(false); }, 3000);
+                },
+                web: function() {
+                    window.open(webUrl, '_blank');
+                },
+                copy: function() {
+                    navigator.clipboard.writeText('https://' + manifestHost + '/' + configString + '/manifest.json');
+                    showNotification('Manifest URL copied to clipboard!');
+                }
+            };
+            if (actions[action]) actions[action]();
+        }
+        function updateButtonState(isLoading) {
+            if (isLoading) {
+                elements.mainInstallButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening...';
+                elements.mainInstallButton.classList.add('success');
+            } else {
+                elements.mainInstallButton.innerHTML = '<i class="fas fa-download"></i> Install Addon';
+                elements.mainInstallButton.classList.remove('success');
+            }
+        }
+        function showNotification(text) {
+            elements.notificationText.textContent = text;
+            elements.notification.classList.add('show');
+            setTimeout(function() { elements.notification.classList.remove('show'); }, 3000);
+        }
+        // Pre-fill config if provided
+        if (config && typeof config === 'object') {
+            if (config.DebridProvider) {
+                selectedProvider = config.DebridProvider;
+                elements.selectedOption.textContent = config.DebridProvider;
+            }
+            if (config.DebridApiKey) {
+                elements.debridApiKey.value = config.DebridApiKey;
+            }
+            if (config.ShowCatalog) {
+                elements.showCatalog.checked = true;
+            }
+        }
+    });
+    // --- End migrated JS ---
+    </script>
+</body>
+
+</html>`;
 }
 
-export default landingTemplate
+export default landingTemplate;

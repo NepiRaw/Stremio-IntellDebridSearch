@@ -1,7 +1,7 @@
 {
 	"name": "intelligent-debrid-search",
 	"version": "0.1.0",
-	"description": "A smarter Stremio add-on for searching torrents with alias recognition",
+	"description": "A smarter Stremio add-on to search downloads and torrents in your Debrid cloud.",
 	"main": "server.js",
 	"scripts": {
 		"start": "node server.js",
