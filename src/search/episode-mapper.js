@@ -119,13 +119,48 @@ export function extractAbsoluteEpisode(filename) {
 }
 
 /**
- * Enhanced episode matching logic
+ * Enhanced episode matching logic without problematic tolerance matching
  * @param {Object} videoInfo - Parsed video information
  * @param {string} videoName - Original video filename  
+ * @param {number} targetSeason - Target season number
+ * @param {number} targetEpisode - Target episode number
+ * @param {number} absoluteEpisode - Absolute episode number from Trakt (preferred)
  * @returns {boolean} - Whether this video matches the target episode
  */
-export function isEpisodeMatch(videoInfo, videoName) {
-    // Implementation would depend on target season/episode context
-    // This is a simplified version - the full logic would be in the coordinator
-    return videoInfo && (videoInfo.season || videoInfo.episode || videoInfo.absoluteEpisode);
+export function isEpisodeMatch(videoInfo, videoName, targetSeason, targetEpisode, absoluteEpisode = null) {
+    if (!videoInfo) return false;
+    
+    // PRIORITY 1: Classic S##E## matching (most reliable)
+    if (checkSeasonMatch(videoInfo.season, targetSeason) && 
+        parseInt(videoInfo.episode, 10) === parseInt(targetEpisode, 10)) {
+        return true;
+    }
+    
+    // PRIORITY 2: Trakt absolute episode matching (when available and reliable)
+    if (absoluteEpisode && videoInfo.absoluteEpisode && 
+        parseInt(videoInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
+        return true;
+    }
+    
+    // PRIORITY 3: Direct absolute number extraction (exact match only, no tolerance)
+    // Only use this when no season/episode pattern is detected
+    if (!videoInfo.season && !videoInfo.episode) {
+        // Extract potential absolute number from filename
+        const extractedNumber = extractAbsoluteEpisode(videoName || videoInfo.name || '');
+        if (extractedNumber) {
+            // Method 1: Direct match with Trakt absolute episode (preferred)
+            if (absoluteEpisode && parseInt(extractedNumber, 10) === parseInt(absoluteEpisode, 10)) {
+                return true;
+            }
+            
+            // Method 2: Direct match with target episode (for absolute episode numbering without Trakt)
+            // This handles cases where the series uses absolute numbering instead of S##E##
+            if (!absoluteEpisode && parseInt(extractedNumber, 10) === parseInt(targetEpisode, 10)) {
+                return true;
+            }
+        }
+    }
+    
+    // No matches found
+    return false;
 }

@@ -7,6 +7,7 @@
 import { coordinateSearch } from './search/coordinator.js';
 import { toStream, filterSeason, filterEpisode, filterYear } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
+import { batchExtractTechnicalDetails, parallelStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import Cinemeta from './api/cinemeta.js';
@@ -75,22 +76,42 @@ class StreamProvider {
                 traktApiKey: process.env.TRAKT_API_KEY
             });
 
-            // Extract results from coordinator response (it returns {results: [...], absoluteEpisode: ...})
+            // Extract results from coordinator response (it returns {results: [...], absoluteEpisode: ..., searchContext: {...}})
             const searchResults = searchResponse?.results || searchResponse || [];
+            const searchContext = searchResponse?.searchContext || null;
 
             logger.debug(`[stream-provider] Search found ${searchResults?.length || 0} results for movie ${imdbId}`);
 
-            if (!searchResults || searchResults.length === 0) {
+            // **FIX FOR TASK 4.17**: Deduplicate results by torrent ID to prevent redundant processing
+            // The coordinator can return the same torrent ID multiple times when containers have multiple files
+            const seenTorrentIds = new Set();
+            const deduplicatedResults = searchResults.filter(result => {
+                if (seenTorrentIds.has(result.id)) {
+                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent ID: ${result.id} (${result.name?.substring(0, 50)}...)`);
+                    return false;
+                }
+                seenTorrentIds.add(result.id);
+                return true;
+            });
+
+            if (deduplicatedResults.length !== searchResults.length) {
+                logger.info(`[stream-provider] ⚡ Deduplicated ${searchResults.length} → ${deduplicatedResults.length} results (eliminated ${searchResults.length - deduplicatedResults.length} duplicate torrent IDs)`);
+            }
+
+            if (!deduplicatedResults || deduplicatedResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for movie ${imdbId}`);
                 return [];
             }
 
-            // Build stream objects from search results
-            const streams = [];
-            for (const result of searchResults) {
+            // Build stream objects from deduplicated search results with performance optimization
+            logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
+            const streamProcessingStart = Date.now();
+            
+            // Prepare stream data for parallel processing
+            const streamData = [];
+            for (const result of deduplicatedResults) {
                 try {
                     // Get detailed torrent information with video files
-                    // The search results are basic torrent objects, we need full details
                     const provider = providers[config.DebridProvider];
                     if (!provider || !provider.getTorrentDetails) {
                         logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
@@ -105,16 +126,24 @@ class StreamProvider {
                         continue;
                     }
 
-                    const stream = toStream(torrentDetails, 'movie', null, result.variantInfo, null);
-                    
-                    if (stream && stream.url) {
-                        streams.push(stream);
-                    }
+                    streamData.push({
+                        details: torrentDetails,
+                        type: 'movie',
+                        knownSeasonEpisode: null,
+                        variantInfo: result.variantInfo,
+                        searchContext: searchContext
+                    });
                 } catch (error) {
-                    logger.warn(`[stream-provider] Failed to build stream from result: ${error.message}`);
+                    logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
                     // Continue with other results
                 }
             }
+
+            // Use parallel processing for better performance
+            const streams = await parallelStreamFormatting(streamData, 4);
+            
+            const streamProcessingEnd = Date.now();
+            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
             // Sort streams by quality
             const sortedStreams = sortMovieStreamsByQuality(streams);
@@ -202,8 +231,25 @@ class StreamProvider {
 
             // Extract results from coordinator response
             const searchResults = searchResponse.results || [];
+            const searchContext = searchResponse?.searchContext || null;
 
             logger.debug(`[stream-provider] Search found ${searchResults.length} results for series ${imdbId} S${season}E${episode}`);
+
+            // **FIX FOR TASK 4.17**: Deduplicate results by torrent ID to prevent redundant processing
+            // The coordinator can return the same torrent ID multiple times when containers have multiple episodes
+            const seenTorrentIds = new Set();
+            const deduplicatedResults = searchResults.filter(result => {
+                if (seenTorrentIds.has(result.id)) {
+                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent ID: ${result.id} (${result.name?.substring(0, 50)}...)`);
+                    return false;
+                }
+                seenTorrentIds.add(result.id);
+                return true;
+            });
+
+            if (deduplicatedResults.length !== searchResults.length) {
+                logger.info(`[stream-provider] ⚡ Deduplicated ${searchResults.length} → ${deduplicatedResults.length} results (eliminated ${searchResults.length - deduplicatedResults.length} duplicate torrent IDs)`);
+            }
 
             // Determine which season/episode to use for filtering
             const filterSeason = searchResponse.animeMapping ? searchResponse.mappedSeason : season;
@@ -213,17 +259,20 @@ class StreamProvider {
                 logger.info(`[stream-provider] Using anime mapping: S${season}E${episode} → S${filterSeason}E${targetEpisode}`);
             }
 
-            if (!searchResults || searchResults.length === 0) {
+            if (!deduplicatedResults || deduplicatedResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for series ${imdbId} S${season}E${episode}`);
                 return [];
             }
 
-            // Build stream objects from search results
-            const streams = [];
-            for (const result of searchResults) {
+            // Build stream objects from deduplicated search results with performance optimization
+            logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} series results`);
+            const streamProcessingStart = Date.now();
+            
+            // Prepare stream data for parallel processing
+            const streamData = [];
+            for (const result of deduplicatedResults) {
                 try {
                     // Get detailed torrent information with video files
-                    // The search results are basic torrent objects, we need full details
                     const provider = providers[config.DebridProvider];
                     if (!provider || !provider.getTorrentDetails) {
                         logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
@@ -240,7 +289,11 @@ class StreamProvider {
 
                     // Filter torrent to only contain episodes matching the requested season/episode
                     // Use mapped season/episode if anime mapping is active
-                    const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode, searchResponse.absoluteEpisode);
+                    // Extract the absolute episode number from the episode mapping object
+                    const absoluteEpisodeNumber = searchResponse.absoluteEpisode && typeof searchResponse.absoluteEpisode === 'object' 
+                        ? searchResponse.absoluteEpisode.absoluteEpisode 
+                        : searchResponse.absoluteEpisode;
+                    const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode, absoluteEpisodeNumber);
                     if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                         logger.debug(`[stream-provider] No matching episodes found in torrent ${result.id} for S${filterSeason}E${targetEpisode}${searchResponse.animeMapping ? ` (mapped from S${season}E${episode})` : ''}`);
                         continue;
@@ -251,22 +304,37 @@ class StreamProvider {
                         episode, // Use original episode for stream metadata  
                         absoluteEpisode: searchResponse.absoluteEpisode
                     };
-                    const stream = toStream(torrentDetails, 'series', knownSeasonEpisode, result.variantInfo, null);
-                    
-                    // Add anime mapping indicator if anime mapping was used
-                    if (stream && stream.url && searchResponse.animeMapping) {
-                        const mapping = searchResponse.animeMapping;
-                        stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
-                    }
-                    
-                    if (stream && stream.url) {
-                        streams.push(stream);
-                    }
+
+                    streamData.push({
+                        details: torrentDetails,
+                        type: 'series',
+                        knownSeasonEpisode,
+                        variantInfo: result.variantInfo,
+                        searchContext: searchContext,
+                        animeMapping: searchResponse.animeMapping
+                    });
                 } catch (error) {
-                    logger.warn(`[stream-provider] Failed to build stream from result: ${error.message}`);
+                    logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
                     // Continue with other results
                 }
             }
+
+            // Use parallel processing for better performance
+            let streams = await parallelStreamFormatting(streamData, 4);
+            
+            // Add anime mapping indicators for series streams
+            if (searchResponse.animeMapping) {
+                streams = streams.map(stream => {
+                    if (stream && stream.url) {
+                        const mapping = searchResponse.animeMapping;
+                        stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
+                    }
+                    return stream;
+                });
+            }
+            
+            const streamProcessingEnd = Date.now();
+            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
             // Deduplicate and sort streams by quality
             const deduplicatedStreams = deduplicateStreams(streams);

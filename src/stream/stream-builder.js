@@ -13,6 +13,7 @@ import {
     COMPREHENSIVE_TECH_PATTERNS 
 } from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
+import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { logger } from '../utils/logger.js';
 
 const STREAM_NAME_MAP = {
@@ -145,8 +146,16 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         
         // Detect variants using the clean series title if search context is available
         let detectedVariant = null;
-        if (searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
-            // detectedVariant = detectSimpleVariant(seriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
+        const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
+        
+        if (variantSystemEnabled && searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
+            logger.debug(`[formatStreamTitle] Variant detection: seriesInfo.title="${seriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}`);
+            detectedVariant = detectSimpleVariant(seriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
+            logger.debug(`[formatStreamTitle] Variant result: ${JSON.stringify(detectedVariant)}`);
+        } else if (!variantSystemEnabled) {
+            logger.debug(`[formatStreamTitle] Variant detection disabled via VARIANT_SYSTEM_ENABLED=false`);
+        } else {
+            logger.debug(`[formatStreamTitle] Variant detection skipped: searchContext=${!!searchContext}, searchTitle=${searchContext?.searchTitle}, alternativeTitles=${searchContext?.alternativeTitles?.length}`);
         }
         
         // Use known season/episode info if provided (from advanced search), but be conservative
@@ -328,7 +337,7 @@ function extractSeriesInfo(videoName, containerName) {
         { regex: /[Ss](\d+)\s*-\s*(\d+)/, type: 'dash' },            // S5 - 14
         { regex: /\b([IVX]+)\s*-\s*(\d+)/, type: 'roman' },          // III - 06
         { regex: /\b([IVX]+)\s+(\d+)/, type: 'roman_space' },        // I 04
-        { regex: /(\d+)x(\d+)/, type: 'standard' },                  // 1x01
+        { regex: /\b(\d{1,2})x(\d{1,3})\b/, type: 'standard' },      // 1x01, 12x123 (but not 1920x1080)
         { regex: /[Ee](\d+)/, type: 'episode_only' },                // E07 (assume season 1)
         // Add absolute episode patterns for anime-style filenames
         { regex: /\b(\d{3})\s/, type: 'absolute' }                   // DanMachi 031 MULTI
@@ -340,6 +349,26 @@ function extractSeriesInfo(videoName, containerName) {
     for (const pattern of patterns) {
         seasonEpisodeMatch = name.match(pattern.regex);
         if (seasonEpisodeMatch) {
+            // Additional validation: check if this looks like a resolution pattern
+            if (pattern.type === 'standard' && pattern.regex.source.includes('x')) {
+                const num1 = parseInt(seasonEpisodeMatch[1]);
+                const num2 = parseInt(seasonEpisodeMatch[2]);
+                
+                // Reject if numbers look like common video resolutions
+                const isResolution = (
+                    (num1 >= 640 && num2 >= 480) ||  // 640x480 and above
+                    (num1 >= 320 && num2 >= 240) ||  // 320x240 and above
+                    (num1 === 1920 && num2 === 1080) || // 1920x1080
+                    (num1 === 1280 && num2 === 720) ||  // 1280x720
+                    (num1 === 3840 && num2 === 2160) || // 4K
+                    (num1 === 2560 && num2 === 1440)    // 1440p
+                );
+                
+                if (isResolution) {
+                    continue; // Skip this match, try next pattern
+                }
+            }
+            
             matchType = pattern.type;
             break;
         }

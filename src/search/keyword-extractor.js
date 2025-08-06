@@ -13,7 +13,7 @@ export function extractKeywords(title) {
     
     return title
         .normalize("NFKC") // Unicode normalization
-        .replace(/[^\p{L}\p{N}\s?!]/gu, " ") // Replace punctuation with spaces to preserve word boundaries
+        .replace(/[^\p{L}\p{N}\s]/gu, " ") // Replace ALL punctuation with spaces to preserve word boundaries
         .trim()
         .replace(/\s{2,}/g, " ") // Collapse multiple spaces
         .replace(/\b([IVXLCDM]+)\s([IVXLCDM]+)\b/g, "$1$2") // Join separate Roman numerals

@@ -1,0 +1,160 @@
+/**
+ * Phase 2: Content Analysis Module
+ * Handles deep content analysis for episode matching
+ */
+
+import { logger } from '../utils/logger.js';
+import { analyzeTorrent } from './torrent-analyzer.js';
+
+/**
+ * Batch fetch torrent details for torrents that need them
+ * @param {Array} titleMatches - Matches from Phase 1
+ * @param {Object} provider - Provider implementation
+ * @param {string} apiKey - API key
+ * @returns {Promise} Promise that resolves when all details are fetched
+ */
+export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
+    const torrentsNeedingDetails = titleMatches.filter(match => 
+        provider?.getTorrentDetails && !match.item.videos
+    );
+
+    if (torrentsNeedingDetails.length > 0) {
+        logger.info(`[phase-2] Batch fetching details for ${torrentsNeedingDetails.length} torrents`);
+        await Promise.all(
+            torrentsNeedingDetails.map(async match => {
+                try {
+                    const details = await provider.getTorrentDetails(apiKey, match.item.id);
+                    Object.assign(match.item, details);
+                } catch (e) {
+                    logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);
+                }
+            })
+        );
+    }
+}
+
+/**
+ * Perform deep content analysis for episode matching
+ * @param {Array} titleMatches - Matches from Phase 1
+ * @param {number} season - Target season
+ * @param {number} episode - Target episode  
+ * @param {Object} absoluteEpisode - Absolute episode object
+ * @returns {Array} Array of matching episodes
+ */
+export function performContentAnalysis(titleMatches, season, episode, absoluteEpisode) {
+    logger.info('[phase-2] Starting deep content analysis for episode matching');
+    
+    // Analyze torrents for episode matching
+    const analyzedResults = titleMatches.map(match => {
+        const analysis = analyzeTorrent(match.item, parseInt(season), parseInt(episode), absoluteEpisode);
+        return {
+            torrent: match.item,
+            analysis,
+            score: match.score
+        };
+    });
+
+    // Filter to only matching episodes and extract specific video files    
+    const matches = analyzedResults
+        .filter(result => {
+            const hasMatch = result.analysis.hasMatchingEpisode;
+            if (!hasMatch) {
+                logger.info(`[phase-2] ❌ REJECTED: ${result.torrent.name} - No matching episodes found`);
+            }
+            return hasMatch;
+        }).flatMap(result => {
+            // For containers, return each matching video as a separate result
+            if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
+                const extractedVideos = result.analysis.matchingFiles.map(video => ({
+                    // Create a clean object with only the extracted video - don't include original videos array
+                    id: result.torrent.id,
+                    source: result.torrent.source,
+                    name: video.name,
+                    size: video.size,
+                    url: video.url,
+                    info: {
+                        ...(result.torrent.info || {}),
+                        ...(video.info || {})
+                    },
+                    // Keep track that this is from a container
+                    containerName: result.torrent.name,
+                    isExtractedVideo: true,
+                    // Create a videos array with only this video
+                    videos: [video]
+                }));
+                
+                return extractedVideos;
+            } else {
+                // For direct files, return as is
+                return [result.torrent];
+            }
+        });
+        
+    logger.debug(`[phase-2] Content analysis complete: ${matches.length} matching episodes found`);
+    
+    return matches;
+}
+
+/**
+ * Re-analyze existing torrents with new season/episode criteria (for anime mapping)
+ * @param {Array} titleMatches - Original title matches
+ * @param {Object} episodeMapping - Anime episode mapping
+ * @param {Object} absoluteEpisode - Absolute episode object
+ * @returns {Array} Array of matching episodes with anime mapping
+ */
+export function reAnalyzeWithMapping(titleMatches, episodeMapping, absoluteEpisode) {
+    logger.info('[phase-2] Re-analyzing existing torrents with anime mapping');
+    
+    // Re-analyze the same torrents we already found with the new season/episode
+    const reAnalyzedResults = titleMatches.map(match => {
+        const analysis = analyzeTorrent(
+            match.item, 
+            parseInt(episodeMapping.mappedSeason), 
+            parseInt(episodeMapping.mappedEpisode), 
+            absoluteEpisode
+        );
+        return {
+            torrent: match.item,
+            analysis,
+            score: match.score
+        };
+    });
+    
+    // Extract matching episodes with new criteria
+    const animeMatches = reAnalyzedResults
+        .filter(result => {
+            const hasMatch = result.analysis.hasMatchingEpisode;
+            if (hasMatch) {
+                logger.info(`[phase-2] ✅ ANIME MATCH: ${result.torrent.name} - Found S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
+            }
+            return hasMatch;
+        })
+        .flatMap(result => {
+            // For containers, return each matching video as a separate result
+            if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
+                const extractedVideos = result.analysis.matchingFiles.map(video => ({
+                    ...result.torrent,
+                    name: video.name,
+                    size: video.size,
+                    info: {
+                        ...(result.torrent.info || {}),
+                        ...(video.info || {})
+                    },
+                    // Keep track that this is from a container and anime mapping was used
+                    containerName: result.torrent.name,
+                    isExtractedVideo: true,
+                    animeMapping: episodeMapping,
+                    videos: [video]
+                }));
+                
+                return extractedVideos;
+            }
+            // For direct files, return as is with anime mapping info
+            return [{
+                ...result.torrent,
+                animeMapping: episodeMapping
+            }];
+        });
+    
+    return animeMatches;
+}

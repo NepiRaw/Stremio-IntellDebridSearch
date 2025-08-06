@@ -234,16 +234,10 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                     return true;
                 }
                 
-                // Method 2: Estimate based on season/episode (for series with season boundaries)
-                // This is a heuristic for anime where absolute numbering continues across seasons
-                if (targetSeason > 1) {
-                    const estimatedAbsolute = (targetSeason - 1) * 12 + parseInt(targetEpisode, 10); // Assume ~12 episodes per season
-                    const tolerance = 6; // Allow some tolerance for varying season lengths
-                    
-                    if (Math.abs(extractedNumber - estimatedAbsolute) <= tolerance) {
-                        logger.info(`[torrent-analyzer] ✅ Estimated absolute number match: extracted=${extractedNumber}, estimated=${estimatedAbsolute} (±${tolerance}) for S${targetSeason}E${targetEpisode}: ${videoName}`);
-                        return true;
-                    }
+                // Method 2: Direct match with Trakt absolute episode (preferred)
+                if (absoluteEpisode && parseInt(extractedNumber, 10) === parseInt(absoluteEpisode, 10)) {
+                    logger.info(`[torrent-analyzer] ✅ Direct absolute number ${extractedNumber} matches Trakt absolute ${absoluteEpisode}: ${videoName}`);
+                    return true;
                 }
             }
         }
