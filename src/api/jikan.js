@@ -1,13 +1,12 @@
 ﻿/**
  * Jikan API client for anime season information
- * EXACT WORKING FUNCTIONS extracted from working addon advanced-search.js
  */
 
 import { logger } from '../utils/logger.js';
 
 // Simple in-memory cache for anime season info to avoid repeated API calls
 const animeSeasonCache = new Map();
-const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+const CACHE_DURATION = 120 * 60 * 1000; // 120 minutes
 
 /**
  * Fetch anime season information from MyAnimeList via Jikan API
@@ -376,11 +375,11 @@ export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWi
     titleVariations.push(originalTitle);
     
     if (!alternativeTitlesWithCountry || alternativeTitlesWithCountry.length === 0) {
-        logger.debug(`[advanced-search] No alternative titles available for ${contentType} search`);
+        logger.debug(`[AnimeTitleVariation] No alternative titles available for ${contentType} search`);
         return titleVariations;
     }
     
-    logger.debug(`[advanced-search] Selecting ${contentType} titles from ${alternativeTitlesWithCountry.length} alternatives using anime-specific prioritization`);
+    logger.debug(`[AnimeTitleVariation] Selecting ${contentType} titles from ${alternativeTitlesWithCountry.length} alternatives using anime-specific prioritization`);
     
     const addedTitles = new Set([originalTitle.toLowerCase()]);
     
@@ -396,7 +395,7 @@ export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWi
         if (!addedTitles.has(normalizedForComparison) && title.length > 2) {
             titleVariations.push(title);
             addedTitles.add(normalizedForComparison);
-            logger.debug(`[advanced-search] Added ${countryCode} ${label}: "${title}"`);
+            logger.debug(`[AnimeTitleVariation] Added ${countryCode} ${label}: "${title}"`);
             return true;
         }
         return false;
@@ -407,7 +406,7 @@ export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWi
     const usTitles = getTitlesForCountry('US');
     const frTitles = getTitlesForCountry('FR');
     
-    logger.debug(`[advanced-search] Available titles by country - JP: ${jpTitles.length}, US: ${usTitles.length}, FR: ${frTitles.length}`);
+    logger.debug(`[AnimeTitleVariation] Available titles by country - JP: ${jpTitles.length}, US: ${usTitles.length}, FR: ${frTitles.length}`);
     
     let jpIndex = 0;
     let usIndex = 0;

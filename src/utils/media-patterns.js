@@ -251,9 +251,6 @@ const EPISODE_NAME_FILTERS = {
     urlPatterns: /www\.|\.com/
 };
 
-/**
- * File extension patterns from extension-util.js
- */
 const FILE_EXTENSIONS = {
     video: ["3g2", "3gp", "avi", "flv", "mkv", "mk3d", "mov", "mp2", "mp4", "m4v", "mpe", "mpeg", "mpg", "mpv", "webm", "wmv", "ogm", "ts", "m2ts"],
     subtitle: ["aqt", "gsub", "jss", "sub", "ttxt", "pjs", "psb", "rt", "smi", "slt", "ssf", "srt", "ssa", "ass", "usf", "idx", "vtt"],
@@ -261,9 +258,6 @@ const FILE_EXTENSIONS = {
     archive: ["rar", "zip"]
 };
 
-/**
- * Helper functions for working with patterns
- */
 
 /**
  * Extract quality from torrent name using centralized patterns

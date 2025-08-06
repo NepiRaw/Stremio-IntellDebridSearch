@@ -10,10 +10,12 @@ import {
     AUDIO_PATTERNS, 
     CODEC_PATTERNS, 
     SOURCE_PATTERNS, 
-    COMPREHENSIVE_TECH_PATTERNS 
+    COMPREHENSIVE_TECH_PATTERNS,
+    FILE_EXTENSIONS
 } from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
+import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
 
 const STREAM_NAME_MAP = {
@@ -303,22 +305,12 @@ function levenshteinDistance(str1, str2) {
 }
 
 /**
- * Convert Roman numerals to numbers
- */
-function romanToNumber(roman) {
-    const romanMap = { 
-        'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 
-        'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10 
-    };
-    return romanMap[roman.toUpperCase()] || null;
-}
-
-/**
- * Remove file extension from filename
+ * Remove file extension from filename using centralized patterns
  */
 function removeExtension(filename) {
     if (!filename) return filename;
-    return filename.replace(/\.(mkv|mp4|avi|m4v|mov|wmv|flv|webm|ogm|ts|m2ts|3g2|3gp|mpe|mpeg|mpg|mpv|mk3d|mp2)$/i, '');
+    const videoExtensionPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
+    return filename.replace(videoExtensionPattern, '');
 }
 
 /**

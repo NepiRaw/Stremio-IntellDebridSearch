@@ -1,5 +1,7 @@
 ﻿import { isVideo } from '../stream/metadata-extractor.js';
-import PTT, { romanToNumber } from './parse-torrent-title.js';
+import PTT from './parse-torrent-title.js';
+import { romanToNumber, parseRomanSeasons } from './roman-numeral-utils.js';
+import { parseSeasonFromTitle, parseEpisodeFromTitle } from './episode-patterns.js';
 import { logger } from './logger.js';
 
 /**
@@ -7,37 +9,16 @@ import { logger } from './logger.js';
  */
 function parseVideoInfo(filename) {
     const basicInfo = PTT.parse(filename);
-    // Handle roman numeral seasons with multiple patterns
+    // Handle roman numeral seasons using centralized utility
     if (!basicInfo.season) {
-        // Multiple roman numeral patterns for different torrent naming conventions
-        const romanPatterns = [
-            // Pattern 1: "Series Title III - Episode" (DanMachi III - 06.mkv)
-            /\b([IVX]+)\s*[-_]\s*(\d+)/i,
+        const romanSeason = parseRomanSeasons(filename);
+        if (romanSeason) {
+            basicInfo.season = romanSeason.season;
             
-            // Pattern 2: "Series Title Season III Episode N"
-            /season\s+([IVX]+)\s+(?:episode\s+)?(\d+)/i,
-            
-            // Pattern 3: "Series Title III E/EP N" (Show Title III.E04.mkv)
-            /\b([IVX]+)\s*[._]?e(?:p(?:isode)?)?\s*(\d+)/i,
-            
-            // Pattern 4: "Series Title S3 Season III EN"
-            /season\s+([IVX]+)\s+e(\d+)/i,
-            
-            // Pattern 5: Just roman numeral followed by episode number (Series Name II 03.mkv)
-            /\b([IVX]+)\s+(\d+)\b/i,
-        ];
-        
-        for (const pattern of romanPatterns) {
-            const match = filename.match(pattern);
-            if (match) {
-                const romanSeason = romanToNumber(match[1].toUpperCase());
-                const episode = parseInt(match[2], 10);
-                  // Validate reasonable season/episode numbers to avoid false positives
-                if (romanSeason && episode && romanSeason <= 20 && episode <= 999) {
-                    basicInfo.season = romanSeason;
-                    basicInfo.episode = episode;
-                    break; // Stop at first valid match
-                }
+            // Try to extract episode number from the context
+            const episodeInfo = parseEpisodeFromTitle(filename);
+            if (episodeInfo && episodeInfo.episode) {
+                basicInfo.episode = episodeInfo.episode;
             }
         }
     }

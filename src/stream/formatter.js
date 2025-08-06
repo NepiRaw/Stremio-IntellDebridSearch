@@ -11,6 +11,7 @@ import { extractQualityDisplay,
          COMPREHENSIVE_TECH_PATTERNS } from '../utils/media-patterns.js';
 import { logger } from '../utils/logger.js';
 import { FILE_TYPES } from '../utils/file-types.js';
+import { romanToNumber as centralizedRomanToNumber } from '../utils/roman-numeral-utils.js';
 
 const STREAM_NAME_MAP = {
     debridlink: "[DL+] DebridSearch",
@@ -88,30 +89,6 @@ function levenshteinDistance(str1, str2) {
 }
 
 /**
- * Convert Roman numerals to numbers
- * @param {string} roman - Roman numeral string
- * @returns {number} - Corresponding number
- */
-function romanToNumber(roman) {
-    const romanMap = { 'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000 };
-    let result = 0;
-    
-    for (let i = 0; i < roman.length; i++) {
-        const current = romanMap[roman[i]];
-        const next = romanMap[roman[i + 1]];
-        
-        if (current < next) {
-            result += next - current;
-            i++;
-        } else {
-            result += current;
-        }
-    }
-    
-    return result;
-}
-
-/**
  * Remove file extension from filename
  * @param {string} filename - Filename with extension
  * @returns {string} - Filename without extension
@@ -184,7 +161,7 @@ export function extractSeriesInfo(videoName, containerName) {
         let season, episode;
         
         if (matchType === 'roman' || matchType === 'roman_space') {
-            season = romanToNumber(seasonEpisodeMatch[1]) || 1;
+            season = centralizedRomanToNumber(seasonEpisodeMatch[1]) || 1;
             episode = parseInt(seasonEpisodeMatch[2]);
         } else if (matchType === 'episode_only') {
             season = 1; // Default to season 1 when only episode is found

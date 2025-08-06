@@ -5,6 +5,9 @@
 
 import { logger } from '../utils/logger.js';
 import parseTorrentTitleModule from '../utils/parse-torrent-title.js';
+import { romanToNumber as centralizedRomanToNumber } from '../utils/roman-numeral-utils.js';
+import { parseSeasonFromTitle, parseEpisodeFromTitle } from '../utils/episode-patterns.js';
+import { FILE_EXTENSIONS } from '../utils/media-patterns.js';
 
 // Extract functions from the module
 const { parse: parseTorrentTitle } = parseTorrentTitleModule;
@@ -16,36 +19,8 @@ const { parse: parseTorrentTitle } = parseTorrentTitleModule;
  */
 function isVideo(filename) {
     if (!filename) return false;
-    const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts'];
+    const videoExtensions = FILE_EXTENSIONS.video.map(ext => `.${ext}`);
     return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-}
-
-/**
- * Convert Roman numeral to number
- * @param {string} roman - Roman numeral string
- * @returns {number|null} - Converted number or null
- */
-function romanToNumber(roman) {
-    const romanNumerals = {
-        'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000
-    };
-    
-    let result = 0;
-    let prevValue = 0;
-    
-    for (let i = roman.length - 1; i >= 0; i--) {
-        const currentValue = romanNumerals[roman[i]];
-        if (!currentValue) return null;
-        
-        if (currentValue < prevValue) {
-            result -= currentValue;
-        } else {
-            result += currentValue;
-        }
-        prevValue = currentValue;
-    }
-    
-    return result;
 }
 
 /**
@@ -66,7 +41,7 @@ function parseSeason(seasonStr, strict = false) {
     // Try Roman numeral parsing
     if (typeof seasonStr === 'string') {
         const upperCase = seasonStr.toUpperCase();
-        const romanResult = romanToNumber(upperCase);
+        const romanResult = centralizedRomanToNumber(upperCase);
         if (romanResult && romanResult >= 1 && romanResult <= 30) {
             return romanResult;
         }
@@ -265,7 +240,7 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                     const episodeNum = parseInt(romanMatch[2], 10);
                     
                     // Convert Roman numeral to season number
-                    const seasonFromRoman = romanToNumber(romanNumeral);
+                    const seasonFromRoman = centralizedRomanToNumber(romanNumeral);
                     
                     if (seasonFromRoman) {
                         info.season = seasonFromRoman;
@@ -314,7 +289,7 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                         const episodeNum = parseInt(romanMatch[2], 10);
                         
                         // Convert Roman numeral to season number
-                        const seasonFromRoman = romanToNumber(romanNumeral);
+                        const seasonFromRoman = centralizedRomanToNumber(romanNumeral);
                         
                         if (seasonFromRoman) {
                             videoInfo.season = seasonFromRoman;
