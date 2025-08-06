@@ -1,4 +1,3 @@
-// Log levels: error (0), warn (1), info (2), debug (3)
 const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
 const currentLogLevel = LOG_LEVELS[process.env.LOG_LEVEL?.toLowerCase()] ?? LOG_LEVELS.info;
 

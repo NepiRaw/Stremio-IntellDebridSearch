@@ -11,9 +11,7 @@ export function parse(title) {
     return PTT.parse(title)
 }
 
-// Legacy compatibility function
 export function parseRomanNumeral(num) {
-    // Simple mapping for common Roman numerals used in media
     const romanMap = {
         1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V',
         6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X',
@@ -23,16 +21,10 @@ export function parseRomanNumeral(num) {
     return romanMap[num] || '';
 }
 
-/**
- * Parse season information from title using centralized patterns
- * @param {string} title - Title to parse
- * @returns {number|null} - Season number or null
- */
 export function parseSeason(title, strict = false) {
     return parseSeasonFromTitle(title, strict);
 }
 
 export default { parse, parseSeason, parseRomanNumeral, romanToNumber }
 
-// Re-export for backward compatibility
 export { romanToNumber };

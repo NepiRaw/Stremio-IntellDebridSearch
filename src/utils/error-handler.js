@@ -15,9 +15,6 @@ export class BadTokenError extends Error {
     }
 }
 
-/**
- * Custom error class for access denied issues
- */
 export class AccessDeniedError extends Error {
     constructor(message = 'Access denied by provider', provider = null, originalError = null) {
         super(message);
@@ -31,9 +28,6 @@ export class AccessDeniedError extends Error {
     }
 }
 
-/**
- * Custom error class for provider-specific issues
- */
 export class ProviderError extends Error {
     constructor(message, provider, statusCode = null, originalError = null) {
         super(message);
@@ -42,16 +36,12 @@ export class ProviderError extends Error {
         this.statusCode = statusCode;
         this.originalError = originalError;
         
-        // Maintain proper stack trace for where our error was thrown
         if (Error.captureStackTrace) {
             Error.captureStackTrace(this, ProviderError);
         }
     }
 }
 
-/**
- * Custom error class for API-related issues
- */
 export class ApiError extends Error {
     constructor(message, apiName, statusCode = null, originalError = null) {
         super(message);
@@ -66,9 +56,6 @@ export class ApiError extends Error {
     }
 }
 
-/**
- * Custom error class for search-related issues
- */
 export class SearchError extends Error {
     constructor(message, searchType = null, originalError = null) {
         super(message);
@@ -82,9 +69,6 @@ export class SearchError extends Error {
     }
 }
 
-/**
- * Custom error class for validation issues
- */
 export class ValidationError extends Error {
     constructor(message, field = null, value = null) {
         super(message);
@@ -98,13 +82,6 @@ export class ValidationError extends Error {
     }
 }
 
-/**
- * General error handler with logging
- * @param {Error} err - Error to handle
- * @param {string} context - Context where error occurred
- * @param {object} metadata - Additional metadata for logging
- * @returns {object} - Standardized error response
- */
 export function handleError(err, context = 'unknown', metadata = {}) {
     const errorInfo = {
         context,
@@ -114,7 +91,6 @@ export function handleError(err, context = 'unknown', metadata = {}) {
         ...metadata
     };
 
-    // Add specific error details based on error type
     if (err instanceof ProviderError) {
         errorInfo.provider = err.provider;
         errorInfo.statusCode = err.statusCode;
@@ -134,14 +110,12 @@ export function handleError(err, context = 'unknown', metadata = {}) {
         errorInfo.type = 'general_error';
     }
 
-    // Log error with appropriate level
     if (errorInfo.type === 'validation_error' || err.name === 'ValidationError') {
         logger.warn(`[error-handler] ${context}:`, errorInfo);
     } else {
         logger.error(`[error-handler] ${context}:`, errorInfo);
     }
 
-    // Include stack trace in development
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
         logger.error(`[error-handler] Stack trace:`, err.stack);
     }
@@ -149,12 +123,6 @@ export function handleError(err, context = 'unknown', metadata = {}) {
     return errorInfo;
 }
 
-/**
- * Wrap async functions with error handling
- * @param {Function} fn - Async function to wrap
- * @param {string} context - Context for error logging
- * @returns {Function} - Wrapped function
- */
 export function withErrorHandling(fn, context) {
     return async (...args) => {
         try {
@@ -166,13 +134,6 @@ export function withErrorHandling(fn, context) {
     };
 }
 
-/**
- * Safe execution wrapper that catches errors and returns null
- * @param {Function} fn - Function to execute safely
- * @param {string} context - Context for error logging
- * @param {any} defaultValue - Default value to return on error
- * @returns {any} - Result or default value
- */
 export async function safeExecute(fn, context = 'safe_execute', defaultValue = null) {
     try {
         return await fn();
@@ -182,13 +143,6 @@ export async function safeExecute(fn, context = 'safe_execute', defaultValue = n
     }
 }
 
-/**
- * Validate required fields in an object
- * @param {object} obj - Object to validate
- * @param {string[]} requiredFields - Array of required field names
- * @param {string} objectName - Name of object for error messages
- * @throws {ValidationError} - If validation fails
- */
 export function validateRequiredFields(obj, requiredFields, objectName = 'object') {
     if (!obj || typeof obj !== 'object') {
         throw new ValidationError(`${objectName} must be an object`, null, obj);
@@ -201,13 +155,6 @@ export function validateRequiredFields(obj, requiredFields, objectName = 'object
     }
 }
 
-/**
- * Validate object against a schema
- * @param {object} obj - Object to validate
- * @param {object} schema - Schema definition
- * @param {string} objectName - Name of object for error messages
- * @throws {ValidationError} - If validation fails
- */
 export function validateSchema(obj, schema, objectName = 'object') {
     if (!obj || typeof obj !== 'object') {
         throw new ValidationError(`${objectName} must be an object`, null, obj);
@@ -216,22 +163,18 @@ export function validateSchema(obj, schema, objectName = 'object') {
     for (const [field, rules] of Object.entries(schema)) {
         const value = obj[field];
         
-        // Check required fields
         if (rules.required && (value === null || value === undefined)) {
             throw new ValidationError(`Missing required field: ${field}`, field, value);
         }
         
-        // Skip validation for optional missing fields
         if (!rules.required && (value === null || value === undefined)) {
             continue;
         }
         
-        // Type validation
         if (rules.type && typeof value !== rules.type) {
             throw new ValidationError(`Field ${field} must be of type ${rules.type}`, field, value);
         }
         
-        // String length validation
         if (rules.minLength && typeof value === 'string' && value.length < rules.minLength) {
             throw new ValidationError(`Field ${field} must be at least ${rules.minLength} characters`, field, value);
         }
@@ -240,7 +183,6 @@ export function validateSchema(obj, schema, objectName = 'object') {
             throw new ValidationError(`Field ${field} must be no more than ${rules.maxLength} characters`, field, value);
         }
         
-        // Numeric range validation
         if (rules.min !== undefined && typeof value === 'number' && value < rules.min) {
             throw new ValidationError(`Field ${field} must be at least ${rules.min}`, field, value);
         }
@@ -249,12 +191,10 @@ export function validateSchema(obj, schema, objectName = 'object') {
             throw new ValidationError(`Field ${field} must be no more than ${rules.max}`, field, value);
         }
         
-        // Enum validation
         if (rules.enum && !rules.enum.includes(value)) {
             throw new ValidationError(`Field ${field} must be one of: ${rules.enum.join(', ')}`, field, value);
         }
         
-        // Custom validation function
         if (rules.validate && typeof rules.validate === 'function') {
             const isValid = rules.validate(value);
             if (!isValid) {
@@ -264,14 +204,6 @@ export function validateSchema(obj, schema, objectName = 'object') {
     }
 }
 
-/**
- * Create a retry wrapper for functions that might fail
- * @param {Function} fn - Function to retry
- * @param {number} maxRetries - Maximum number of retries
- * @param {number} delay - Delay between retries in milliseconds
- * @param {string} context - Context for error logging
- * @returns {Function} - Wrapped function with retry logic
- */
 export function withRetry(fn, maxRetries = 3, delay = 1000, context = 'retry') {
     return async (...args) => {
         let lastError;
@@ -285,7 +217,7 @@ export function withRetry(fn, maxRetries = 3, delay = 1000, context = 'retry') {
                 if (attempt <= maxRetries) {
                     logger.warn(`[error-handler] ${context} attempt ${attempt} failed, retrying in ${delay}ms:`, err.message);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 1.5; // Exponential backoff
+                    delay *= 1.5; 
                 } else {
                     logger.error(`[error-handler] ${context} failed after ${maxRetries} retries:`, err.message);
                 }
@@ -296,28 +228,19 @@ export function withRetry(fn, maxRetries = 3, delay = 1000, context = 'retry') {
     };
 }
 
-/**
- * Check if an error is retryable
- * @param {Error} err - Error to check
- * @returns {boolean} - Whether the error is retryable
- */
 export function isRetryableError(err) {
-    // Network errors are usually retryable
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
         return true;
     }
     
-    // HTTP 5xx errors are retryable
     if (err.statusCode && err.statusCode >= 500 && err.statusCode < 600) {
         return true;
     }
     
-    // Rate limiting errors are retryable
     if (err.statusCode === 429) {
         return true;
     }
     
-    // Some 4xx errors are not retryable
     if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
         return false;
     }
@@ -325,11 +248,9 @@ export function isRetryableError(err) {
     return false;
 }
 
-// Legacy Error Codes (for backward compatibility with existing code)
 export const BadRequestError = { code: 'BAD_REQUEST' };
 export const LEGACY_ACCESS_DENIED_ERROR = { code: 'ACCESS_DENIED' };
 
-// Enhanced Error Codes
 export const ERROR_CODES = {
     // Authentication
     BAD_TOKEN: 'BAD_TOKEN',

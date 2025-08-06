@@ -21,11 +21,6 @@ const STREAM_NAME_MAP = {
     torbox: "[TB+] DebridSearch"
 };
 
-/**
- * Format file size in human readable format
- * @param {number} size - Size in bytes
- * @returns {string} - Formatted size string
- */
 export function formatSize(size) {
     if (!size) {
         return undefined;
@@ -35,12 +30,6 @@ export function formatSize(size) {
     return Number((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
 }
 
-/**
- * Calculate string similarity using a simple algorithm
- * @param {string} str1 - First string
- * @param {string} str2 - Second string
- * @returns {number} - Similarity ratio between 0 and 1
- */
 function calculateStringSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
     if (str1 === str2) return 1;
@@ -54,12 +43,6 @@ function calculateStringSimilarity(str1, str2) {
     return (longer.length - editDistance) / longer.length;
 }
 
-/**
- * Calculate Levenshtein distance between two strings
- * @param {string} str1 - First string
- * @param {string} str2 - Second string
- * @returns {number} - Edit distance
- */
 function levenshteinDistance(str1, str2) {
     const matrix = [];
     
@@ -88,23 +71,13 @@ function levenshteinDistance(str1, str2) {
     return matrix[str2.length][str1.length];
 }
 
-/**
- * Remove file extension from filename
- * @param {string} filename - Filename with extension
- * @returns {string} - Filename without extension
- */
 function removeExtension(filename) {
     if (!filename) return '';
     const lastDotIndex = filename.lastIndexOf('.');
     return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
 }
 
-/**
- * Extract series information (title, season, episode) from filename
- * @param {string} videoName - Video filename
- * @param {string} containerName - Container name
- * @returns {Object} - Extracted series info
- */
+
 export function extractSeriesInfo(videoName, containerName) {
     const name = videoName || containerName || '';
     
@@ -112,18 +85,14 @@ export function extractSeriesInfo(videoName, containerName) {
     let title = name;
     let episodeName = null;
     
-    // Try multiple season/episode patterns (order matters - most specific first)
     const patterns = [
         { regex: /[Ss](\d+)[Ee](\d+)/, type: 'standard' },           // S01E01
         { regex: /[Ss](\d+)\s*-\s*(\d+)/, type: 'dash' },            // S5 - 14
         { regex: /\b([IVX]+)\s*-\s*(\d+)/, type: 'roman' },          // III - 06
         { regex: /\b([IVX]+)\s+(\d+)/, type: 'roman_space' },        // I 04
-        // Fixed: Restrict NxM pattern to reasonable season/episode ranges to avoid resolution false positives
-        // Only match when both numbers are in reasonable TV episode ranges (not resolution like 1920x1080)
         { regex: /\b(\d{1,2})x(\d{1,3})\b/, type: 'standard' },      // 1x01, 12x123 (but not 1920x1080)
         { regex: /[Ee](\d+)/, type: 'episode_only' },                // E07 (assume season 1)
-        // Add absolute episode patterns for anime-style filenames
-        { regex: /\b(\d{3})\s/, type: 'absolute' }                   // DanMachi 031 MULTI
+        { regex: /\b(\d{3})\s/, type: 'absolute' }                   // AnimeName 031
     ];
     
     let seasonEpisodeMatch = null;
@@ -132,12 +101,10 @@ export function extractSeriesInfo(videoName, containerName) {
     for (const pattern of patterns) {
         seasonEpisodeMatch = name.match(pattern.regex);
         if (seasonEpisodeMatch) {
-            // Additional validation: check if this looks like a resolution pattern
             if (pattern.type === 'standard' && pattern.regex.source.includes('x')) {
                 const num1 = parseInt(seasonEpisodeMatch[1]);
                 const num2 = parseInt(seasonEpisodeMatch[2]);
                 
-                // Reject if numbers look like common video resolutions
                 const isResolution = (
                     (num1 >= 640 && num2 >= 480) ||  // 640x480 and above
                     (num1 >= 320 && num2 >= 240) ||  // 320x240 and above
@@ -148,7 +115,7 @@ export function extractSeriesInfo(videoName, containerName) {
                 );
                 
                 if (isResolution) {
-                    continue; // Skip this match, try next pattern
+                    continue;
                 }
             }
             
@@ -167,10 +134,7 @@ export function extractSeriesInfo(videoName, containerName) {
             season = 1; // Default to season 1 when only episode is found
             episode = parseInt(seasonEpisodeMatch[1]);
         } else if (matchType === 'absolute') {
-            // For absolute episodes, we don't know the exact season/episode
-            // This will be handled by advanced search later
             seasonEpisode = 'Unknown Episode';
-            // Extract only the series name (everything before the absolute episode number)
             title = name.substring(0, seasonEpisodeMatch.index).trim();
         } else {
             season = parseInt(seasonEpisodeMatch[1]);
@@ -179,19 +143,15 @@ export function extractSeriesInfo(videoName, containerName) {
         
         if (matchType !== 'absolute') {
             seasonEpisode = `S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}`;
-            // Extract title (everything before the season/episode pattern)
             title = name.substring(0, seasonEpisodeMatch.index).trim();
         }
     } else {
-        // For files without clear patterns, try to extract a reasonable series title
-        // Look for common series title patterns at the beginning
         const titleMatch = name.match(/^([A-Za-z][A-Za-z0-9\s]*?)(?:\s+\d{3,}|\s+[Ss]\d+|\s+[IVX]+|\s*[\[\(])/);
         if (titleMatch) {
             title = titleMatch[1].trim();
         }
     }
     
-    // Clean up the title - remove group tags and clean separators
     title = title
         .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '') // Remove group tags at start like [Group]
         .replace(/[\._]/g, ' ')                   // Replace dots and underscores with spaces
@@ -199,16 +159,13 @@ export function extractSeriesInfo(videoName, containerName) {
         .replace(/\s+/g, ' ')                     // Collapse multiple spaces
         .trim();
     
-    // If title is still too long or contains technical terms, try to shorten it
     if (title.length > 50 || title.match(/\b(MULTI|BluRay|1080p|720p|x264|x265|HEVC|mkv)\b/i)) {
-        // Try to extract just the actual series name from the beginning
         const shortTitleMatch = title.match(/^([A-Za-z][A-Za-z0-9\s]{2,25}?)(?:\s+\d+|\s+(MULTI|BluRay|1080p|720p|x264|x265|HEVC))/i);
         if (shortTitleMatch) {
             title = shortTitleMatch[1].trim();
         }
     }
     
-    // If title is too short, try container name
     if (!title || title.length < 3) {
         title = (containerName || 'Unknown Series')
             .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '')
@@ -217,11 +174,10 @@ export function extractSeriesInfo(videoName, containerName) {
             .trim() || 'Unknown Series';
     }
     
-    // Extract episode name from various patterns
     const episodePatterns = [
         /"([^"]+)"/,           // Double quotes: "Episode Name"
         /'([^']+)'/,           // Single quotes: 'Episode Name'
-        // Pattern for: Series - SxxExx - Episode Name (technical info)
+        /''([^']+)''/,         // Double single quotes: ''Episode Name''
         /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/
     ];
     
@@ -234,16 +190,12 @@ export function extractSeriesInfo(videoName, containerName) {
             const content = match[1].trim();
             logger.debug(`[extractSeriesInfo] Found episode name pattern: "${content}"`);
             
-            // Skip technical patterns
             if (content.match(/^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i) || 
                 content.match(/^[A-Z0-9]{8}$/i) || // Skip hashes
                 content.match(/^(VRV|Multiple Subtitle|1080p|720p|480p)$/i)) {
                 logger.debug(`[extractSeriesInfo] Skipping technical pattern: "${content}"`);
                 continue;
             }
-            
-            // For redundancy check, use only the clean series title, not the whole filename
-            // This fixes the issue where "DanMachi 031 MULTI..." was being used as the title
             const cleanTitleForComparison = title.replace(/\d+/g, '').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
             const normalizedTitle = cleanTitleForComparison.toLowerCase();
             const normalizedContent = content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();

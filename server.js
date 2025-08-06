@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import express from 'express'
 import cors from 'cors'
 import 'dotenv/config'
@@ -36,10 +34,11 @@ const rateLimiter = rateLimit({
 app.use(rateLimiter)
 
 app.use((req, res, next) => serverless(req, res, next))
-app.listen(process.env.PORT || 55771, () => {
-    logger.info(`Started addon at: http://127.0.0.1:${process.env.PORT || 55771}`)
-})
 
-// https://stremio.github.io/stremio-publish-addon/index.html
-// publishToCentral("https://68d69db7dc40-stremio-addon-debrid-search.baby-beamup.club/manifest.json")
-// for more information on deploying, see: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/deploying/README.md
+const ADDON_URL = process.env.ADDON_URL && process.env.ADDON_URL.trim() !== '' ? process.env.ADDON_URL : 'http://127.0.0.1';
+const PORT = process.env.PORT && process.env.PORT.toString().trim() !== '' ? process.env.PORT : 3001;
+
+app.listen(PORT, () => {
+    const url = ADDON_URL.replace(/:\d+$/, '') + ':' + PORT;
+    logger.info(`Started addon at: ${url}`)
+})

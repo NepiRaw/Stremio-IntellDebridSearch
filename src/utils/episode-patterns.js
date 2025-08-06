@@ -1,25 +1,12 @@
 /**
  * Episode Patterns Utility - Centralized season/episode detection patterns
- * TASK 5.3: Consolidate ALL season/episode patterns from multiple files
- * 
- * Replaces patterns from:
- * - src/utils/parse-torrent-title.js (seasonPatterns object)
- * - src/stream/stream-builder.js (extractSeriesInfo patterns)
- * - src/search/torrent-analyzer.js (absolute episode patterns)
- * 
- * @fileoverview Complete pattern consolidation for episode detection across all content types
  */
 
+import { FILE_EXTENSIONS } from './media-patterns.js';
 import { logger } from './logger.js';
 import { romanToNumber, parseRomanSeasons } from './roman-numeral-utils.js';
-import { FILE_EXTENSIONS } from './media-patterns.js';
 
-/**
- * Comprehensive season detection patterns
- * Ordered by reliability - most specific patterns first
- */
 export const SEASON_PATTERNS = {
-    // Standard formats - highest reliability
     standard: {
         regex: /s(?:eason[\s.-]*)?(\d{1,2})/i,
         description: 'Standard S01, Season 1 format'
@@ -28,8 +15,6 @@ export const SEASON_PATTERNS = {
         regex: /s(?:eason[\s.-]*)?0*(\d{1,2})/i,
         description: 'Standard with zero padding S01, S001'
     },
-    
-    // International language formats
     frenchSeason: {
         regex: /(?:saison|s[ae][\s.-]*?)(\d{1,2})/i,
         description: 'French format: saison 1, sa 1'
@@ -50,14 +35,10 @@ export const SEASON_PATTERNS = {
         regex: /(?:シーズン|シリーズ)[\s.-]*(\d{1,2})/i,
         description: 'Japanese format: シーズン1, シリーズ1'
     },
-    
-    // Generic word-based formats
     seasonWord: {
         regex: /(?:season|saison|serie|temporada|staffel)[\s.-]*(\d{1,2})/i,
         description: 'Generic season word formats'
     },
-    
-    // Numeric formats - lower reliability
     plainNumber: {
         regex: /[\s.-](\d{1,2})[ex]/i,
         description: 'Plain number before episode marker'
@@ -66,20 +47,13 @@ export const SEASON_PATTERNS = {
         regex: /[\s.-]0*(\d{1,2})[ex\s]/i,
         description: 'Zero-padded format: 01e, 02x'
     },
-    
-    // Directory/path based
     seasonFolder: {
         regex: /[\\/](?:s(?:eason)?|saison)[\s.-]*(\d{1,2})[\\/]/i,
         description: 'Season folder structure'
     }
 };
 
-/**
- * Episode detection patterns
- * Covers standard episode numbering formats
- */
 export const EPISODE_PATTERNS = {
-    // Standard season + episode combinations
     seasonEpisode: {
         regex: /[Ss](\d+)[Ee](\d+)/,
         description: 'Standard S01E01 format',
@@ -94,12 +68,8 @@ export const EPISODE_PATTERNS = {
         regex: /\b(\d{1,2})x(\d{1,3})\b/,
         description: 'Number x Number: 1x01, 12x123',
         groups: { season: 1, episode: 2 },
-        validation: 'skipResolution' // Skip video resolution patterns
+        validation: 'skipResolution'
     },
-    
-    // Roman numeral + episode combinations
-    
-    // Episode-only patterns (assume season 1)
     episodeOnly: {
         regex: /[Ee](\d+)/,
         description: 'Episode only: E07 (assume season 1)',
@@ -108,12 +78,7 @@ export const EPISODE_PATTERNS = {
     }
 };
 
-/**
- * Absolute episode patterns for anime and sequential content
- * Used when standard season/episode patterns fail
- */
 export const ABSOLUTE_EPISODE_PATTERNS = {
-    // Anime-style patterns
     titleNumber: {
         regex: /(\w+)\s+(\d{3,4})(?:\s|$)/i,
         description: 'Title followed by 3-4 digit number: DanMachi 031',
@@ -144,8 +109,6 @@ export const ABSOLUTE_EPISODE_PATTERNS = {
         description: 'Number before quality keywords',
         groups: { title: 1, episode: 2 }
     },
-    
-    // Additional absolute patterns from stream-builder.js
     absoluteOnly: {
         regex: /\b(\d{3})\s/,
         description: 'Standalone 3-digit absolute episode: 031 MULTI',
@@ -153,76 +116,45 @@ export const ABSOLUTE_EPISODE_PATTERNS = {
     }
 };
 
-/**
- * Parse season number from various formats with enhanced validation
- * @param {string} title - Title or filename to parse
- * @param {boolean} strict - Use strict mode (more reliable patterns only)
- * @returns {number|null} - Season number or null if not found
- */
 export function parseSeasonFromTitle(title, strict = false) {
     if (!title) return null;
-
-    // Check for Roman numeral seasons first using dedicated utility
     const romanSeason = parseRomanSeasons(title);
     if (romanSeason) {
         return romanSeason.season;
     }
-
-    // Normalize title for better matching
     const normalizedTitle = title.replace(/\s+/g, ' ')
                                .replace(/[\[\](){}]/g, ' ')
                                .trim();
-
-    // Define reliable patterns for strict mode
     const reliablePatterns = ['standard', 'standardPadded', 'seasonWord', 'seasonFolder'];
-    
-    // Get patterns to use based on strict mode
     const patternsToUse = strict 
         ? Object.entries(SEASON_PATTERNS).filter(([key]) => reliablePatterns.includes(key))
         : Object.entries(SEASON_PATTERNS);
-
-    // Sort patterns by reliability
     const sortedPatterns = patternsToUse.sort(([a], [b]) => {
         const aReliable = reliablePatterns.includes(a);
         const bReliable = reliablePatterns.includes(b);
         return bReliable - aReliable;
     });
-
     for (const [format, pattern] of sortedPatterns) {
         const match = normalizedTitle.match(pattern.regex);
         if (match?.[1]) {
-            // Parse regular numbers
             const num = parseInt(match[1], 10);
-            if (!isNaN(num) && num >= 0 && num <= 30) return num; // Allow season 0 for specials
+            if (!isNaN(num) && num >= 0 && num <= 30) return num;
         }
     }
-    
     return null;
 }
 
-/**
- * Parse episode number from filename using standard patterns
- * @param {string} filename - Filename to parse
- * @returns {Object|null} - Episode info { season, episode } or null
- */
 export function parseEpisodeFromTitle(filename) {
     if (!filename) return null;
-
-    // Normalize filename
     const normalizedName = filename.replace(/\s+/g, ' ')
                                  .replace(/[\[\](){}]/g, ' ')
                                  .trim();
-
     for (const [patternName, pattern] of Object.entries(EPISODE_PATTERNS)) {
         const match = normalizedName.match(pattern.regex);
         if (!match) continue;
-
-        // Validation for number x number pattern to skip video resolutions
         if (pattern.validation === 'skipResolution') {
             const num1 = parseInt(match[1]);
             const num2 = parseInt(match[2]);
-            
-            // Skip video resolution patterns
             const isResolution = (
                 (num1 >= 640 && num2 >= 480) ||
                 (num1 >= 320 && num2 >= 240) ||
@@ -231,14 +163,10 @@ export function parseEpisodeFromTitle(filename) {
                 (num1 === 3840 && num2 === 2160) ||
                 (num1 === 2560 && num2 === 1440)
             );
-            
             if (isResolution) continue;
         }
-
-        // Extract season and episode based on pattern groups
         let season = null;
         let episode = null;
-
         if (pattern.groups.season && match[pattern.groups.season]) {
             if (pattern.seasonType === 'roman') {
                 season = romanToNumber(match[pattern.groups.season]);
@@ -248,75 +176,49 @@ export function parseEpisodeFromTitle(filename) {
         } else if (pattern.defaultSeason) {
             season = pattern.defaultSeason;
         }
-
         if (pattern.groups.episode && match[pattern.groups.episode]) {
             episode = parseInt(match[pattern.groups.episode], 10);
         }
-
-        // Validate results
         if (season !== null && episode !== null && 
             season >= 0 && season <= 30 && 
             episode >= 1 && episode <= 999) {
-            
             logger.debug(`[parseEpisodeFromTitle] Found S${season}E${episode} using pattern: ${patternName}`);
             return { season, episode, pattern: patternName };
         }
     }
-
     return null;
 }
 
-/**
- * Extract absolute episode number from filename
- * @param {string} filename - Filename to parse
- * @returns {number|null} - Absolute episode number or null
- */
 export function parseAbsoluteEpisode(filename) {
     if (!filename) return null;
     
-    // Clean the filename for better parsing
     const videoExtensionPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
     const cleanFilename = filename.replace(videoExtensionPattern, '');
-    
     for (const [patternName, pattern] of Object.entries(ABSOLUTE_EPISODE_PATTERNS)) {
         const match = cleanFilename.match(pattern.regex);
         if (!match) continue;
-        
-        // Extract episode number based on pattern groups
         let episodeStr = null;
         if (pattern.groups.episode) {
             episodeStr = match[pattern.groups.episode];
         }
-        
         if (episodeStr && /^\d{2,4}$/.test(episodeStr)) {
             const episode = parseInt(episodeStr, 10);
-            
-            // Reasonable range for absolute episodes (1-9999)
             if (episode >= 1 && episode <= 9999) {
                 logger.debug(`[parseAbsoluteEpisode] Found absolute episode ${episode} using pattern: ${patternName}`);
                 return episode;
             }
         }
     }
-    
     return null;
 }
 
-/**
- * Detect episode format from filename (standard vs absolute)
- * @param {string} filename - Filename to analyze
- * @returns {Object} - Format detection result
- */
 export function detectEpisodeFormat(filename) {
     if (!filename) {
         return { format: 'unknown', confidence: 0 };
     }
-
     const episodeInfo = parseEpisodeFromTitle(filename);
     const absoluteEpisode = parseAbsoluteEpisode(filename);
-    
     if (episodeInfo && absoluteEpisode) {
-        // Both formats found - prefer standard format
         return {
             format: 'hybrid',
             standard: episodeInfo,
@@ -336,24 +238,14 @@ export function detectEpisodeFormat(filename) {
             confidence: 0.8
         };
     }
-    
     return { format: 'unknown', confidence: 0 };
 }
 
-/**
- * Check if two season numbers match with flexible validation
- * @param {string|number} foundSeason - Found season number
- * @param {string|number} targetSeason - Target season number
- * @returns {boolean} - Whether seasons match
- */
 export function checkSeasonMatch(foundSeason, targetSeason) {
-    // Handle null/undefined values, but allow 0 (specials/OVA)
     if ((foundSeason === null || foundSeason === undefined) || 
         (targetSeason === null || targetSeason === undefined)) {
         return false;
     }
-    
-    // Parse string seasons if needed
     if (typeof foundSeason === 'string') {
         const parsed = parseSeasonFromTitle(foundSeason, true);
         if (parsed !== null) foundSeason = parsed;
@@ -362,19 +254,9 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
         const parsed = parseSeasonFromTitle(targetSeason, true);
         if (parsed !== null) targetSeason = parsed;
     }
-    
-    // Direct comparison
     return parseInt(foundSeason, 10) === parseInt(targetSeason, 10);
 }
 
-/**
- * Comprehensive episode matching function
- * @param {string} filename - Filename to analyze
- * @param {number} targetSeason - Target season number
- * @param {number} targetEpisode - Target episode number
- * @param {number} absoluteEpisode - Optional absolute episode number
- * @returns {Object} - Match result with confidence score
- */
 export function matchEpisode(filename, targetSeason, targetEpisode, absoluteEpisode = null) {
     const result = {
         isMatch: false,
@@ -382,13 +264,10 @@ export function matchEpisode(filename, targetSeason, targetEpisode, absoluteEpis
         matchType: 'none',
         details: {}
     };
-    
-    // Try standard season/episode matching first
     const episodeInfo = parseEpisodeFromTitle(filename);
     if (episodeInfo) {
         const seasonMatch = checkSeasonMatch(episodeInfo.season, targetSeason);
         const episodeMatch = parseInt(episodeInfo.episode, 10) === parseInt(targetEpisode, 10);
-        
         if (seasonMatch && episodeMatch) {
             result.isMatch = true;
             result.confidence = 0.95;
@@ -401,8 +280,6 @@ export function matchEpisode(filename, targetSeason, targetEpisode, absoluteEpis
             return result;
         }
     }
-    
-    // Try absolute episode matching if standard failed and absolute is available
     if (absoluteEpisode && !episodeInfo) {
         const foundAbsolute = parseAbsoluteEpisode(filename);
         if (foundAbsolute && foundAbsolute === parseInt(absoluteEpisode, 10)) {
@@ -416,6 +293,6 @@ export function matchEpisode(filename, targetSeason, targetEpisode, absoluteEpis
             return result;
         }
     }
-    
     return result;
 }
+

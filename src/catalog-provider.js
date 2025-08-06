@@ -11,7 +11,6 @@ async function searchTorrents(config, searchKey) {
     let tmdbApiKey = config.TmdbApiKey
     let traktApiKey = config.TraktApiKey
     
-    // Fallback to environment variables if API keys are not provided in config
     if (!tmdbApiKey && process.env.TMDB_API_KEY) {
         tmdbApiKey = process.env.TMDB_API_KEY;
         logger.debug('[catalog-provider] Using TMDb API key from environment variables');
@@ -25,9 +24,7 @@ async function searchTorrents(config, searchKey) {
     const apiKey = config.DebridLinkApiKey ? config.DebridLinkApiKey : config.DebridApiKey
     const provider = config.DebridLinkApiKey ? 'DebridLink' : (config.DebridProvider || 'DebridLink')
     const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox }
-    // If advanced search is possible, use it
     if (tmdbApiKey || traktApiKey) {
-        // Catalog search doesn't have type/id, so fallback to searchKey only
         const params = { 
             apiKey, 
             searchKey, 
@@ -35,10 +32,9 @@ async function searchTorrents(config, searchKey) {
             tmdbApiKey, 
             traktApiKey, 
             threshold: 0.1,            
-            providers // Add providers to params object
+            providers
         }
         const searchResult = await coordinateSearch(params)
-        // Handle both array and object return formats from coordinateSearch
         const torrents = Array.isArray(searchResult) ? searchResult : searchResult.results
         return torrents.map(torrent => toMeta(torrent))
     }
@@ -91,8 +87,6 @@ function toMeta(torrent) {
         id: torrent.source + ':' + torrent.id,
         name: torrent.name,
         type: torrent.type,
-        // poster: `https://img.icons8.com/ios/256/video--v1.png`,
-        // posterShape: 'square'
     }
 }
 

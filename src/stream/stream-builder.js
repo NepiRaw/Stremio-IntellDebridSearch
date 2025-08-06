@@ -1,6 +1,5 @@
 /**
- * Stream builder module - EXACT WORKING FUNCTIONS from working addon
- * Contains toStream() and related functions extracted from working stream-provider.js
+ * Stream builder module - constructs stream objects with detailed titles and quality info
  */
 
 import { FILE_TYPES } from '../utils/file-types.js';
@@ -11,7 +10,8 @@ import {
     CODEC_PATTERNS, 
     SOURCE_PATTERNS, 
     COMPREHENSIVE_TECH_PATTERNS,
-    FILE_EXTENSIONS
+    FILE_EXTENSIONS,
+    TECHNICAL_PATTERNS
 } from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
@@ -27,7 +27,6 @@ const STREAM_NAME_MAP = {
 };
 
 /**
- * EXACT WORKING FUNCTION from working addon stream-provider.js line 641-695
  * Create stream object from torrent details and video file
  */
 export function toStream(details, type, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
@@ -43,18 +42,14 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
         video = details
     } else {
         icon = '💾'
-        // Safely handle videos array
         if (!details.videos?.length) return null;
         
-        // After episode filtering, videos array should contain only matching episodes
-        // Take the first video (don't re-sort by size as it might pick wrong episode)
         video = details.videos[0];
         
         logger.debug(`[toStream] Selected video: "${video.name}" (S${video.info?.season}E${video.info?.episode})`);
         
         // Only sort by size if there are multiple videos of the same episode
         if (details.videos.length > 1) {
-            // Check if all videos are for the same episode
             const firstEpisodeId = `${details.videos[0].info?.season}x${details.videos[0].info?.episode}`;
             const allSameEpisode = details.videos.every(v => 
                 `${v.info?.season}x${v.info?.episode}` === firstEpisodeId
@@ -62,27 +57,22 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
             
             logger.debug(`[toStream] Multiple videos (${details.videos.length}), all same episode: ${allSameEpisode}`);
             
-            if (allSameEpisode) {
-                // All videos are same episode, pick largest
+            if (allSameEpisode) { // All videos are same episode, pick largest
                 details.videos.sort((a, b) => b.size - a.size);
                 video = details.videos[0];
                 logger.debug(`[toStream] After size sorting, selected: "${video.name}"`);
             }
-            // If not all same episode, keep the first one (episode filtering should have handled this)
         }
     }
 
     if (!video) return null;
 
-    // Enhanced quality extraction with emojis
     const quality = extractQuality(video, details);
     
-    // Enhanced name with quality emojis
     let name = STREAM_NAME_MAP[details.source] || 'Unknown'
     name = name + '\n' + quality
 
-    // Enhanced title formatting - pass known season/episode info and variant info if available
-    let title = formatStreamTitle(details, video, type, icon, knownSeasonEpisode, variantInfo, searchContext);
+    let title = formatStreamTitle(details, video, type, icon, knownSeasonEpisode, variantInfo, searchContext); // Enhanced title formatting - pass known season/episode info and variant info if available
 
     let bingeGroup = details.source + '|' + details.id
 
@@ -97,19 +87,16 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
 }
 
 /**
- * EXACT WORKING FUNCTION from working addon stream-provider.js line 701-718
  * Extract quality information from video and torrent details with emoji indicators
  */
 function extractQuality(video, details) {
     const videoName = video.name || '';
     const torrentName = details.name || '';
     
-    // Use ONLY the current video name, not multiple videos
     const combinedName = `${torrentName} ${videoName}`;
     
     logger.debug(`[extractQuality] Analyzing: "${combinedName}"`);
     
-    // Use centralized quality extraction with fallback support
     const fallbackInfo = {
         resolution: video.info?.resolution || details.info?.resolution
     };
@@ -121,7 +108,6 @@ function extractQuality(video, details) {
 }
 
 /**
- * EXACT WORKING FUNCTION from working addon stream-provider.js 
  * Format file size in human readable format
  */
 function formatSize(size) {
@@ -134,7 +120,6 @@ function formatSize(size) {
 }
 
 /**
- * PLACEHOLDER: formatStreamTitle will be imported from formatter.js or extracted here
  * This function creates the multi-line stream title format
  */
 function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
@@ -146,7 +131,6 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         const seriesInfo = extractSeriesInfo(videoName, containerName);
         const releaseGroup = extractReleaseGroup(videoName || containerName);
         
-        // Detect variants using the clean series title if search context is available
         let detectedVariant = null;
         const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
         
@@ -160,14 +144,12 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
             logger.debug(`[formatStreamTitle] Variant detection skipped: searchContext=${!!searchContext}, searchTitle=${searchContext?.searchTitle}, alternativeTitles=${searchContext?.alternativeTitles?.length}`);
         }
         
-        // Use known season/episode info if provided (from advanced search), but be conservative
         let seasonEpisode = seriesInfo.seasonEpisode;
         if (knownSeasonEpisode && knownSeasonEpisode.season && knownSeasonEpisode.episode) {
             const season = String(knownSeasonEpisode.season).padStart(2, '0');
             const episode = String(knownSeasonEpisode.episode).padStart(2, '0');
             const knownSeasonEpisodeStr = `S${season}E${episode}`;
             
-            // Only override if the filename doesn't have clear season/episode info or if it's season 0
             const shouldOverride = 
                 seriesInfo.seasonEpisode === 'Unknown Episode' ||
                 seriesInfo.seasonEpisode.startsWith('S00E');
@@ -182,7 +164,7 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         
         const lines = [];
         
-        // Line 1: Original video torrent name as it comes from debrid provider (with folder emoji)
+        // Line 1: Original video torrent name as it comes from debrid provider
         lines.push(`📁 ${videoName || containerName}`);
         
         // Line 2: Clean series title with season/episode
@@ -209,7 +191,7 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         
         // Final line: Season/Episode formatted as "Sxx - Exx" + Size with icon + Release Group
         const seasonPart = seasonEpisode.substring(0, 3); // S01
-        const episodePart = seasonEpisode.substring(3);    // E04
+        const episodePart = seasonEpisode.substring(3);   // E04
         let sizeLine = `${seasonPart} - ${episodePart} • ${icon} ${size}`;
         if (releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
             sizeLine += ` • 👥 [${releaseGroup}]`;
@@ -219,7 +201,6 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         return lines.join('\n');
         
     } else {
-        // Movie format - keep original structure but improved
         const movieInfo = extractMovieInfo(removeExtension(videoName || containerName));
         const releaseGroup = extractReleaseGroup(videoName || containerName);
         
@@ -252,10 +233,6 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         return lines.join('\n');
     }
 }
-
-/**
- * WORKING HELPER FUNCTIONS - Extracted from working addon
- */
 
 /**
  * Calculate string similarity using a simple algorithm
@@ -323,7 +300,6 @@ function extractSeriesInfo(videoName, containerName) {
     let title = name;
     let episodeName = null;
     
-    // Try multiple season/episode patterns (order matters - most specific first)
     const patterns = [
         { regex: /[Ss](\d+)[Ee](\d+)/, type: 'standard' },           // S01E01
         { regex: /[Ss](\d+)\s*-\s*(\d+)/, type: 'dash' },            // S5 - 14
@@ -331,8 +307,7 @@ function extractSeriesInfo(videoName, containerName) {
         { regex: /\b([IVX]+)\s+(\d+)/, type: 'roman_space' },        // I 04
         { regex: /\b(\d{1,2})x(\d{1,3})\b/, type: 'standard' },      // 1x01, 12x123 (but not 1920x1080)
         { regex: /[Ee](\d+)/, type: 'episode_only' },                // E07 (assume season 1)
-        // Add absolute episode patterns for anime-style filenames
-        { regex: /\b(\d{3})\s/, type: 'absolute' }                   // DanMachi 031 MULTI
+        { regex: /\b(\d{3})\s/, type: 'absolute' }                   // AnimeName 031 MULTI
     ];
     
     let seasonEpisodeMatch = null;
@@ -341,15 +316,13 @@ function extractSeriesInfo(videoName, containerName) {
     for (const pattern of patterns) {
         seasonEpisodeMatch = name.match(pattern.regex);
         if (seasonEpisodeMatch) {
-            // Additional validation: check if this looks like a resolution pattern
             if (pattern.type === 'standard' && pattern.regex.source.includes('x')) {
                 const num1 = parseInt(seasonEpisodeMatch[1]);
                 const num2 = parseInt(seasonEpisodeMatch[2]);
                 
-                // Reject if numbers look like common video resolutions
                 const isResolution = (
-                    (num1 >= 640 && num2 >= 480) ||  // 640x480 and above
-                    (num1 >= 320 && num2 >= 240) ||  // 320x240 and above
+                    (num1 >= 640 && num2 >= 480) ||     // 640x480 and above
+                    (num1 >= 320 && num2 >= 240) ||     // 320x240 and above
                     (num1 === 1920 && num2 === 1080) || // 1920x1080
                     (num1 === 1280 && num2 === 720) ||  // 1280x720
                     (num1 === 3840 && num2 === 2160) || // 4K
@@ -357,7 +330,7 @@ function extractSeriesInfo(videoName, containerName) {
                 );
                 
                 if (isResolution) {
-                    continue; // Skip this match, try next pattern
+                    continue;
                 }
             }
             
@@ -376,10 +349,7 @@ function extractSeriesInfo(videoName, containerName) {
             season = 1; // Default to season 1 when only episode is found
             episode = parseInt(seasonEpisodeMatch[1]);
         } else if (matchType === 'absolute') {
-            // For absolute episodes, we don't know the exact season/episode
-            // This will be handled by advanced search later
             seasonEpisode = 'Unknown Episode';
-            // Extract only the series name (everything before the absolute episode number)
             title = name.substring(0, seasonEpisodeMatch.index).trim();
         } else {
             season = parseInt(seasonEpisodeMatch[1]);
@@ -388,19 +358,15 @@ function extractSeriesInfo(videoName, containerName) {
         
         if (matchType !== 'absolute') {
             seasonEpisode = `S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}`;
-            // Extract title (everything before the season/episode pattern)
             title = name.substring(0, seasonEpisodeMatch.index).trim();
         }
     } else {
-        // For files without clear patterns, try to extract a reasonable series title
-        // Look for common series title patterns at the beginning
         const titleMatch = name.match(/^([A-Za-z][A-Za-z0-9\s]*?)(?:\s+\d{3,}|\s+[Ss]\d+|\s+[IVX]+|\s*[\[\(])/);
         if (titleMatch) {
             title = titleMatch[1].trim();
         }
     }
     
-    // Clean up the title - remove group tags and clean separators
     title = title
         .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '') // Remove group tags at start like [Group]
         .replace(/[\._]/g, ' ')                   // Replace dots and underscores with spaces
@@ -408,16 +374,13 @@ function extractSeriesInfo(videoName, containerName) {
         .replace(/\s+/g, ' ')                     // Collapse multiple spaces
         .trim();
     
-    // If title is still too long or contains technical terms, try to shorten it
     if (title.length > 50 || title.match(/\b(MULTI|BluRay|1080p|720p|x264|x265|HEVC|mkv)\b/i)) {
-        // Try to extract just the actual series name from the beginning
         const shortTitleMatch = title.match(/^([A-Za-z][A-Za-z0-9\s]{2,25}?)(?:\s+\d+|\s+(MULTI|BluRay|1080p|720p|x264|x265|HEVC))/i);
         if (shortTitleMatch) {
             title = shortTitleMatch[1].trim();
         }
     }
     
-    // If title is too short, try container name
     if (!title || title.length < 3) {
         title = (containerName || 'Unknown Series')
             .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '')
@@ -428,10 +391,10 @@ function extractSeriesInfo(videoName, containerName) {
     
     // Extract episode name from various patterns
     const episodePatterns = [
-        /"([^"]+)"/,           // Double quotes: "Episode Name"
-        /'([^']+)'/,           // Single quotes: 'Episode Name'
-        // Pattern for: Series - SxxExx - Episode Name (technical info)
-        /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/
+        /"([^"]+)"/,                // Double quotes: "Episode Name"
+        /'([^']+)'/,                // Single quotes: 'Episode Name'
+        /''([^']+)''/,              // Double single quotes: ''Episode Name''
+        /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/ // Pattern for: Series - SxxExx - Episode Name (technical info)
     ];
     
     logger.debug(`[extractSeriesInfo] Checking for episode names in: "${name}"`);
@@ -443,7 +406,6 @@ function extractSeriesInfo(videoName, containerName) {
             const content = match[1].trim();
             logger.debug(`[extractSeriesInfo] Found episode name pattern: "${content}"`);
             
-            // Skip technical patterns
             if (content.match(/^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i) || 
                 content.match(/^[A-Z0-9]{8}$/i) || // Skip hashes
                 content.match(/^(VRV|Multiple Subtitle|1080p|720p|480p)$/i)) {
@@ -451,8 +413,6 @@ function extractSeriesInfo(videoName, containerName) {
                 continue;
             }
             
-            // For redundancy check, use only the clean series title, not the whole filename
-            // This fixes the issue where "DanMachi 031 MULTI..." was being used as the title
             const cleanTitleForComparison = title.replace(/\d+/g, '').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
             const normalizedTitle = cleanTitleForComparison.toLowerCase();
             const normalizedContent = content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
@@ -460,7 +420,6 @@ function extractSeriesInfo(videoName, containerName) {
             logger.debug(`[extractSeriesInfo] Normalized title for comparison: "${normalizedTitle}"`);
             logger.debug(`[extractSeriesInfo] Normalized content: "${normalizedContent}"`);
             
-            // Check if the episode name is too similar to the series title
             const titleWords = normalizedTitle.split(' ').filter(word => word.length > 3);
             const isRedundant = titleWords.some(word => {
                 if (word.length > 4 && normalizedContent.includes(word)) {
@@ -470,7 +429,6 @@ function extractSeriesInfo(videoName, containerName) {
                 return false;
             });
             
-            // Also skip if episode name is just the series title or contains too much of it
             const similarity = calculateStringSimilarity(normalizedTitle, normalizedContent);
             logger.debug(`[extractSeriesInfo] Similarity: ${similarity}, Redundant: ${isRedundant}`);
             
@@ -500,28 +458,18 @@ function extractMovieInfo(movieName) {
     let title = movieName;
     let year = null;
     
-    // Extract year first (prefer parentheses, then standalone 4-digit numbers)
-    const yearMatch = title.match(/\((\d{4})\)|(\d{4})/);
+    const yearMatch = title.match(/\((\d{4})\)|(\d{4})/); // Extract year first (prefer parentheses, then standalone 4-digit numbers)
     if (yearMatch) {
         year = yearMatch[1] || yearMatch[2];
     }
     
-    // Remove group tags at the beginning
-    title = title.replace(/^[\[\{][^\]\}]+[\]\}]\s*/, '');
+    title = title.replace(/^[\[\{][^\]\}]+[\]\}]\s*/, ''); // Remove group tags at the beginning
     
-    // Find where technical info starts (use centralized patterns)
     let titleEndIndex = title.length;
-    const TECHNICAL_PATTERNS = [
-        /\b(1080p|720p|480p|2160p|4K|UHD)\b/i,
-        /\b(BluRay|BDRip|DVDRip|WEBRip|HDTV|CAM|TS)\b/i,
-        /\b(x264|x265|HEVC|AVC|H264|H265|XviD|DivX)\b/i,
-        /\b(AAC|MP3|AC3|DTS|FLAC|Atmos)\b/i,
-        /\b(MULTI|FRENCH|ENGLISH|VOSTFR|SUBFRENCH)\b/i,
-        /\b(REMUX|REPACK|PROPER|INTERNAL|LIMITED)\b/i,
-        /\.[a-zA-Z0-9]{2,4}$/
-    ];
-    
-    for (const pattern of TECHNICAL_PATTERNS) {
+    // Combine imported TECHNICAL_PATTERNS with the file extension regex
+    const ALL_TECHNICAL_PATTERNS = [...TECHNICAL_PATTERNS, /\.[a-zA-Z0-9]{2,4}$/];
+
+    for (const pattern of ALL_TECHNICAL_PATTERNS) {
         const match = title.match(pattern);
         if (match && match.index < titleEndIndex) {
             titleEndIndex = Math.min(titleEndIndex, match.index);
@@ -557,8 +505,6 @@ function extractMovieInfo(movieName) {
 
 /**
  * Extract comprehensive technical details from filename with sophisticated pattern matching
- * Uses centralized patterns from media-patterns.js for consistency
- * Integrates with release-groups.js for proper group handling
  */
 export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, episodeName) {
     if (!filename) return '';
@@ -566,10 +512,8 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
     logger.debug(`[extractTechnicalDetails] Analyzing: "${filename}"`);
     logger.debug(`[extractTechnicalDetails] Title: "${seriesTitle}", Release Group: "${releaseGroup}"`);
     
-    // Create a cleaned filename that excludes the title and episode name to avoid false matches
     let cleanedFilename = filename;
     if (seriesTitle && seriesTitle.length > 3) {
-        // Remove title from filename to avoid false technical matches
         const titleVariants = [
             seriesTitle,
             seriesTitle.replace(/\s+/g, '.'),
@@ -585,7 +529,6 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
         }
     }
     
-    // Remove episode name from filename to avoid false technical matches
     if (episodeName && episodeName.length > 3) {
         const regex = new RegExp(episodeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
         cleanedFilename = cleanedFilename.replace(regex, '');
@@ -594,58 +537,47 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
     logger.debug(`[extractTechnicalDetails] Cleaned filename: "${cleanedFilename}"`);
     
     
-    // Separate arrays for different types of details to control ordering
     const languageDetails = [];
     const sourceDetails = [];
     const codecDetails = [];
     const audioDetails = [];
     const techDetails = [];
     
-    // 1. Extract Languages FIRST using centralized patterns
     for (const pattern of LANGUAGE_PATTERNS) {
         if (pattern.pattern.test(cleanedFilename) && !languageDetails.some(detail => detail.includes(pattern.displayName))) {
             languageDetails.push(`${pattern.emoji} ${pattern.displayName}`);
         }
     }
     
-    // 2. Extract Source (BluRay, WEB-DL, etc.) using centralized patterns
     for (const pattern of SOURCE_PATTERNS) {
         if (pattern.pattern.test(cleanedFilename)) {
             sourceDetails.push(`${pattern.emoji} ${pattern.displayName}`);
-            break; // Only match first source
+            break;
         }
     }
     
-    // 3. Extract Codecs using centralized patterns
     for (const pattern of CODEC_PATTERNS) {
         if (pattern.pattern.test(cleanedFilename)) {
             codecDetails.push(`${pattern.emoji} ${pattern.codec}`);
-            // Don't break - can have multiple codecs (video + audio)
         }
     }
     
-    // 4. Extract Audio information - prioritize more specific patterns over generic ones
     const foundAudio = new Set();
     const audioMatches = [];
     
-    // First pass: collect all matching audio patterns
     for (const pattern of AUDIO_PATTERNS) {
         if (pattern.pattern.test(cleanedFilename)) {
             audioMatches.push(pattern);
         }
     }
     
-    // Second pass: filter out generic patterns if specific ones exist
     for (const pattern of audioMatches) {
         const isGeneric = audioMatches.some(otherPattern => {
             if (otherPattern === pattern) return false;
             
-            // Check if this pattern is a subset/generic version of another more specific pattern
             const currentAudio = pattern.audio.toLowerCase().replace(/[^\w]/g, '');
             const otherAudio = otherPattern.audio.toLowerCase().replace(/[^\w]/g, '');
             
-            // If current audio is contained in other audio, it's generic
-            // e.g., "dts" is contained in "dtsx"
             return otherAudio.includes(currentAudio) && currentAudio.length < otherAudio.length;
         });
         
@@ -655,14 +587,12 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
         }
     }
     
-    // 5. Extract comprehensive technical terms using centralized patterns
     for (const tech of COMPREHENSIVE_TECH_PATTERNS) {
         if (tech.pattern.test(cleanedFilename) && !techDetails.some(detail => detail.includes(tech.display))) {
             techDetails.push(tech.display);
         }
     }
     
-    // Combine all details with EXACT working addon ordering: Languages, Sources, Codecs, Audio, Tech
     const detectedDetails = [
         ...languageDetails,
         ...sourceDetails, 
@@ -671,7 +601,6 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
         ...techDetails
     ];
     
-    // 6. Remove duplicates while preserving order
     const uniqueDetails = [];
     const finalSeenDetails = new Set();
     
@@ -683,7 +612,6 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
         }
     }
     
-    // Log the final result to match working addon logging
     logger.debug(`[extractTechnicalDetails] Languages: [${languageDetails.join(', ')}]`);
     logger.debug(`[extractTechnicalDetails] Sources: [${sourceDetails.join(', ')}]`);
     logger.debug(`[extractTechnicalDetails] Codecs: [${codecDetails.join(', ')}]`);
@@ -694,9 +622,6 @@ export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, epi
     return uniqueDetails.join(' • ');
 }
 
-/**
- * Filter torrents by season
- */
 export function filterSeason(torrent, season) {
     const torrentSeason = torrent?.info?.season;
     const torrentSeasons = torrent?.info?.seasons;
@@ -707,17 +632,11 @@ export function filterSeason(torrent, season) {
     return seasonMatch;
 }
 
-/**
- * Filter torrents by episode - EXACT working function from working addon
- */
 export function filterEpisode(torrentDetails, season, episode, absoluteEpisode = null) {
-    // Enhanced episode filtering to handle both classic and absolute episode numbering
-    // Two-pass approach: first check for classic matches, only try absolute if no classic found
     
     let classicMatches = [];
     let potentialAbsoluteMatches = [];
     
-    // PASS 1: Find all classic S##E## matches
     torrentDetails.videos.forEach(video => {
         const videoSeason = video.info.season;
         const videoEpisode = video.info.episode;
@@ -728,34 +647,25 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
         }
     });
     
-    // If we found classic matches, use only those and skip absolute matching
     if (classicMatches.length > 0) {
         logger.debug(`[filterEpisode] Using ${classicMatches.length} classic matches, skipping absolute matching`);
         torrentDetails.videos = classicMatches;
         return true;
     }
-    
-    // PASS 2: Only try absolute episode matching if no classic matches were found
+
     if (typeof absoluteEpisode === 'number') {
         logger.debug(`[filterEpisode] No classic matches found, trying absolute episode matching for ${absoluteEpisode}`);
         
         torrentDetails.videos.forEach(video => {
             const videoSeason = video.info.season;
             
-            // First check: if we have season info and it doesn't match, skip absolute matching
             if (videoSeason && videoSeason != season) {
                 logger.debug(`[filterEpisode] ❌ Skipping absolute matching: video is S${videoSeason}, looking for S${season}`);
                 return;
             }
             
-            // Only proceed with absolute matching if:
-            // 1. No season info (videoSeason is null/undefined), OR
-            // 2. Season matches what we're looking for
-            
-            // Pattern matching for absolute episodes in filename (more restrictive)
             const absolutePattern = new RegExp(`\\b0*${absoluteEpisode}\\b`);
             if (absolutePattern.test(video.name)) {
-                // Extra validation: make sure it's not just matching episode numbers in wrong season
                 const seasonPattern = new RegExp(`[Ss]0*(\\d+)`, 'i');
                 const seasonMatch = video.name.match(seasonPattern);
                 
@@ -772,7 +682,6 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
                 return;
             }
             
-            // Check if video has absolute episode info that matches
             if (video.info.absoluteEpisode && 
                 parseInt(video.info.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
                 logger.debug(`[filterEpisode] ✅ Absolute info match: ${video.info.absoluteEpisode} = ${absoluteEpisode}`);
@@ -788,7 +697,6 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
         }
     }
     
-    // No matches found
     logger.debug(`[filterEpisode] ❌ No matches found for S${season}E${episode} (abs: ${absoluteEpisode})`);
     torrentDetails.videos = [];
     return false;

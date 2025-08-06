@@ -1,7 +1,5 @@
 /**
- * Stream Provider - New modular implementation
- * Provides movie and series streams using the refactored modular architecture
- * Replaces the monolithic 1362-line legacy stream-provider.js
+ * Provides movie and series streams
  */
 
 import { coordinateSearch } from './search/coordinator.js';
@@ -16,25 +14,13 @@ import RealDebrid from './providers/real-debrid.js';
 import DebridLink from './providers/debrid-link.js';
 import Premiumize from './providers/premiumize.js';
 import TorBox from './providers/torbox.js';
-
-/**
- * StreamProvider class - Main interface for stream retrieval
- * Maintains the same API as the legacy version for backward compatibility
- */
 class StreamProvider {
-    /**
-     * Get streams for movies
-     * @param {object} config - Configuration object with provider settings
-     * @param {string} type - Content type ('movie')
-     * @param {string} id - Content ID (imdb:ttxxxxxxx)
-     * @returns {Promise<Array>} - Array of stream objects
-     */
+    
     static async getMovieStreams(config, type, id) {
         const startTime = Date.now();
         logger.info(`[stream-provider] Starting movie stream search for ${id}`);
 
         try {
-            // Validate input parameters
             if (!config || !type || !id) {
                 throw new ValidationError('Missing required parameters', null, 'MISSING_PARAMS');
             }
@@ -47,21 +33,16 @@ class StreamProvider {
                 throw new ValidationError(`Invalid movie ID format: ${id}`, 'id', 'INVALID_ID');
             }
 
-            // Extract IMDB ID
             const imdbId = id.startsWith('imdb:') ? id.replace('imdb:', '') : id;
             
-            // Get content metadata from Cinemeta
             const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
             }
 
-            // Setup providers
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
             
-            // Perform search using the modular coordinator
-            // Directly set TMDb and Trakt API keys from environment variables
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
                 provider: config.DebridProvider,
@@ -76,14 +57,11 @@ class StreamProvider {
                 traktApiKey: process.env.TRAKT_API_KEY
             });
 
-            // Extract results from coordinator response (it returns {results: [...], absoluteEpisode: ..., searchContext: {...}})
             const searchResults = searchResponse?.results || searchResponse || [];
             const searchContext = searchResponse?.searchContext || null;
 
             logger.debug(`[stream-provider] Search found ${searchResults?.length || 0} results for movie ${imdbId}`);
 
-            // **FIX FOR TASK 4.17**: Deduplicate results by torrent ID to prevent redundant processing
-            // The coordinator can return the same torrent ID multiple times when containers have multiple files
             const seenTorrentIds = new Set();
             const deduplicatedResults = searchResults.filter(result => {
                 if (seenTorrentIds.has(result.id)) {
@@ -103,22 +81,18 @@ class StreamProvider {
                 return [];
             }
 
-            // Build stream objects from deduplicated search results with performance optimization
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
             const streamProcessingStart = Date.now();
             
-            // Prepare stream data for parallel processing
             const streamData = [];
             for (const result of deduplicatedResults) {
                 try {
-                    // Get detailed torrent information with video files
                     const provider = providers[config.DebridProvider];
                     if (!provider || !provider.getTorrentDetails) {
                         logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
                         continue;
                     }
 
-                    // Fetch detailed torrent information including video files
                     const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id);
                     
                     if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
@@ -135,17 +109,14 @@ class StreamProvider {
                     });
                 } catch (error) {
                     logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
-                    // Continue with other results
                 }
             }
 
-            // Use parallel processing for better performance
             const streams = await parallelStreamFormatting(streamData, 4);
             
             const streamProcessingEnd = Date.now();
             logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
-            // Sort streams by quality
             const sortedStreams = sortMovieStreamsByQuality(streams);
             
             const duration = Date.now() - startTime;
@@ -157,24 +128,15 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}:`, error);
             
-            // Return empty array on error to maintain compatibility
             return [];
         }
     }
 
-    /**
-     * Get streams for TV series
-     * @param {object} config - Configuration object with provider settings
-     * @param {string} type - Content type ('series')
-     * @param {string} id - Content ID (imdb:ttxxxxxxx:season:episode)
-     * @returns {Promise<Array>} - Array of stream objects
-     */
     static async getSeriesStreams(config, type, id) {
         const startTime = Date.now();
         logger.info(`[stream-provider] Starting series stream search for ${id}`);
 
         try {
-            // Validate input parameters
             if (!config || !type || !id) {
                 throw new ValidationError('Missing required parameters', null, 'MISSING_PARAMS');
             }
@@ -183,7 +145,6 @@ class StreamProvider {
                 throw new ValidationError(`Invalid content type: ${type}`, 'type', 'INVALID_TYPE');
             }
 
-            // Parse series ID format: ttxxxxxxx:season:episode
             const idParts = id.split(':');
             if (idParts.length !== 3) {
                 throw new ValidationError(`Invalid series ID format: ${id}`, 'id', 'INVALID_ID');
@@ -205,14 +166,12 @@ class StreamProvider {
                 throw new ValidationError(`Invalid episode: ${episodeStr}`, 'episode', 'INVALID_EPISODE');
             }
 
-            // Get content metadata from Cinemeta
             const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
             }
 
-            // Setup providers
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
 
             const searchResponse = await coordinateSearch({
@@ -229,14 +188,11 @@ class StreamProvider {
                 traktApiKey: process.env.TRAKT_API_KEY
             });
 
-            // Extract results from coordinator response
             const searchResults = searchResponse.results || [];
             const searchContext = searchResponse?.searchContext || null;
 
             logger.debug(`[stream-provider] Search found ${searchResults.length} results for series ${imdbId} S${season}E${episode}`);
 
-            // **FIX FOR TASK 4.17**: Deduplicate results by torrent ID to prevent redundant processing
-            // The coordinator can return the same torrent ID multiple times when containers have multiple episodes
             const seenTorrentIds = new Set();
             const deduplicatedResults = searchResults.filter(result => {
                 if (seenTorrentIds.has(result.id)) {
@@ -251,7 +207,6 @@ class StreamProvider {
                 logger.info(`[stream-provider] ⚡ Deduplicated ${searchResults.length} → ${deduplicatedResults.length} results (eliminated ${searchResults.length - deduplicatedResults.length} duplicate torrent IDs)`);
             }
 
-            // Determine which season/episode to use for filtering
             const filterSeason = searchResponse.animeMapping ? searchResponse.mappedSeason : season;
             const targetEpisode = searchResponse.animeMapping ? searchResponse.mappedEpisode : episode;
             
@@ -264,32 +219,24 @@ class StreamProvider {
                 return [];
             }
 
-            // Build stream objects from deduplicated search results with performance optimization
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} series results`);
             const streamProcessingStart = Date.now();
             
-            // Prepare stream data for parallel processing
             const streamData = [];
             for (const result of deduplicatedResults) {
                 try {
-                    // Get detailed torrent information with video files
                     const provider = providers[config.DebridProvider];
                     if (!provider || !provider.getTorrentDetails) {
                         logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
                         continue;
                     }
 
-                    // Fetch detailed torrent information including video files
                     const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id);
                     
                     if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                         logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                         continue;
                     }
-
-                    // Filter torrent to only contain episodes matching the requested season/episode
-                    // Use mapped season/episode if anime mapping is active
-                    // Extract the absolute episode number from the episode mapping object
                     const absoluteEpisodeNumber = searchResponse.absoluteEpisode && typeof searchResponse.absoluteEpisode === 'object' 
                         ? searchResponse.absoluteEpisode.absoluteEpisode 
                         : searchResponse.absoluteEpisode;
@@ -300,8 +247,8 @@ class StreamProvider {
                     }
 
                     const knownSeasonEpisode = {
-                        season, // Use original season for stream metadata
-                        episode, // Use original episode for stream metadata  
+                        season,
+                        episode,
                         absoluteEpisode: searchResponse.absoluteEpisode
                     };
 
@@ -315,14 +262,11 @@ class StreamProvider {
                     });
                 } catch (error) {
                     logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
-                    // Continue with other results
                 }
             }
 
-            // Use parallel processing for better performance
             let streams = await parallelStreamFormatting(streamData, 4);
             
-            // Add anime mapping indicators for series streams
             if (searchResponse.animeMapping) {
                 streams = streams.map(stream => {
                     if (stream && stream.url) {
@@ -336,7 +280,6 @@ class StreamProvider {
             const streamProcessingEnd = Date.now();
             logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
-            // Deduplicate and sort streams by quality
             const deduplicatedStreams = deduplicateStreams(streams);
             const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
             
@@ -349,7 +292,6 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}:`, error);
             
-            // Return empty array on error to maintain compatibility
             return [];
         }
     }
