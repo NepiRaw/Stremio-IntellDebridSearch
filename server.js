@@ -8,6 +8,7 @@ import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 
 import { logger } from './src/utils/logger.js';
+import { logApiStartupStatus } from './src/utils/configuration.js';
 const app = express()
 app.enable('trust proxy')
 app.use(cors())
@@ -41,4 +42,6 @@ const PORT = process.env.PORT && process.env.PORT.toString().trim() !== '' ? pro
 app.listen(PORT, () => {
     const url = ADDON_URL.replace(/:\d+$/, '') + ':' + PORT;
     logger.info(`Started addon at: ${url}`)
+    
+    logApiStartupStatus();
 })

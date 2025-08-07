@@ -85,17 +85,6 @@ export function validateConfiguration(config) {
         validation.isValid = false;
         validation.errors.push('No valid debrid provider configuration found');
     }
-    
-    if (config.TmdbApiKey || config.tmdbApiKey) {
-        validation.warnings.push('TMDb API key detected - enhanced search available');
-    } else {
-        validation.warnings.push('No TMDb API key - limited to basic search');
-    }
-
-    if (config.TraktApiKey || config.traktApiKey) {
-        validation.warnings.push('Trakt API key detected - enhanced episode mapping available');
-    }
-
     return validation;
 }
 
@@ -120,16 +109,99 @@ export function getProviderConfig(config) {
 }
 
 export function getApiConfig(config) {
-    if (!config) return {};
+    if (!config) config = {};
 
+    const tmdbApiKey = process.env.TMDB_API_KEY;
+    const traktApiKey = process.env.TRAKT_API_KEY;
+    
+    const hasAdvancedSearch = determineSearchCapabilities(tmdbApiKey, traktApiKey);
+    
+    const isTmdbEnabled = getIsTmdbEnabled(tmdbApiKey, traktApiKey);
+    const isTraktEnabled = getIsTraktEnabled(tmdbApiKey, traktApiKey);
+    
     return {
-        tmdbApiKey: config.TmdbApiKey || config.tmdbApiKey || process.env.TMDB_API_KEY,
-        traktApiKey: config.TraktApiKey || config.traktApiKey || process.env.TRAKT_API_KEY,
-        hasAdvancedSearch: !!(
-            config.TmdbApiKey || config.tmdbApiKey || process.env.TMDB_API_KEY ||
-            config.TraktApiKey || config.traktApiKey || process.env.TRAKT_API_KEY
-        )
+        tmdbApiKey,
+        traktApiKey,
+        isTmdbEnabled,
+        isTraktEnabled,
+        hasAdvancedSearch,
+        searchCapabilities: getSearchCapabilities(tmdbApiKey, traktApiKey)
     };
+}
+
+function getIsTmdbEnabled(tmdbApiKey, traktApiKey) {
+    // TMDb is enabled if:
+    // 1. TMDb key exists AND (both keys exist OR only TMDb exists)
+    // 2. NOT when only Trakt key exists (Scenario 3 fallback)
+    if (tmdbApiKey && traktApiKey) {
+        return true; // Scenario 1: Both APIs
+    }
+    
+    if (tmdbApiKey && !traktApiKey) {
+        return true; // Scenario 2: TMDb only
+    }
+    
+    // Scenario 3: Trakt only - TMDb should be disabled
+    // Scenario 4: Neither key - TMDb should be disabled
+    return false;
+}
+
+function getIsTraktEnabled(tmdbApiKey, traktApiKey) {
+    if (tmdbApiKey && traktApiKey) {
+        return true; // Scenario 1: Both APIs
+    }
+    
+    return false;
+}
+
+function determineSearchCapabilities(tmdbApiKey, traktApiKey) {
+    if (tmdbApiKey && traktApiKey) { // Scenario 1: Both APIs available - full advanced search
+        return true;
+    }
+    
+    if (tmdbApiKey && !traktApiKey) { // Scenario 2: Only TMDb available - advanced search without Trakt features
+        return true;
+    }
+    
+    if (!tmdbApiKey && traktApiKey) { // Scenario 3: Only Trakt available - fallback to basic search
+        logger.warn('[configuration] Only Trakt API key available. TMDb API key is required for advanced search. Falling back to basic search.');
+        return false;
+    }
+
+    if (!tmdbApiKey && !traktApiKey) { // Scenario 4: Neither API available - basic search only
+        return false;
+    }
+    
+    return false;
+}
+
+function getSearchCapabilities(tmdbApiKey, traktApiKey) {
+    const isTmdbEnabled = getIsTmdbEnabled(tmdbApiKey, traktApiKey);
+    const isTraktEnabled = getIsTraktEnabled(tmdbApiKey, traktApiKey);
+    
+    return {
+        alternativeTitles: isTmdbEnabled,
+        episodeMapping: isTraktEnabled,
+        enhancedMatching: isTmdbEnabled,
+        absoluteEpisodes: isTraktEnabled,
+        internationalTitles: isTmdbEnabled,
+        animeSupport: isTraktEnabled
+    };
+}
+
+export function logApiStartupStatus(config = {}) {
+    const apiConfig = getApiConfig(config);
+    
+    logger.info('[configuration] === API Key Status ===');
+    logger.info(`[configuration] TMDb API: ${apiConfig.isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
+    logger.info(`[configuration] Trakt API: ${apiConfig.isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
+    logger.info(`[configuration] Advanced search: ${apiConfig.hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
+    
+    const caps = apiConfig.searchCapabilities;
+    logger.info('[configuration] Search capabilities:');
+    logger.info(`  • Alternative titles: ${caps.alternativeTitles ? '✅' : '❌'}`);
+    logger.info(`  • Alternatives titles: ${caps.internationalTitles ? '✅' : '❌'}`);
+    logger.info(`  • Anime/absolute episodes: ${caps.animeSupport ? '✅' : '❌'}`);
 }
 
 export function mergeWithDefaults(config, defaults = {}) {

@@ -6,32 +6,23 @@ import Premiumize from './providers/premiumize.js'
 import { coordinateSearch } from './search/coordinator.js'
 import { BadRequestError } from './utils/error-handler.js'
 import { logger } from './utils/logger.js'
+import { getApiConfig } from './utils/configuration.js'
 
 async function searchTorrents(config, searchKey) {
-    let tmdbApiKey = config.TmdbApiKey
-    let traktApiKey = config.TraktApiKey
-    
-    if (!tmdbApiKey && process.env.TMDB_API_KEY) {
-        tmdbApiKey = process.env.TMDB_API_KEY;
-        logger.debug('[catalog-provider] Using TMDb API key from environment variables');
-    }
-    
-    if (!traktApiKey && process.env.TRAKT_API_KEY) {
-        traktApiKey = process.env.TRAKT_API_KEY;
-        logger.debug('[catalog-provider] Using Trakt API key from environment variables');
-    }
+    // Get API configuration using the centralized system
+    const apiConfig = getApiConfig(config);
     
     const apiKey = config.DebridLinkApiKey ? config.DebridLinkApiKey : config.DebridApiKey
     const provider = config.DebridLinkApiKey ? 'DebridLink' : (config.DebridProvider || 'DebridLink')
     const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox }
-    if (tmdbApiKey || traktApiKey) {
+    
+    if (apiConfig.hasAdvancedSearch) {
         const params = { 
             apiKey, 
             searchKey, 
             provider, 
-            tmdbApiKey, 
-            traktApiKey, 
-            threshold: 0.1,            
+            tmdbApiKey: apiConfig.tmdbApiKey, 
+            traktApiKey: apiConfig.traktApiKey, 
             providers
         }
         const searchResult = await coordinateSearch(params)

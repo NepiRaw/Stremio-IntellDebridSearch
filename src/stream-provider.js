@@ -1,13 +1,13 @@
 /**
  * Provides movie and series streams
  */
-
 import { coordinateSearch } from './search/coordinator.js';
 import { toStream, filterSeason, filterEpisode, filterYear } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
 import { batchExtractTechnicalDetails, parallelStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
+import { getApiConfig } from './utils/configuration.js';
 import Cinemeta from './api/cinemeta.js';
 import AllDebrid from './providers/all-debrid.js';
 import RealDebrid from './providers/real-debrid.js';
@@ -43,6 +43,8 @@ class StreamProvider {
 
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
             
+            const apiConfig = getApiConfig(config);
+            
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
                 provider: config.DebridProvider,
@@ -53,8 +55,8 @@ class StreamProvider {
                 episode: null,
                 threshold: 0.3,
                 providers,
-                tmdbApiKey: process.env.TMDB_API_KEY,
-                traktApiKey: process.env.TRAKT_API_KEY
+                tmdbApiKey: apiConfig.tmdbApiKey,
+                traktApiKey: apiConfig.traktApiKey
             });
 
             const searchResults = searchResponse?.results || searchResponse || [];
@@ -174,6 +176,8 @@ class StreamProvider {
 
             const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
 
+            const apiConfig = getApiConfig(config);
+
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
                 provider: config.DebridProvider,
@@ -184,8 +188,8 @@ class StreamProvider {
                 episode,
                 threshold: 0.3,
                 providers,
-                tmdbApiKey: process.env.TMDB_API_KEY,
-                traktApiKey: process.env.TRAKT_API_KEY
+                tmdbApiKey: apiConfig.tmdbApiKey,
+                traktApiKey: apiConfig.traktApiKey
             });
 
             const searchResults = searchResponse.results || [];
