@@ -6,6 +6,7 @@
 import { getEpisodeMapping as traktGetEpisodeMapping } from '../api/trakt.js';
 import { logger } from '../utils/logger.js';
 import parseTorrentTitleModule from '../utils/parse-torrent-title.js';
+import { extractAbsoluteEpisodeLegacy } from '../utils/unified-torrent-parser.js';
 
 // Extract functions from the module
 const { parse: parseTorrentTitle, parseSeason, parseRomanNumeral, romanToNumber } = parseTorrentTitleModule;
@@ -78,44 +79,8 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
  * @returns {number|null} - Absolute episode number or null
  */
 export function extractAbsoluteEpisode(filename) {
-    if (!filename) return null;
-    
-    // Clean the filename for better parsing
-    const cleanFilename = filename.replace(/\.(mkv|mp4|avi|m4v)$/i, '');
-    
-    // Patterns to match absolute episode numbers
-    const absolutePatterns = [
-        // Pattern for "DanMachi 031", "Title 031", etc. (common in anime)
-        /(\w+)\s+(\d{3,4})(?:\s|$)/i,
-        // Pattern for "Title 001", "Title 031", etc. (common in anime)
-        /(\w+)\s+(\d{2,4})(?:\s|$)/i,
-        // Pattern for "Title - 001", "Title - 031"
-        /(\w+)\s*-\s*(\d{2,4})(?:\s|$)/i,
-        // Pattern for "001 - Title", "031 - Title"
-        /^(\d{2,4})\s*-\s*(.+)/i,
-        // Pattern for "Ep001", "Episode 031", "Episode 1000"
-        /(?:ep|episode)\s*(\d{2,4})(?:\s|$)/i,
-        // Pattern for numbers after title but before quality/source keywords
-        /^([^0-9]*?)(\d{2,4})(?:\s+(?:multi|bluray|1080p|720p|x264|x265|web|dl|hdtv))/i
-    ];
-    
-    for (const pattern of absolutePatterns) {
-        const match = cleanFilename.match(pattern);
-        if (match) {
-            // For patterns where episode is in group 2, use that
-            const episodeStr = match[2] || match[1];
-            if (episodeStr && /^\d{2,4}$/.test(episodeStr)) {
-                const episode = parseInt(episodeStr, 10);
-                
-                // Reasonable range for absolute episodes (1-9999)
-                if (episode >= 1 && episode <= 9999) {
-                    return episode;
-                }
-            }
-        }
-    }
-    
-    return null;
+    // Use unified parser implementation for consistency
+    return extractAbsoluteEpisodeLegacy(filename);
 }
 
 /**

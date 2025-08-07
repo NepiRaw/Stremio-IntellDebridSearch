@@ -1,34 +1,46 @@
 /**
- * Centralized patterns for quality, codecs, sources, languages, etc.
+ * Centralized patteconst CODEC_PATTERNS = [
+    { pattern: /\b(AV1)\b/i, codec: 'AV1', displayName: 'AV1', score: 12, emoji: '🎥' },
+    { pattern: /\b(x265)\b/i, codec: 'x265', displayName: 'x265', score: 11, emoji: '🎥' },
+    { pattern: /\b(HEVC|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '🎥' },
+    { pattern: /\b(AVC)\b/i, codec: 'AVC', displayName: 'AVC', score: 9, emoji: '🎥' },
+    { pattern: /\b(H\.?264)\b/i, codec: 'H.264', displayName: 'H.264', score: 8, emoji: '🎥' },
+    { pattern: /\b(x264|h264)\b/i, codec: 'x264', displayName: 'x264', score: 7, emoji: '🎥' }
+];r quality, codecs, sources, languages, etc.
  */
 
 const QUALITY_PATTERNS = [
-    { pattern: /(2160p|4K|UHD|UHDBD|UHD-BD|4K-UHD)/i, quality: '4K', displayName: '4K UHD', score: 40, emoji: '💎' },
-    { pattern: /1440p/i, quality: '1440p', displayName: '1440p', score: 30, emoji: '💍' },
-    { pattern: /1080p/i, quality: '1080p', displayName: '1080p', score: 20, emoji: '⭐' },
-    { pattern: /720p/i, quality: '720p', displayName: '720p', score: 10, emoji: '✨' },
-    { pattern: /576p/i, quality: '576p', displayName: '576p', score: 7, emoji: '🔘' },
-    { pattern: /480p/i, quality: '480p', displayName: '480p', score: 5, emoji: '⚫' },
+    { pattern: /(2160p|4K|UHD|UHDBD|UHD-BD|4K-UHD|3840x2160)/i, quality: '4K', displayName: '4K UHD', score: 40, emoji: '💎' },
+    { pattern: /(1440p|2560x1440)/i, quality: '1440p', displayName: '1440p', score: 30, emoji: '💍' },
+    { pattern: /(1080p|1920x1080)/i, quality: '1080p', displayName: '1080p', score: 20, emoji: '⭐' },
+    { pattern: /(720p|1280x720)/i, quality: '720p', displayName: '720p', score: 10, emoji: '✨' },
+    { pattern: /(576p|720x576)/i, quality: '576p', displayName: '576p', score: 7, emoji: '🔘' },
+    { pattern: /(480p|720x480)/i, quality: '480p', displayName: '480p', score: 5, emoji: '⚫' },
     { pattern: /\b(DVD|DVDRIP)\b/i, quality: 'DVD', displayName: 'DVD', score: 3, emoji: '📀' }
 ];
 
 const SOURCE_PATTERNS = [
-    { pattern: /\b(BLURAY|BLU-RAY|BDRIP|BD-RIP|BD)(?:\d+p?)?\b/i, source: 'BluRay', displayName: 'BluRay', score: 15, emoji: '💿' },
+    // Order matters - more specific patterns first
+    { pattern: /\b(BDRIP|BD-RIP)(?:\d+p?)?\b/i, source: 'BDRip', displayName: 'BDRip', score: 14, emoji: '💿' },
+    { pattern: /\b(BLURAY|BLU-RAY|BD)(?:\d+p?)?\b/i, source: 'BluRay', displayName: 'BluRay', score: 15, emoji: '📀' },
     { pattern: /\b(WEBDL|WEB-DL|WEB\.DL)(?:\d+p?)?\b/i, source: 'WEB-DL', displayName: 'WEB-DL', score: 12, emoji: '🌐' },
-    { pattern: /\b(WEBRIP|WEB-RIP|WEB\.RIP|WEBRIP)(?:\d+p?)?\b/i, source: 'WEBRip', displayName: 'WEB-Rip', score: 10, emoji: '🌐' },
+    { pattern: /\b(WEBRIP|WEB-RIP|WEB\.RIP|WEBRIP)(?:\d+p?)?\b/i, source: 'WEBRip', displayName: 'WEBRip', score: 10, emoji: '🌐' },
     { pattern: /\b(WEB)(?:\d+p?)?\b/i, source: 'WEB-DL', displayName: 'WEB-DL', score: 12, emoji: '🌐' },
     { pattern: /\bHDTV\b/i, source: 'HDTV', displayName: 'HDTV', score: 5, emoji: '📺' }
 ];
 
 const CODEC_PATTERNS = [
-    { pattern: /\b(HEVC|x265|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '🎯' },
-    { pattern: /\b(x264|H\.?264|AVC|h264)\b/i, codec: 'x264', displayName: 'x264', score: 5, emoji: '📺' }
+    { pattern: /\b(AV1)\b/i, codec: 'AV1', displayName: 'AV1', score: 12, emoji: '�' },
+    { pattern: /\b(x265)\b/i, codec: 'x265', displayName: 'x265', score: 11, emoji: '🎥' },
+    { pattern: /\b(HEVC|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '�' },
+    { pattern: /\b(x264|H\.?264|AVC|h264)\b/i, codec: 'x264', displayName: 'x264', score: 9, emoji: '🎥' }
 ];
 
 const LANGUAGE_PATTERNS = [
     { pattern: /\b(Multiple Subtitle|Multiple Subtitles|Multi-Sub)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
     { pattern: /\b(MULTILINGUAL|MULTILANG)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
     { pattern: /\b(MULTi3|MULTi2|MULTi|MULTI)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
+    { pattern: /\b(CUSTOM)\b/i, language: 'CUSTOM', displayName: 'CUSTOM', emoji: '🔧' },
     
     { pattern: /\bTRUEFRENCH\b/i, language: 'TrueFrench', displayName: 'TrueFrench', emoji: '🇫🇷' },
     { pattern: /\bSUBFRENCH\b/i, language: 'SubFrench', displayName: 'SubFrench', emoji: '🇫🇷' },
@@ -60,6 +72,7 @@ const AUDIO_PATTERNS = [
     { pattern: /\b(EAC3[\.\-]?5\.1|E\-AC3[\.\-]?5\.1|EAC3\.5\.1)\b/i, audio: 'EAC3 5.1', displayName: 'EAC3 5.1', emoji: '🎵' },
     { pattern: /\b(AC3[\.\-]?5\.1|AC\-3[\.\-]?5\.1)\b/i, audio: 'AC3 5.1', displayName: 'AC3 5.1', emoji: '🎵' },
     { pattern: /\b(DDP5\.1|DD\+5\.1|DDPLUS5\.1)\b/i, audio: 'DD+ 5.1', displayName: 'DD+ 5.1', emoji: '🎵' },
+    { pattern: /\b(DDP2\.0|DD\+2\.0|DDPLUS2\.0)\b/i, audio: 'DD+ 2.0', displayName: 'DD+ 2.0', emoji: '🎵' },
     { pattern: /\b(EAC3|E\-AC3|EAC\-3)\b/i, audio: 'EAC3', displayName: 'EAC3', emoji: '🎵' },
     { pattern: /\b(AC3|AC\-3)\b/i, audio: 'AC3', displayName: 'AC3', emoji: '🎵' },
     
@@ -70,14 +83,19 @@ const AUDIO_PATTERNS = [
     
     { pattern: /\b(FLAC)\b/i, audio: 'FLAC', displayName: 'FLAC', emoji: '🎵' },
     { pattern: /\b(LPCM)\b/i, audio: 'LPCM', displayName: 'LPCM', emoji: '🔊' },
+    { pattern: /\b(OPUS)\b/i, audio: 'Opus', displayName: 'Opus', emoji: '🎵' },
     
     { pattern: /\b(MP3)\b/i, audio: 'MP3', displayName: 'MP3', emoji: '🎵' },
     { pattern: /\b(OGG)\b/i, audio: 'OGG', displayName: 'OGG', emoji: '🎵' },
     
+    // Standalone channel patterns (for when codec is detected separately)
+    { pattern: /\b(7\.1)\b/i, audio: '7.1', displayName: '7.1', emoji: '🔊' },
+    { pattern: /\b(5\.1)\b/i, audio: '5.1', displayName: '5.1', emoji: '🔊' },
+    { pattern: /\b(2\.0)\b/i, audio: '2.0', displayName: '2.0', emoji: '🔊' },
+    
     { pattern: /\b(10BITS?|10BIT)\b/i, audio: '10bit', displayName: '10bit', emoji: '🎨' },
     { pattern: /\b(12BITS?|12BIT)\b/i, audio: '12bit', displayName: '12bit', emoji: '🎨' }
 ];
-
 
 const TECHNICAL_PATTERNS = [
     /\b(2160p|1440p|1080p|720p|576p|480p|4K|UHD)/i,

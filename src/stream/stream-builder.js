@@ -14,6 +14,8 @@ import {
     TECHNICAL_PATTERNS
 } from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
+import { parseUnified, extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
+import { extractQuality } from './quality-processor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
@@ -89,24 +91,6 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
 /**
  * Extract quality information from video and torrent details with emoji indicators
  */
-function extractQuality(video, details) {
-    const videoName = video.name || '';
-    const torrentName = details.name || '';
-    
-    const combinedName = `${torrentName} ${videoName}`;
-    
-    logger.debug(`[extractQuality] Analyzing: "${combinedName}"`);
-    
-    const fallbackInfo = {
-        resolution: video.info?.resolution || details.info?.resolution
-    };
-    
-    const quality = extractQualityDisplay(combinedName, fallbackInfo);
-    logger.debug(`[extractQuality] Found quality: ${quality}`);
-    
-    return quality;
-}
-
 /**
  * Format file size in human readable format
  */
@@ -296,91 +280,19 @@ function removeExtension(filename) {
 function extractSeriesInfo(videoName, containerName) {
     const name = videoName || containerName || '';
     
+    // Use unified parser for consistent results
+    const parseResult = parseUnified(name);
+    
+    // Build season/episode string in standard format
     let seasonEpisode = 'Unknown Episode';
-    let title = name;
-    let episodeName = null;
-    
-    const patterns = [
-        { regex: /[Ss](\d+)[Ee](\d+)/, type: 'standard' },           // S01E01
-        { regex: /[Ss](\d+)\s*-\s*(\d+)/, type: 'dash' },            // S5 - 14
-        { regex: /\b([IVX]+)\s*-\s*(\d+)/, type: 'roman' },          // III - 06
-        { regex: /\b([IVX]+)\s+(\d+)/, type: 'roman_space' },        // I 04
-        { regex: /\b(\d{1,2})x(\d{1,3})\b/, type: 'standard' },      // 1x01, 12x123 (but not 1920x1080)
-        { regex: /[Ee](\d+)/, type: 'episode_only' },                // E07 (assume season 1)
-        { regex: /\b(\d{3})\s/, type: 'absolute' }                   // AnimeName 031 MULTI
-    ];
-    
-    let seasonEpisodeMatch = null;
-    let matchType = null;
-    
-    for (const pattern of patterns) {
-        seasonEpisodeMatch = name.match(pattern.regex);
-        if (seasonEpisodeMatch) {
-            if (pattern.type === 'standard' && pattern.regex.source.includes('x')) {
-                const num1 = parseInt(seasonEpisodeMatch[1]);
-                const num2 = parseInt(seasonEpisodeMatch[2]);
-                
-                const isResolution = (
-                    (num1 >= 640 && num2 >= 480) ||     // 640x480 and above
-                    (num1 >= 320 && num2 >= 240) ||     // 320x240 and above
-                    (num1 === 1920 && num2 === 1080) || // 1920x1080
-                    (num1 === 1280 && num2 === 720) ||  // 1280x720
-                    (num1 === 3840 && num2 === 2160) || // 4K
-                    (num1 === 2560 && num2 === 1440)    // 1440p
-                );
-                
-                if (isResolution) {
-                    continue;
-                }
-            }
-            
-            matchType = pattern.type;
-            break;
-        }
+    if (parseResult.season !== null && parseResult.episode !== null) {
+        seasonEpisode = `S${parseResult.season.toString().padStart(2, '0')}E${parseResult.episode.toString().padStart(2, '0')}`;
     }
     
-    if (seasonEpisodeMatch) {
-        let season, episode;
-        
-        if (matchType === 'roman' || matchType === 'roman_space') {
-            season = romanToNumber(seasonEpisodeMatch[1]) || 1;
-            episode = parseInt(seasonEpisodeMatch[2]);
-        } else if (matchType === 'episode_only') {
-            season = 1; // Default to season 1 when only episode is found
-            episode = parseInt(seasonEpisodeMatch[1]);
-        } else if (matchType === 'absolute') {
-            seasonEpisode = 'Unknown Episode';
-            title = name.substring(0, seasonEpisodeMatch.index).trim();
-        } else {
-            season = parseInt(seasonEpisodeMatch[1]);
-            episode = parseInt(seasonEpisodeMatch[2]);
-        }
-        
-        if (matchType !== 'absolute') {
-            seasonEpisode = `S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}`;
-            title = name.substring(0, seasonEpisodeMatch.index).trim();
-        }
-    } else {
-        const titleMatch = name.match(/^([A-Za-z][A-Za-z0-9\s]*?)(?:\s+\d{3,}|\s+[Ss]\d+|\s+[IVX]+|\s*[\[\(])/);
-        if (titleMatch) {
-            title = titleMatch[1].trim();
-        }
-    }
+    // Use title from parser or fallback
+    let title = parseResult.title || 'Unknown Series';
     
-    title = title
-        .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '') // Remove group tags at start like [Group]
-        .replace(/[\._]/g, ' ')                   // Replace dots and underscores with spaces
-        .replace(/\s*-\s*$/, '')                  // Remove trailing dash
-        .replace(/\s+/g, ' ')                     // Collapse multiple spaces
-        .trim();
-    
-    if (title.length > 50 || title.match(/\b(MULTI|BluRay|1080p|720p|x264|x265|HEVC|mkv)\b/i)) {
-        const shortTitleMatch = title.match(/^([A-Za-z][A-Za-z0-9\s]{2,25}?)(?:\s+\d+|\s+(MULTI|BluRay|1080p|720p|x264|x265|HEVC))/i);
-        if (shortTitleMatch) {
-            title = shortTitleMatch[1].trim();
-        }
-    }
-    
+    // If title is empty or too short, try containerName as fallback
     if (!title || title.length < 3) {
         title = (containerName || 'Unknown Series')
             .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '')
@@ -389,7 +301,8 @@ function extractSeriesInfo(videoName, containerName) {
             .trim() || 'Unknown Series';
     }
     
-    // Extract episode name from various patterns
+    // Extract episode name using the same logic as before for compatibility
+    let episodeName = null;
     const episodePatterns = [
         /"([^"]+)"/,                // Double quotes: "Episode Name"
         /'([^']+)'/,                // Single quotes: 'Episode Name'
@@ -397,47 +310,36 @@ function extractSeriesInfo(videoName, containerName) {
         /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/ // Pattern for: Series - SxxExx - Episode Name (technical info)
     ];
     
-    logger.debug(`[extractSeriesInfo] Checking for episode names in: "${name}"`);
-    logger.debug(`[extractSeriesInfo] Series title: "${title}"`);
-    
     for (const pattern of episodePatterns) {
         const match = name.match(pattern);
         if (match && match[1] && match[1].trim().length > 2) {
             const content = match[1].trim();
-            logger.debug(`[extractSeriesInfo] Found episode name pattern: "${content}"`);
             
+            // Skip technical patterns
             if (content.match(/^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i) || 
-                content.match(/^[A-Z0-9]{8}$/i) || // Skip hashes
+                content.match(/^[A-Z0-9]{8}$/i) || 
                 content.match(/^(VRV|Multiple Subtitle|1080p|720p|480p)$/i)) {
-                logger.debug(`[extractSeriesInfo] Skipping technical pattern: "${content}"`);
                 continue;
             }
             
-            const cleanTitleForComparison = title.replace(/\d+/g, '').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-            const normalizedTitle = cleanTitleForComparison.toLowerCase();
+            // Check similarity to title to avoid redundant episode names
+            const normalizedTitle = title.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
             const normalizedContent = content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
             
-            logger.debug(`[extractSeriesInfo] Normalized title for comparison: "${normalizedTitle}"`);
-            logger.debug(`[extractSeriesInfo] Normalized content: "${normalizedContent}"`);
-            
+            // Check if episode name is too similar to title
             const titleWords = normalizedTitle.split(' ').filter(word => word.length > 3);
             const isRedundant = titleWords.some(word => {
                 if (word.length > 4 && normalizedContent.includes(word)) {
-                    logger.debug(`[extractSeriesInfo] Found redundant word: "${word}" in "${normalizedContent}"`);
                     return true;
                 }
                 return false;
             });
             
             const similarity = calculateStringSimilarity(normalizedTitle, normalizedContent);
-            logger.debug(`[extractSeriesInfo] Similarity: ${similarity}, Redundant: ${isRedundant}`);
             
             if (!isRedundant && similarity < 0.7 && content.length > 3) {
-                logger.debug(`[extractSeriesInfo] ✅ Using episode name: "${content}"`);
                 episodeName = content;
                 break;
-            } else {
-                logger.debug(`[extractSeriesInfo] ❌ Rejecting episode name: "${content}" (redundant: ${isRedundant}, similarity: ${similarity})`);
             }
         }
     }
@@ -455,51 +357,21 @@ function extractSeriesInfo(videoName, containerName) {
 function extractMovieInfo(movieName) {
     if (!movieName) return { title: 'Unknown Movie', year: null };
     
-    let title = movieName;
-    let year = null;
+    // Use unified parser for consistent results
+    const parseResult = parseUnified(movieName);
     
-    const yearMatch = title.match(/\((\d{4})\)|(\d{4})/); // Extract year first (prefer parentheses, then standalone 4-digit numbers)
-    if (yearMatch) {
-        year = yearMatch[1] || yearMatch[2];
-    }
+    // Use the movie title from parser with year formatting
+    const title = parseResult.title || 'Unknown Movie';
+    const year = parseResult.year || null;
     
-    title = title.replace(/^[\[\{][^\]\}]+[\]\}]\s*/, ''); // Remove group tags at the beginning
+    // Format title with year like original implementation
+    const formattedTitle = title + (year ? ` (${year})` : '');
     
-    let titleEndIndex = title.length;
-    // Combine imported TECHNICAL_PATTERNS with the file extension regex
-    const ALL_TECHNICAL_PATTERNS = [...TECHNICAL_PATTERNS, /\.[a-zA-Z0-9]{2,4}$/];
-
-    for (const pattern of ALL_TECHNICAL_PATTERNS) {
-        const match = title.match(pattern);
-        if (match && match.index < titleEndIndex) {
-            titleEndIndex = Math.min(titleEndIndex, match.index);
-        }
-    }
-    
-    // Extract clean title
-    let cleanTitle = title.substring(0, titleEndIndex).trim();
-    
-    // Clean up the title
-    cleanTitle = cleanTitle
-        .replace(/[\._]/g, ' ')
-        .replace(/\s*-\s*$/, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    
-    // Remove year from title to avoid duplication
-    if (year) {
-        cleanTitle = cleanTitle.replace(new RegExp(`\\(${year}\\)`, 'g'), '').replace(/\s+/g, ' ').trim();
-        cleanTitle = cleanTitle.replace(new RegExp(`\\b${year}\\b`, 'g'), '').replace(/\s+/g, ' ').trim();
-    }
-    
-    if (!cleanTitle || cleanTitle.length < 3) {
-        cleanTitle = 'Unknown Movie';
-    }
-    
+    // Return in same format for backward compatibility
     return {
-        title: cleanTitle + (year ? ` (${year})` : ''),
+        title: formattedTitle,
         year: year,
-        cleanTitleOnly: cleanTitle  // For technical details filtering
+        cleanTitleOnly: title  // For technical details filtering
     };
 }
 
@@ -507,119 +379,8 @@ function extractMovieInfo(movieName) {
  * Extract comprehensive technical details from filename with sophisticated pattern matching
  */
 export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, episodeName) {
-    if (!filename) return '';
-    
-    logger.debug(`[extractTechnicalDetails] Analyzing: "${filename}"`);
-    logger.debug(`[extractTechnicalDetails] Title: "${seriesTitle}", Release Group: "${releaseGroup}"`);
-    
-    let cleanedFilename = filename;
-    if (seriesTitle && seriesTitle.length > 3) {
-        const titleVariants = [
-            seriesTitle,
-            seriesTitle.replace(/\s+/g, '.'),
-            seriesTitle.replace(/\s+/g, '_'),
-            seriesTitle.replace(/[^\w\s]/g, '').replace(/\s+/g, '.')
-        ];
-        
-        for (const variant of titleVariants) {
-            if (variant.length > 3) {
-                const regex = new RegExp(variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-                cleanedFilename = cleanedFilename.replace(regex, '');
-            }
-        }
-    }
-    
-    if (episodeName && episodeName.length > 3) {
-        const regex = new RegExp(episodeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-        cleanedFilename = cleanedFilename.replace(regex, '');
-    }
-    
-    logger.debug(`[extractTechnicalDetails] Cleaned filename: "${cleanedFilename}"`);
-    
-    
-    const languageDetails = [];
-    const sourceDetails = [];
-    const codecDetails = [];
-    const audioDetails = [];
-    const techDetails = [];
-    
-    for (const pattern of LANGUAGE_PATTERNS) {
-        if (pattern.pattern.test(cleanedFilename) && !languageDetails.some(detail => detail.includes(pattern.displayName))) {
-            languageDetails.push(`${pattern.emoji} ${pattern.displayName}`);
-        }
-    }
-    
-    for (const pattern of SOURCE_PATTERNS) {
-        if (pattern.pattern.test(cleanedFilename)) {
-            sourceDetails.push(`${pattern.emoji} ${pattern.displayName}`);
-            break;
-        }
-    }
-    
-    for (const pattern of CODEC_PATTERNS) {
-        if (pattern.pattern.test(cleanedFilename)) {
-            codecDetails.push(`${pattern.emoji} ${pattern.codec}`);
-        }
-    }
-    
-    const foundAudio = new Set();
-    const audioMatches = [];
-    
-    for (const pattern of AUDIO_PATTERNS) {
-        if (pattern.pattern.test(cleanedFilename)) {
-            audioMatches.push(pattern);
-        }
-    }
-    
-    for (const pattern of audioMatches) {
-        const isGeneric = audioMatches.some(otherPattern => {
-            if (otherPattern === pattern) return false;
-            
-            const currentAudio = pattern.audio.toLowerCase().replace(/[^\w]/g, '');
-            const otherAudio = otherPattern.audio.toLowerCase().replace(/[^\w]/g, '');
-            
-            return otherAudio.includes(currentAudio) && currentAudio.length < otherAudio.length;
-        });
-        
-        if (!isGeneric && !foundAudio.has(pattern.audio)) {
-            audioDetails.push(`${pattern.emoji} ${pattern.audio}`);
-            foundAudio.add(pattern.audio);
-        }
-    }
-    
-    for (const tech of COMPREHENSIVE_TECH_PATTERNS) {
-        if (tech.pattern.test(cleanedFilename) && !techDetails.some(detail => detail.includes(tech.display))) {
-            techDetails.push(tech.display);
-        }
-    }
-    
-    const detectedDetails = [
-        ...languageDetails,
-        ...sourceDetails, 
-        ...codecDetails,
-        ...audioDetails,
-        ...techDetails
-    ];
-    
-    const uniqueDetails = [];
-    const finalSeenDetails = new Set();
-    
-    for (const detail of detectedDetails) {
-        const normalized = detail.toLowerCase().replace(/[^\w]/g, '');
-        if (!finalSeenDetails.has(normalized)) {
-            finalSeenDetails.add(normalized);
-            uniqueDetails.push(detail);
-        }
-    }
-    
-    logger.debug(`[extractTechnicalDetails] Languages: [${languageDetails.join(', ')}]`);
-    logger.debug(`[extractTechnicalDetails] Sources: [${sourceDetails.join(', ')}]`);
-    logger.debug(`[extractTechnicalDetails] Codecs: [${codecDetails.join(', ')}]`);
-    logger.debug(`[extractTechnicalDetails] Audio: [${audioDetails.join(', ')}]`);
-    logger.debug(`[extractTechnicalDetails] Tech: [${techDetails.join(', ')}]`);
-    
-    logger.debug(`[extractTechnicalDetails] Final details: [${uniqueDetails.join(', ')}]`);
-    return uniqueDetails.join(' • ');
+    // Use unified parser for technical details extraction
+    return extractTechnicalDetailsLegacy(filename);
 }
 
 export function filterSeason(torrent, season) {
