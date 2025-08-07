@@ -1,8 +1,7 @@
 /**
  * Stream builder module - constructs stream objects with detailed titles and quality info
  */
-
-import { FILE_TYPES } from '../utils/file-types.js';
+import { FILE_TYPES } from './metadata-extractor.js';
 import { 
     extractQualityDisplay, 
     LANGUAGE_PATTERNS, 
@@ -16,6 +15,7 @@ import {
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { parseUnified, extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
 import { extractQuality } from './quality-processor.js';
+import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
@@ -30,13 +30,25 @@ const STREAM_NAME_MAP = {
 
 /**
  * Create stream object from torrent details and video file
+ * Updated to accept pre-parsed metadata for performance optimization
  */
-export function toStream(details, type, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+export function toStream(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return null;
+
+    // Handle backward compatibility - if parsedMetadataOrKnownSeasonEpisode is not an object with metadata, treat as old signature
+    let parsedMetadata = null;
+    if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
+        (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
+        parsedMetadata = parsedMetadataOrKnownSeasonEpisode;
+    } else {
+        // Old signature - shift parameters
+        knownSeasonEpisode = parsedMetadataOrKnownSeasonEpisode;
+    }
 
     logger.debug(`[toStream] Processing ${type} with details.name="${details.name}"`);
     logger.debug(`[toStream] knownSeasonEpisode:`, knownSeasonEpisode);
     logger.debug(`[toStream] details.videos length:`, details.videos?.length || 0);
+    logger.debug(`[toStream] parsedMetadata provided:`, !!parsedMetadata);
 
     let video, icon
     if (details.fileType == FILE_TYPES.DOWNLOADS) {
@@ -74,7 +86,7 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
     let name = STREAM_NAME_MAP[details.source] || 'Unknown'
     name = name + '\n' + quality
 
-    let title = formatStreamTitle(details, video, type, icon, knownSeasonEpisode, variantInfo, searchContext); // Enhanced title formatting - pass known season/episode info and variant info if available
+    let title = formatStreamTitle(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext); // Enhanced title formatting - pass known season/episode info and variant info if available
 
     let bingeGroup = details.source + '|' + details.id
 
@@ -88,12 +100,6 @@ export function toStream(details, type, knownSeasonEpisode = null, variantInfo =
     }
 }
 
-/**
- * Extract quality information from video and torrent details with emoji indicators
- */
-/**
- * Format file size in human readable format
- */
 function formatSize(size) {
     if (!size) {
         return undefined
@@ -105,14 +111,16 @@ function formatSize(size) {
 
 /**
  * This function creates the multi-line stream title format
+ * Updated to use pre-parsed metadata for performance optimization
  */
-function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+function formatStreamTitle(details, video, type, icon, parsedMetadata = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     const containerName = details.containerName || details.name || 'Unknown';
     const videoName = video.name || '';
     const size = formatSize(video?.size || 0);
     
     if (type === 'series') {
-        const seriesInfo = extractSeriesInfo(videoName, containerName);
+        // Use pre-parsed metadata if available, otherwise parse on demand (fallback for compatibility)
+        const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
         const releaseGroup = extractReleaseGroup(videoName || containerName);
         
         let detectedVariant = null;
@@ -168,7 +176,7 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         }
         
         // Line 4 or 5: Enhanced technical details with good emojis for easy reading
-        const techDetails = extractTechnicalDetails(removeExtension(videoName || containerName), seriesInfo.title, releaseGroup, seriesInfo.episodeName);
+        const techDetails = parsedMetadata?.technicalDetails || extractTechnicalDetailsLegacy(removeExtension(videoName || containerName));
         if (techDetails && techDetails.length > 0) {
             lines.push(`⚙️ ${techDetails}`);
         }
@@ -185,7 +193,8 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         return lines.join('\n');
         
     } else {
-        const movieInfo = extractMovieInfo(removeExtension(videoName || containerName));
+        // Use pre-parsed metadata if available, otherwise parse on demand (fallback for compatibility)
+        const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
         const releaseGroup = extractReleaseGroup(videoName || containerName);
         
         const lines = [];
@@ -202,7 +211,7 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
         }
         
         // Line 3 or 4: Enhanced technical details with good emojis for easy reading
-        const techDetails = extractTechnicalDetails(removeExtension(videoName || containerName), movieInfo.cleanTitleOnly, releaseGroup, '');
+        const techDetails = parsedMetadata?.technicalDetails || extractTechnicalDetailsLegacy(removeExtension(videoName || containerName));
         if (techDetails && techDetails.length > 0) {
             lines.push(`⚙️ ${techDetails}`);
         }
@@ -219,53 +228,6 @@ function formatStreamTitle(details, video, type, icon, knownSeasonEpisode = null
 }
 
 /**
- * Calculate string similarity using a simple algorithm
- */
-function calculateStringSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    if (str1 === str2) return 1;
-    
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-    
-    if (longer.length === 0) return 1;
-    
-    const editDistance = levenshteinDistance(longer, shorter);
-    return (longer.length - editDistance) / longer.length;
-}
-
-/**
- * Calculate Levenshtein distance between two strings
- */
-function levenshteinDistance(str1, str2) {
-    const matrix = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-        matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= str1.length; j++) {
-        matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-        for (let j = 1; j <= str1.length; j++) {
-            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j] + 1
-                );
-            }
-        }
-    }
-    
-    return matrix[str2.length][str1.length];
-}
-
-/**
  * Remove file extension from filename using centralized patterns
  */
 function removeExtension(filename) {
@@ -275,122 +237,15 @@ function removeExtension(filename) {
 }
 
 /**
- * Extract series information (title, season, episode) from filename
+ * Filter torrents by year for movies
  */
-function extractSeriesInfo(videoName, containerName) {
-    const name = videoName || containerName || '';
+export function filterYear(torrent, cinemetaDetails) {
+    if (!cinemetaDetails?.year) return true; // No year to filter against
     
-    // Use unified parser for consistent results
-    const parseResult = parseUnified(name);
+    const torrentYear = torrent?.info?.year;
+    if (!torrentYear) return true; // No year info in torrent
     
-    // Build season/episode string in standard format
-    let seasonEpisode = 'Unknown Episode';
-    if (parseResult.season !== null && parseResult.episode !== null) {
-        seasonEpisode = `S${parseResult.season.toString().padStart(2, '0')}E${parseResult.episode.toString().padStart(2, '0')}`;
-    }
-    
-    // Use title from parser or fallback
-    let title = parseResult.title || 'Unknown Series';
-    
-    // If title is empty or too short, try containerName as fallback
-    if (!title || title.length < 3) {
-        title = (containerName || 'Unknown Series')
-            .replace(/^[\[\(][^\]\)]*[\]\)]\s*/, '')
-            .replace(/[\._]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim() || 'Unknown Series';
-    }
-    
-    // Extract episode name using the same logic as before for compatibility
-    let episodeName = null;
-    const episodePatterns = [
-        /"([^"]+)"/,                // Double quotes: "Episode Name"
-        /'([^']+)'/,                // Single quotes: 'Episode Name'
-        /''([^']+)''/,              // Double single quotes: ''Episode Name''
-        /- [Ss]\d+[Ee]\d+ - ([^(]+?)(?:\s*\([^)]*\)|$)/ // Pattern for: Series - SxxExx - Episode Name (technical info)
-    ];
-    
-    for (const pattern of episodePatterns) {
-        const match = name.match(pattern);
-        if (match && match[1] && match[1].trim().length > 2) {
-            const content = match[1].trim();
-            
-            // Skip technical patterns
-            if (content.match(/^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i) || 
-                content.match(/^[A-Z0-9]{8}$/i) || 
-                content.match(/^(VRV|Multiple Subtitle|1080p|720p|480p)$/i)) {
-                continue;
-            }
-            
-            // Check similarity to title to avoid redundant episode names
-            const normalizedTitle = title.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-            const normalizedContent = content.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-            
-            // Check if episode name is too similar to title
-            const titleWords = normalizedTitle.split(' ').filter(word => word.length > 3);
-            const isRedundant = titleWords.some(word => {
-                if (word.length > 4 && normalizedContent.includes(word)) {
-                    return true;
-                }
-                return false;
-            });
-            
-            const similarity = calculateStringSimilarity(normalizedTitle, normalizedContent);
-            
-            if (!isRedundant && similarity < 0.7 && content.length > 3) {
-                episodeName = content;
-                break;
-            }
-        }
-    }
-    
-    return {
-        title: title,
-        seasonEpisode: seasonEpisode,
-        episodeName: episodeName
-    };
-}
-
-/**
- * Extract movie information (title, year) from filename
- */
-function extractMovieInfo(movieName) {
-    if (!movieName) return { title: 'Unknown Movie', year: null };
-    
-    // Use unified parser for consistent results
-    const parseResult = parseUnified(movieName);
-    
-    // Use the movie title from parser with year formatting
-    const title = parseResult.title || 'Unknown Movie';
-    const year = parseResult.year || null;
-    
-    // Format title with year like original implementation
-    const formattedTitle = title + (year ? ` (${year})` : '');
-    
-    // Return in same format for backward compatibility
-    return {
-        title: formattedTitle,
-        year: year,
-        cleanTitleOnly: title  // For technical details filtering
-    };
-}
-
-/**
- * Extract comprehensive technical details from filename with sophisticated pattern matching
- */
-export function extractTechnicalDetails(filename, seriesTitle, releaseGroup, episodeName) {
-    // Use unified parser for technical details extraction
-    return extractTechnicalDetailsLegacy(filename);
-}
-
-export function filterSeason(torrent, season) {
-    const torrentSeason = torrent?.info?.season;
-    const torrentSeasons = torrent?.info?.seasons;
-    const seasonMatch = torrentSeason == season || torrentSeasons?.includes(Number(season));
-    
-    logger.debug(`[filterSeason] Checking torrent: "${torrent?.name || 'UNKNOWN'}" | Target season: ${season} | Torrent season: ${torrentSeason} | Torrent seasons: ${JSON.stringify(torrentSeasons)} | Match: ${seasonMatch}`);
-    
-    return seasonMatch;
+    return Math.abs(torrentYear - cinemetaDetails.year) <= 1; // Allow 1 year difference
 }
 
 export function filterEpisode(torrentDetails, season, episode, absoluteEpisode = null) {
@@ -461,16 +316,4 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
     logger.debug(`[filterEpisode] ❌ No matches found for S${season}E${episode} (abs: ${absoluteEpisode})`);
     torrentDetails.videos = [];
     return false;
-}
-
-/**
- * Filter torrents by year for movies
- */
-export function filterYear(torrent, cinemetaDetails) {
-    if (!cinemetaDetails?.year) return true; // No year to filter against
-    
-    const torrentYear = torrent?.info?.year;
-    if (!torrentYear) return true; // No year info in torrent
-    
-    return Math.abs(torrentYear - cinemetaDetails.year) <= 1; // Allow 1 year difference
 }

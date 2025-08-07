@@ -15,6 +15,22 @@ export const SEASON_PATTERNS = {
         regex: /s(?:eason[\s.-]*)?0*(\d{1,2})/i,
         description: 'Standard with zero padding S01, S001'
     },
+    seasonEpisodeExtract: {
+        regex: /S(\d+)E\d+/i,
+        description: 'Extract season from S01E06 format'
+    },
+    seasonWordSpaced: {
+        regex: /Season[\s]*(\d+)/i,
+        description: 'Season 1 with optional space'
+    },
+    seasonOrS: {
+        regex: /(?:S|Season)(\d+)/i,
+        description: 'S1 or Season1 format'
+    },
+    seasonStandalone: {
+        regex: /\bS(\d{1,2})\b/i,
+        description: 'Standalone S1 format'
+    },
     frenchSeason: {
         regex: /(?:saison|s[ae][\s.-]*?)(\d{1,2})/i,
         description: 'French format: saison 1, sa 1'
@@ -34,6 +50,11 @@ export const SEASON_PATTERNS = {
     japaneseSeason: {
         regex: /(?:シーズン|シリーズ)[\s.-]*(\d{1,2})/i,
         description: 'Japanese format: シーズン1, シリーズ1'
+    },
+    romanSeason: {
+        regex: /(?:season|saison|serie|temporada|staffel)[\s.-]*([IVX]+)/i,
+        description: 'Roman numeral season: Season II, Saison III',
+        seasonType: 'roman'
     },
     seasonWord: {
         regex: /(?:season|saison|serie|temporada|staffel)[\s.-]*(\d{1,2})/i,
@@ -75,11 +96,53 @@ export const EPISODE_PATTERNS = {
         description: 'Episode only: E07 (assume season 1)',
         groups: { episode: 1 },
         defaultSeason: 1
+    },
+    animeDashNumber: {
+        regex: /(.+?)\s*-\s*(\d{2,3})(?:\s*\([^)]*\))?/,
+        description: 'Anime dash number: Title - 06 or Title - 06 (1)',
+        groups: { episode: 2 },
+        defaultSeason: 1
+    },
+    writtenSeasonEpisode: {
+        regex: /Season\s+(\d+)[\s\-]+Episode\s+(\d+)/i,
+        description: 'Written format: Season 1 Episode 5',
+        groups: { season: 1, episode: 2 }
+    },
+    romanSeasonWrittenEpisode: {
+        regex: /Season\s+([IVX]+)\s+Episode\s+(\d+)/i,
+        description: 'Roman season written episode: Season II Episode 05',
+        groups: { season: 1, episode: 2 },
+        seasonType: 'roman'
     }
 };
 
 export const ABSOLUTE_EPISODE_PATTERNS = {
-    titleNumber: {
+    fourDigitBetweenDots: {
+        regex: /\b(\d{4})\b.*\s/,
+        description: '4-digit numbers between dots followed by resolution (e.g., One.Piece.1015.1080p)',
+        groups: { episode: 1 }
+    },
+    threeToFourDigitWithQuality: {
+        regex: /\.(\d{3,4})\..*(?:multi|bluray|1080p|720p|x264|x265|web|dl|hdtv)/i,
+        description: '3-4 digit numbers between dots followed by resolution (e.g., Naruto.142.Title)',
+        groups: { episode: 1 }
+    },
+    dashNumber: {
+        regex: /[-\s](\d{2,4})(?:\s+(?:multi|bluray|1080p|720p|x264|x265|web|dl|hdtv|$))/i,
+        description: 'Dash followed by 2-4 digit number before quality: - 030, - 1015',
+        groups: { episode: 1 }
+    },
+    episodePrefixEnhanced: {
+        regex: /Episode[\s]*(\d{2,4})/i,
+        description: 'Episode prefix enhanced: Episode 030, Episode 1015',
+        groups: { episode: 1 }
+    },
+    titleNumberWithDots: {
+        regex: /(\w+(?:\.\w+)*?)\.(\d{3,4})(?:\.|$)/i,
+        description: 'Title with dots followed by 3-4 digit number: One.Piece.142.1080p',
+        groups: { title: 1, episode: 2 }
+    },
+    titleNumberSpaced: {
         regex: /(\w+)\s+(\d{3,4})(?:\s|$)/i,
         description: 'Title followed by 3-4 digit number: DanMachi 031',
         groups: { title: 1, episode: 2 }
@@ -110,48 +173,88 @@ export const ABSOLUTE_EPISODE_PATTERNS = {
         groups: { title: 1, episode: 2 }
     },
     absoluteOnly: {
-        regex: /\b(\d{3})\s/,
-        description: 'Standalone 3-digit absolute episode: 031 MULTI',
+        regex: /\b(\d{3,4})\s/,
+        description: 'Standalone 3-4-digit absolute episode: 031 MULTI, 1015 1080p',
         groups: { episode: 1 }
     }
 };
 
 export function parseSeasonFromTitle(title, strict = false) {
     if (!title) return null;
+    
+    // First check for roman numeral seasons
     const romanSeason = parseRomanSeasons(title);
     if (romanSeason) {
         return romanSeason.season;
     }
+    
     const normalizedTitle = title.replace(/\s+/g, ' ')
                                .replace(/[\[\](){}]/g, ' ')
                                .trim();
+    
     const reliablePatterns = ['standard', 'standardPadded', 'seasonWord', 'seasonFolder'];
     const patternsToUse = strict 
         ? Object.entries(SEASON_PATTERNS).filter(([key]) => reliablePatterns.includes(key))
         : Object.entries(SEASON_PATTERNS);
+    
     const sortedPatterns = patternsToUse.sort(([a], [b]) => {
         const aReliable = reliablePatterns.includes(a);
         const bReliable = reliablePatterns.includes(b);
         return bReliable - aReliable;
     });
+    
     for (const [format, pattern] of sortedPatterns) {
         const match = normalizedTitle.match(pattern.regex);
         if (match?.[1]) {
-            const num = parseInt(match[1], 10);
-            if (!isNaN(num) && num >= 0 && num <= 30) return num;
+            let num;
+            if (pattern.seasonType === 'roman') {
+                num = romanToNumber(match[1]);
+            } else {
+                num = parseInt(match[1], 10);
+            }
+            
+            // Reject season numbers that are too high (likely absolute episodes)
+            // Season numbers above 20 are very rare and likely absolute episodes
+            if (!isNaN(num) && num >= 0 && num <= 20) {
+                return num;
+            }
         }
     }
+    
     return null;
 }
 
 export function parseEpisodeFromTitle(filename) {
     if (!filename) return null;
+    
     const normalizedName = filename.replace(/\s+/g, ' ')
                                  .replace(/[\[\](){}]/g, ' ')
                                  .trim();
-    for (const [patternName, pattern] of Object.entries(EPISODE_PATTERNS)) {
+    
+    // Sort patterns by priority (more specific patterns first)
+    const patternEntries = Object.entries(EPISODE_PATTERNS);
+    const sortedPatterns = [
+        // Highest priority: Standard season/episode formats
+        ...patternEntries.filter(([name]) => name === 'seasonEpisode'),
+        ...patternEntries.filter(([name]) => name === 'writtenSeasonEpisode'),
+        ...patternEntries.filter(([name]) => name === 'numberXNumber'),
+        
+        // Medium priority: Other specific patterns
+        ...patternEntries.filter(([name]) => name === 'seasonEpisodeDash'),
+        ...patternEntries.filter(([name]) => name === 'episodeOnly'),
+        
+        // Lowest priority: Generic anime dash pattern (only if no season info found)
+        ...patternEntries.filter(([name]) => name === 'animeDashNumber')
+    ];
+    
+    // First check if we can find season info separately
+    const seasonInfo = parseSeasonFromTitle(filename);
+    
+    for (const [patternName, pattern] of sortedPatterns) {
         const match = normalizedName.match(pattern.regex);
         if (!match) continue;
+        
+        // Handle validation rules
         if (pattern.validation === 'skipResolution') {
             const num1 = parseInt(match[1]);
             const num2 = parseInt(match[2]);
@@ -165,8 +268,10 @@ export function parseEpisodeFromTitle(filename) {
             );
             if (isResolution) continue;
         }
+        
         let season = null;
         let episode = null;
+        
         if (pattern.groups.season && match[pattern.groups.season]) {
             if (pattern.seasonType === 'roman') {
                 season = romanToNumber(match[pattern.groups.season]);
@@ -174,11 +279,18 @@ export function parseEpisodeFromTitle(filename) {
                 season = parseInt(match[pattern.groups.season], 10);
             }
         } else if (pattern.defaultSeason) {
-            season = pattern.defaultSeason;
+            // For anime dash pattern, use detected season info if available
+            if (patternName === 'animeDashNumber' && seasonInfo) {
+                season = seasonInfo;
+            } else {
+                season = pattern.defaultSeason;
+            }
         }
+        
         if (pattern.groups.episode && match[pattern.groups.episode]) {
             episode = parseInt(match[pattern.groups.episode], 10);
         }
+        
         if (season !== null && episode !== null && 
             season >= 0 && season <= 30 && 
             episode >= 1 && episode <= 999) {
@@ -186,6 +298,7 @@ export function parseEpisodeFromTitle(filename) {
             return { season, episode, pattern: patternName };
         }
     }
+    
     return null;
 }
 
@@ -194,21 +307,41 @@ export function parseAbsoluteEpisode(filename) {
     
     const videoExtensionPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
     const cleanFilename = filename.replace(videoExtensionPattern, '');
-    for (const [patternName, pattern] of Object.entries(ABSOLUTE_EPISODE_PATTERNS)) {
+    
+    // Sort patterns by priority (more specific patterns first)
+    const patternEntries = Object.entries(ABSOLUTE_EPISODE_PATTERNS);
+    const sortedPatterns = [
+        // High priority patterns for specific formats
+        ...patternEntries.filter(([name]) => name === 'fourDigitBetweenDots'),
+        ...patternEntries.filter(([name]) => name === 'threeToFourDigitWithQuality'),
+        ...patternEntries.filter(([name]) => name === 'dashNumber'),
+        ...patternEntries.filter(([name]) => name === 'episodePrefixEnhanced'),
+        // Medium priority patterns  
+        ...patternEntries.filter(([name]) => name === 'titleNumberWithDots'),
+        ...patternEntries.filter(([name]) => name === 'titleNumberSpaced'),
+        ...patternEntries.filter(([name]) => name === 'episodePrefix'),
+        // Lower priority patterns
+        ...patternEntries.filter(([name]) => !['fourDigitBetweenDots', 'threeToFourDigitWithQuality', 'dashNumber', 'episodePrefixEnhanced', 'titleNumberWithDots', 'titleNumberSpaced', 'episodePrefix'].includes(name))
+    ];
+    
+    for (const [patternName, pattern] of sortedPatterns) {
         const match = cleanFilename.match(pattern.regex);
         if (!match) continue;
+        
         let episodeStr = null;
         if (pattern.groups.episode) {
             episodeStr = match[pattern.groups.episode];
         }
+        
         if (episodeStr && /^\d{2,4}$/.test(episodeStr)) {
             const episode = parseInt(episodeStr, 10);
-            if (episode >= 1 && episode <= 9999) {
+            if (episode >= 1 && episode <= 9999) { // Support up to 4-digit episodes
                 logger.debug(`[parseAbsoluteEpisode] Found absolute episode ${episode} using pattern: ${patternName}`);
                 return episode;
             }
         }
     }
+    
     return null;
 }
 

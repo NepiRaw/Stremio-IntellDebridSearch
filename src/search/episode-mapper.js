@@ -1,6 +1,6 @@
 /**
- * Episode Mapper - Extracted from working advanced-search.js
- * Handles episode/season parsing and absolute episode mapping using modular API
+ * Episode Mapper
+ * Handles episode/season parsing and absolute episode mapping
  */
 
 import { getEpisodeMapping as traktGetEpisodeMapping } from '../api/trakt.js';

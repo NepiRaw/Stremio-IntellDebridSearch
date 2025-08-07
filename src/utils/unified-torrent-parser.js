@@ -7,6 +7,7 @@ import PTT from 'parse-torrent-title';
 import { logger } from './logger.js';
 import { romanToNumber } from './roman-numeral-utils.js';
 import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
+import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
 
 // Cache to avoid re-parsing the same torrent names
 const parseCache = new Map();
@@ -96,11 +97,22 @@ function cleanFilename(filename) {
 function applyRegexFallbacks(filename, pttResult) {
     const result = { ...pttResult };
     
-    // Episode extraction fallbacks
-    result.episode = extractEpisodeWithFallback(filename, pttResult);
+    // Episode extraction fallbacks (now uses comprehensive patterns from episode-patterns.js)
+    const episodeInfo = extractEpisodeWithFallback(filename, pttResult);
+    if (typeof episodeInfo === 'object' && episodeInfo !== null) {
+        // If episode-patterns.js returned season info too, use it
+        result.episode = episodeInfo.episode;
+        if (episodeInfo.season && !result.season) {
+            result.season = episodeInfo.season;
+        }
+    } else {
+        result.episode = episodeInfo;
+    }
     
-    // Season extraction fallbacks
-    result.season = extractSeasonWithFallback(filename, pttResult);
+    // Season extraction fallbacks (only if not already set by episode parsing)
+    if (!result.season) {
+        result.season = extractSeasonWithFallback(filename, pttResult);
+    }
     
     // Absolute episode extraction
     result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
@@ -138,40 +150,22 @@ function cleanTitle(filename, pttResult) {
  * Extract episode number with comprehensive fallback patterns
  * @param {string} filename - Filename to parse
  * @param {Object} pttResult - PTT parsing result
- * @returns {number|null} Episode number
+ * @returns {Object|number|null} Episode info object or episode number
  */
 function extractEpisodeWithFallback(filename, pttResult) {
+    // First try the comprehensive episode patterns from episode-patterns.js
+    const episodeInfo = parseEpisodeFromTitle(filename);
+    if (episodeInfo && episodeInfo.episode) {
+        logger.debug(`[unified-parser] Episode extracted via episode-patterns: S${episodeInfo.season}E${episodeInfo.episode} (pattern: ${episodeInfo.pattern})`);
+        return episodeInfo; // Return full object with season and episode
+    }
+    
     // If PTT episode seems correct, use it
     if (pttResult.episode && !isEpisodeSuspicious(filename, pttResult.episode)) {
         return pttResult.episode;
     }
     
-    // Regex fallback patterns (ordered by priority)
-    const episodePatterns = [
-        // Anime-style patterns
-        /- (\d+) \(\d+\)/,                    // "- 06 (1)" pattern
-        /- (\d{2,3})\s/,                      // "- 030 " pattern  
-        /Episode[.\s]*(\d+)/i,                // "Episode 06"
-        /Ep[.\s]*(\d+)/i,                     // "Ep 06"
-        /E(\d+)(?!.*\d{3,4}p)/i,             // "E06" (not resolution)
-        /S\d+E(\d+)/i,                        // "S01E06"
-        /\s(\d+)\s(?!.*\d{3,4}p)/,           // Standalone number (not resolution)
-        // Removed the /\.(\d+)\./ pattern as it catches years like "2019"
-    ];
-    
-    for (const pattern of episodePatterns) {
-        const match = filename.match(pattern);
-        if (match) {
-            const episode = parseInt(match[1]);
-            // More restrictive episode range and exclude years
-            if (episode > 0 && episode < 9999 && !isLikelyYear(episode)) {
-                logger.debug(`[unified-parser] Episode extracted via regex: ${episode} (pattern: ${pattern})`);
-                return episode;
-            }
-        }
-    }
-    
-    // Return PTT result even if suspicious, as fallback
+    // Return PTT result as final fallback
     return pttResult.episode || null;
 }
 
@@ -212,36 +206,16 @@ function isEpisodeSuspicious(filename, episode) {
  * @returns {number|null} Season number
  */
 function extractSeasonWithFallback(filename, pttResult) {
+    // First try the comprehensive season patterns from episode-patterns.js
+    const season = parseSeasonFromTitle(filename, false);
+    if (season !== null) {
+        logger.debug(`[unified-parser] Season extracted via episode-patterns: ${season}`);
+        return season;
+    }
+    
     // PTT is generally good at season detection
     if (pttResult.season) {
         return pttResult.season;
-    }
-    
-    // Regex fallback patterns
-    const seasonPatterns = [
-        /S(\d+)E\d+/i,                        // S01E06
-        /Season[.\s]*(\d+)/i,                 // Season 1
-        /(?:S|Season)(\d+)/i,                 // S1, Season1
-        /\bS(\d{1,2})\b/i,                    // S1 standalone
-    ];
-    
-    for (const pattern of seasonPatterns) {
-        const match = filename.match(pattern);
-        if (match) {
-            const season = parseInt(match[1]);
-            if (season > 0 && season < 100) { // Reasonable season range
-                return season;
-            }
-        }
-    }
-    
-    // Check for Roman numerals in title
-    const romanSeasonMatch = filename.match(/\b([IVX]+)\b/);
-    if (romanSeasonMatch) {
-        const romanSeason = romanToNumber(romanSeasonMatch[1]);
-        if (romanSeason && romanSeason > 0 && romanSeason < 20) {
-            return romanSeason;
-        }
     }
     
     return null;
@@ -254,21 +228,26 @@ function extractSeasonWithFallback(filename, pttResult) {
  * @returns {number|null} Absolute episode number
  */
 function extractAbsoluteEpisode(filename, pttResult) {
-    // Look for standalone numbers that could be absolute episodes
-    const absolutePatterns = [
-        /\s(\d{3})\s/,                        // 3-digit numbers (episodes 100+)
-        /- (\d{2,3})\s/,                      // "- 030" style
-        /Episode[.\s]*(\d{2,3})/i,            // "Episode 030"
-    ];
+    // First try the comprehensive absolute episode patterns from episode-patterns.js
+    const absoluteEpisode = parseAbsoluteEpisode(filename);
     
-    for (const pattern of absolutePatterns) {
-        const match = filename.match(pattern);
-        if (match) {
-            const absolute = parseInt(match[1]);
-            if (absolute > 0 && absolute < 9999) {
-                return absolute;
-            }
+    // Skip absolute episode detection for movies (if year is present AND no clear episode patterns)
+    if (pttResult.year && filename.includes(pttResult.year.toString())) {
+        // Check if there are obvious episode indicators that suggest this is NOT a movie
+        const hasObviousEpisodePatterns = (
+            /(?:episode|ep|s\d+e\d+)/i.test(filename) ||  // Explicit episode patterns
+            /\d{2,4}\s*(?:multi|bluray)/i.test(filename)  // Number followed by release info (like "028 MULTI")
+        );
+        
+        // If no obvious episode patterns AND we have a year, likely a movie
+        if (!hasObviousEpisodePatterns) {
+            return null; // Likely a movie, skip absolute episode detection
         }
+    }
+    
+    if (absoluteEpisode !== null) {
+        logger.debug(`[unified-parser] Absolute episode extracted via episode-patterns: ${absoluteEpisode}`);
+        return absoluteEpisode;
     }
     
     return null;

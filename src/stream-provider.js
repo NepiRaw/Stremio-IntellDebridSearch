@@ -2,7 +2,7 @@
  * Provides movie and series streams
  */
 import { coordinateSearch } from './search/coordinator.js';
-import { toStream, filterSeason, filterEpisode, filterYear } from './stream/stream-builder.js';
+import { toStream, filterEpisode, filterYear } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
 import { batchExtractTechnicalDetails, parallelStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';

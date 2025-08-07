@@ -1,14 +1,14 @@
-import PTT from 'parse-torrent-title'
+import { parseUnified } from './unified-torrent-parser.js';
 import { romanToNumber } from './roman-numeral-utils.js';
-import { SEASON_PATTERNS, parseSeasonFromTitle } from './episode-patterns.js';
+import { parseSeasonFromTitle } from './episode-patterns.js';
 
-const DomainNameRegex = /^www\.[a-zA-Z0-9]+\.[a-zA-Z]{2,}[ \-]+/i
-const SourcePrefixRegex = /^\[[a-zA-Z0-9 ._]+\][ \-]*/
-
+/**
+ * Compatibility wrapper for parse-torrent-title
+ * This delegates to the unified parser for consistent parsing across the codebase
+ */
 export function parse(title) {
-    title = title.replace(DomainNameRegex, '')
-    title = title.replace(SourcePrefixRegex, '')
-    return PTT.parse(title)
+    // Use unified parser which already includes domain cleanup and comprehensive parsing
+    return parseUnified(title);
 }
 
 export function parseRomanNumeral(num) {

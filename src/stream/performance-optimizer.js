@@ -4,6 +4,8 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
+import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { Worker } from 'worker_threads';
 import path from 'path';
 
@@ -11,7 +13,42 @@ import path from 'path';
  * Cache for technical details extraction to avoid repeated pattern matching
  */
 const TECHNICAL_DETAILS_CACHE = new Map();
+/**
+ * Cache for parsed metadata to avoid repeated parsing operations
+ */
+const PARSING_CACHE = new Map();
 const CACHE_MAX_SIZE = 1000; // Limit cache size to prevent memory leaks
+
+/**
+ * Get or parse metadata with caching for performance optimization
+ * This implements lazy parsing - only parse when needed and cache results
+ */
+export function getOrParseMetadata(containerName, videoName, type = 'series') {
+    const cacheKey = `${containerName}|${videoName}|${type}`;
+    
+    if (PARSING_CACHE.has(cacheKey)) {
+        logger.debug(`[performance] Cache hit for parsing: ${videoName.substring(0, 30)}...`);
+        return PARSING_CACHE.get(cacheKey);
+    }
+    
+    logger.debug(`[performance] Cache miss - parsing: ${videoName.substring(0, 30)}...`);
+    
+    const metadata = {
+        seriesInfo: type === 'series' ? extractSeriesInfo(videoName, containerName) : null,
+        movieInfo: type === 'movie' ? extractMovieInfo(videoName || containerName) : null,
+        technicalDetails: extractTechnicalDetailsLegacy(videoName || containerName)
+    };
+    
+    // Manage cache size
+    if (PARSING_CACHE.size >= CACHE_MAX_SIZE) {
+        const firstKey = PARSING_CACHE.keys().next().value;
+        PARSING_CACHE.delete(firstKey);
+        logger.debug(`[performance] Parsing cache size limit reached, evicted oldest entry`);
+    }
+    
+    PARSING_CACHE.set(cacheKey, metadata);
+    return metadata;
+}
 
 export async function batchExtractTechnicalDetails(streams) {
     logger.debug(`[performance] Batch processing ${streams.length} streams for technical details`);
@@ -32,13 +69,11 @@ export async function batchExtractTechnicalDetails(streams) {
     
     const processedDetails = new Map();
     
-    const { extractTechnicalDetails } = await import('./formatter.js');
-    
     for (const [normalizedName, group] of nameGroups) {
         let technicalDetails = TECHNICAL_DETAILS_CACHE.get(normalizedName);
         
         if (!technicalDetails) {
-            technicalDetails = extractTechnicalDetails(normalizedName);
+            technicalDetails = extractTechnicalDetailsLegacy(normalizedName);
             
             if (TECHNICAL_DETAILS_CACHE.size >= CACHE_MAX_SIZE) {
                 const firstKey = TECHNICAL_DETAILS_CACHE.keys().next().value;
@@ -132,7 +167,14 @@ async function formatStreamsSequentially(streamData) {
     
     return streamData.map((data, index) => {
         try {
-            const stream = toStream(data.details, data.type, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
+            // Pre-parse metadata using lazy caching
+            const parsedMetadata = getOrParseMetadata(
+                data.details?.name || '',
+                data.details?.videos?.[0]?.name || '',
+                data.type
+            );
+            
+            const stream = toStream(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
             
             if (streamsForOptimization[index] && streamsForOptimization[index].cachedTechnicalDetails) {
                 if (stream && stream.title) {
@@ -204,5 +246,6 @@ function simpleHash(str) {
 
 export function clearPerformanceCaches() {
     TECHNICAL_DETAILS_CACHE.clear();
+    PARSING_CACHE.clear();
     logger.debug('[performance] Performance caches cleared');
 }

@@ -6,7 +6,7 @@
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
 import parseTorrentTitle from '../utils/parse-torrent-title.js';
-import { FILE_TYPES } from '../utils/file-types.js';
+import { FILE_TYPES } from '../stream/metadata-extractor.js';
 
 /**
  * Provider method mapping configuration

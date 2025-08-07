@@ -4,52 +4,9 @@
  */
 
 import { logger } from '../utils/logger.js';
-import parseTorrentTitleModule from '../utils/parse-torrent-title.js';
-import { romanToNumber as centralizedRomanToNumber } from '../utils/roman-numeral-utils.js';
-import { parseSeasonFromTitle, parseEpisodeFromTitle } from '../utils/episode-patterns.js';
 import { FILE_EXTENSIONS } from '../utils/media-patterns.js';
-import { extractAbsoluteEpisodeLegacy } from '../utils/unified-torrent-parser.js';
-
-// Extract functions from the module
-const { parse: parseTorrentTitle } = parseTorrentTitleModule;
-
-/**
- * Check if filename is a video file
- * @param {string} filename - The filename to check
- * @returns {boolean} - Whether it's a video file
- */
-function isVideo(filename) {
-    if (!filename) return false;
-    const videoExtensions = FILE_EXTENSIONS.video.map(ext => `.${ext}`);
-    return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-}
-
-/**
- * Parse season number from string with enhanced handling
- * @param {string} seasonStr - Season string to parse
- * @param {boolean} strict - Whether to use strict parsing
- * @returns {number|null} - Parsed season number or null
- */
-function parseSeason(seasonStr, strict = false) {
-    if (!seasonStr) return null;
-    
-    // Try direct integer parsing first
-    const directParse = parseInt(seasonStr, 10);
-    if (!isNaN(directParse) && directParse >= 0 && directParse <= 30) {
-        return directParse;
-    }
-    
-    // Try Roman numeral parsing
-    if (typeof seasonStr === 'string') {
-        const upperCase = seasonStr.toUpperCase();
-        const romanResult = centralizedRomanToNumber(upperCase);
-        if (romanResult && romanResult >= 1 && romanResult <= 30) {
-            return romanResult;
-        }
-    }
-    
-    return null;
-}
+import { extractAbsoluteEpisodeLegacy, parseUnified } from '../utils/unified-torrent-parser.js';
+import { isVideo } from '../stream/metadata-extractor.js';
 
 /**
  * Check if two season numbers match, handling various formats and edge cases
@@ -64,14 +21,15 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
         return false;
     }
     
-    // If either is a string, try to parse it as a season number
+    // If either is a string, try to parse it as a number directly
+    // (unified parser handles complex season parsing)
     if (typeof foundSeason === 'string') {
-        const parsed = parseSeason(foundSeason, true); // Use strict mode
-        if (parsed) foundSeason = parsed;
+        const parsed = parseInt(foundSeason, 10);
+        if (!isNaN(parsed)) foundSeason = parsed;
     }
     if (typeof targetSeason === 'string') {
-        const parsed = parseSeason(targetSeason, true); // Use strict mode
-        if (parsed) targetSeason = parsed;
+        const parsed = parseInt(targetSeason, 10);
+        if (!isNaN(parsed)) targetSeason = parsed;
     }
     
     // Convert both to numbers for comparison
@@ -147,11 +105,11 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 return true;
             }
 
-            // Fallback: try parsing absolute episode from filename using original parser
+            // Fallback: try parsing absolute episode from filename using unified parser
             if (!videoInfo.absoluteEpisode) {
-                const parsedInfo = parseTorrentTitle(videoName || videoInfo.name || '');
-                if (parsedInfo.episode && parseInt(parsedInfo.episode, 10) === parseInt(absoluteEpisode, 10)) {
-                    logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (parsed: ${parsedInfo.episode}) for: ${videoName}`);
+                const parsedInfo = parseUnified(videoName || videoInfo.name || '');
+                if (parsedInfo.absoluteEpisode && parseInt(parsedInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
+                    logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (parsed: ${parsedInfo.absoluteEpisode}) for: ${videoName}`);
                     return true;
                 }
             }
@@ -189,29 +147,18 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
     if (isVideo(torrent.name)) {
         result.isDirect = true;
         
-        // Parse season/episode from filename if not in info
+        // Parse season/episode from filename if not in info using unified parser
         if (!info.season || !info.episode) {
-            const parsed = parseTorrentTitle(torrent.name);
-            logger.info(`[torrent-analyzer] parseTorrentTitle for "${torrent.name}": season=${parsed.season}, episode=${parsed.episode}`);
+            const parsed = parseUnified(torrent.name);
+            logger.info(`[torrent-analyzer] parseUnified for "${torrent.name}": season=${parsed.season}, episode=${parsed.episode}`);
             info.season = info.season || parsed.season;
             info.episode = info.episode || parsed.episode;
-            info.absoluteEpisode = info.absoluteEpisode || parsed.episode; // For absolute numbering
+            info.absoluteEpisode = info.absoluteEpisode || parsed.absoluteEpisode; // For absolute numbering
             
-            // Enhanced Roman numeral detection for season
-            if (!info.season) {
-                const romanMatch = torrent.name.match(/\b([IVXLCDM]+)\s*-?\s*(\d+)/i);
-                if (romanMatch) {
-                    const romanNumeral = romanMatch[1].toUpperCase();
-                    const episodeNum = parseInt(romanMatch[2], 10);
-                    
-                    // Convert Roman numeral to season number
-                    const seasonFromRoman = centralizedRomanToNumber(romanNumeral);
-                    
-                    if (seasonFromRoman) {
-                        info.season = seasonFromRoman;
-                        info.episode = info.episode || episodeNum;
-                    }
-                }
+            // Enhanced Roman numeral detection is already handled by unified parser
+            if (!info.season && parsed.season) {
+                info.season = parsed.season;
+                info.episode = info.episode || parsed.episode;
             }
             
             // Fallback: if still no season and we're looking for season 1, assume it's season 1
@@ -240,27 +187,16 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
             
             // Only parse if not already parsed (performance improvement)
             if (!videoInfo.season || !videoInfo.episode) {
-                const parsed = parseTorrentTitle(video.name);
-                logger.info(`[torrent-analyzer] parseTorrentTitle for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}`);
+                const parsed = parseUnified(video.name);
+                logger.info(`[torrent-analyzer] parseUnified for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}`);
                 videoInfo.season = videoInfo.season || parsed.season;
                 videoInfo.episode = videoInfo.episode || parsed.episode;
-                videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.episode; // For absolute numbering
+                videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.absoluteEpisode; // For absolute numbering
                 
-                // Enhanced Roman numeral detection for season
-                if (!videoInfo.season) {
-                    const romanMatch = video.name.match(/\b([IVXLCDM]+)\s*-?\s*(\d+)/i);
-                    if (romanMatch) {
-                        const romanNumeral = romanMatch[1].toUpperCase();
-                        const episodeNum = parseInt(romanMatch[2], 10);
-                        
-                        // Convert Roman numeral to season number
-                        const seasonFromRoman = centralizedRomanToNumber(romanNumeral);
-                        
-                        if (seasonFromRoman) {
-                            videoInfo.season = seasonFromRoman;
-                            videoInfo.episode = videoInfo.episode || episodeNum;
-                        }
-                    }
+                // Enhanced Roman numeral detection is already handled by unified parser
+                if (!videoInfo.season && parsed.season) {
+                    videoInfo.season = parsed.season;
+                    videoInfo.episode = videoInfo.episode || parsed.episode;
                 }
                 
                 // Fallback: if still no season and we're looking for season 1, assume it's season 1

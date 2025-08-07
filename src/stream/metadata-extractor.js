@@ -3,6 +3,7 @@ import PTT, { romanToNumber } from '../utils/parse-torrent-title.js';
 import { extractQuality } from './quality-processor.js';
 import { logger } from '../utils/logger.js';
 import { FILE_EXTENSIONS } from '../utils/media-patterns.js';
+import { parseUnified } from '../utils/unified-torrent-parser.js';
 
 /**
  * Metadata extractor module - extracts metadata (title, season, quality) from filenames
@@ -36,39 +37,32 @@ export function isArchive(filename) {
 }
 
 export function isExtension(filename, extensions) {
-    const extensionMatch = filename && filename.match(/\.(\w{2,4})$/);
+    if (!filename || typeof filename !== 'string') return false;
+    const extensionMatch = filename.match(/\.(\w{2,4})$/);
     return extensionMatch && extensions.includes(extensionMatch[1].toLowerCase());
 }
 
 export function parseVideoInfoEnhanced(filename) {
-    const basicInfo = PTT.parse(filename);
+    // Use unified parser as primary, fallback to PTT for compatibility
+    const unifiedResult = parseUnified(filename);
     
-    if (!basicInfo.season) {
-        const romanPatterns = [
-            /\b([IVX]+)\s*[-_]\s*(\d+)/i,
-            
-            /season\s+([IVX]+)\s+(?:episode\s+)?(\d+)/i,
-            
-            /\b([IVX]+)\s*[._]?e(?:p(?:isode)?)?\s*(\d+)/i,
-            
-            /season\s+([IVX]+)\s+e(\d+)/i,
-            
-            /\b([IVX]+)\s+(\d+)\b/i,
-        ];
-        
-        for (const pattern of romanPatterns) {
-            const match = filename.match(pattern);
-            if (match) {
-                const romanSeason = romanToNumber(match[1].toUpperCase());
-                const episode = parseInt(match[2], 10);
-                if (romanSeason && episode && romanSeason <= 20 && episode <= 999) {
-                    basicInfo.season = romanSeason;
-                    basicInfo.episode = episode;
-                    break;
-                }
-            }
-        }
+    // If unified parser found season/episode, use it
+    if (unifiedResult.episode) {
+        return {
+            title: unifiedResult.title,
+            season: unifiedResult.season || 1, // Default season 1 if not specified
+            episode: unifiedResult.episode, // Use episode, not episodes[0]
+            year: unifiedResult.year,
+            quality: unifiedResult.quality,
+            source: unifiedResult.source,
+            codec: unifiedResult.codec,
+            audio: unifiedResult.audio,
+            group: unifiedResult.group
+        };
     }
+    
+    // Fallback to PTT for compatibility
+    const basicInfo = PTT.parse(filename);
     
     // Note: Check for null/undefined explicitly since season 0 is valid (for OVAs/specials)
     if ((basicInfo.season === null || basicInfo.season === undefined) && basicInfo.episode) {
@@ -97,6 +91,7 @@ export function extractSeriesInfo(videoName, containerName = '') {
             season: null,
             episode: null,
             episodeTitle: null,
+            seasonEpisode: 'Unknown Episode',
             quality: {},
             releaseGroup: null,
             language: null,
@@ -111,6 +106,7 @@ export function extractSeriesInfo(videoName, containerName = '') {
         season: null,
         episode: null,
         episodeTitle: null,
+        seasonEpisode: 'Unknown Episode',
         quality: {},
         releaseGroup: null,
         language: null,
@@ -128,10 +124,29 @@ export function extractSeriesInfo(videoName, containerName = '') {
             metadata.year = videoInfo.year;
         }
 
-        metadata.quality = extractQualityInfo(videoName);// Extract quality information
+        // Use unified parser for quality information - check both video and container
+        const videoParseResult = parseUnified(videoName);
+        const containerParseResult = containerName ? parseUnified(containerName) : { quality: null };
+        
+        // Merge quality information from both sources
+        metadata.quality = {
+            resolution: videoParseResult.resolution || containerParseResult.resolution,
+            source: videoParseResult.source || containerParseResult.source,
+            codec: videoParseResult.codec || containerParseResult.codec,
+            audio: videoParseResult.audio || containerParseResult.audio
+        };
         metadata.releaseGroup = extractReleaseGroup(videoName);// Extract release group
         metadata.language = extractLanguage(videoName);// Extract language information
         metadata.episodeTitle = extractEpisodeTitle(videoName);// Try to extract episode title if present
+
+        // Generate seasonEpisode string for backward compatibility
+        if (metadata.season && metadata.episode) {
+            const season = String(metadata.season).padStart(2, '0');
+            const episode = String(metadata.episode).padStart(2, '0');
+            metadata.seasonEpisode = `S${season}E${episode}`;
+        } else {
+            metadata.seasonEpisode = 'Unknown Episode';
+        }
 
         if (containerName && containerName !== videoName) {
             const containerInfo = enhanceWithContainerInfo(metadata, containerName);
@@ -173,14 +188,21 @@ export function extractMovieInfo(movieName) {
     };
 
     try {
-        const movieInfo = parseVideoInfo(movieName);
+        const movieInfo = parseVideoInfoEnhanced(movieName);
         
         if (movieInfo) {
             metadata.title = movieInfo.title || extractTitleFromFilename(movieName);
             metadata.year = movieInfo.year;
         }
 
-        metadata.quality = extractQualityInfo(movieName);// Extract quality information
+        // Use unified parser for quality information
+        const parseResult = parseUnified(movieName);
+        metadata.quality = {
+            resolution: parseResult.resolution,
+            source: parseResult.source,
+            codec: parseResult.codec,
+            audio: parseResult.audio
+        };
         metadata.releaseGroup = extractReleaseGroup(movieName); // Extract release group
         metadata.language = extractLanguage(movieName);// Extract language information
 
@@ -196,18 +218,24 @@ export function extractMovieInfo(movieName) {
 function extractTitleFromFilename(filename) {
     if (!filename) return 'Unknown';
 
+    // First try unified parser for clean title extraction
+    const unifiedResult = parseUnified(filename);
+    if (unifiedResult.title && unifiedResult.title !== filename) {
+        return unifiedResult.title;
+    }
+
+    // Fallback to manual cleanup for edge cases
     let title = filename;
     if (title) {
         const videoExtPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
         title = title.replace(videoExtPattern, '');
     }
 
+    // Simplified cleanup patterns - unified parser handles most cases
     const cleanupPatterns = [
         /\b\d{4}\b.*$/, // Remove year and everything after
         /\b[Ss]\d{1,2}[Ee]\d{1,3}.*$/, // Remove season/episode and after
         /\b(720p|1080p|2160p|4K).*$/i, // Remove quality and after
-        /\b(BluRay|WEBRip|DVDRip|HDTV).*$/i, // Remove source and after
-        /\b(x264|x265|h264|h265).*$/i, // Remove codec and after
         /\[.*?\]/g, // Remove bracketed content
         /\(.*?\)/g, // Remove parenthetical content (be careful with years)
     ];
@@ -225,6 +253,13 @@ function extractTitleFromFilename(filename) {
 }
 
 function extractLanguage(filename) {
+    // First try unified parser for language detection
+    const unifiedResult = parseUnified(filename);
+    if (unifiedResult.languages && unifiedResult.languages.length > 0) {
+        return unifiedResult.languages[0]; // Return first detected language
+    }
+    
+    // Enhanced language patterns as fallback for edge cases
     const languagePatterns = [
         { pattern: /\b(MULTI|MULTi)\b/i, value: 'Multi' },
         { pattern: /\b(DUAL)\b/i, value: 'Dual' },
@@ -289,7 +324,7 @@ function enhanceWithContainerInfo(videoMetadata, containerName) {
     };
 
     try {
-        const containerInfo = parseVideoInfo(containerName);
+        const containerInfo = parseVideoInfoEnhanced(containerName);
         
         if (containerInfo?.title && 
             (videoMetadata.title === 'Unknown' || videoMetadata.title.length < 3)) {
