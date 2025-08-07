@@ -168,8 +168,9 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
         }
         
         // Line 3 or 4: Episode name if found
-        if (seriesInfo.episodeName) {
-            lines.push(`📺 "${seriesInfo.episodeName}"`);
+        if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
+            const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
+            lines.push(`📺 "${episodeName}"`);
         }
         
         // Line 4 or 5: Enhanced technical details with good emojis for easy reading
@@ -304,8 +305,8 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
     }
     
     const allMatches = [...classicMatches];
-    
-    if (potentialAbsoluteMatches.length > 0) {
+        
+        if (potentialAbsoluteMatches.length > 0) {
         potentialAbsoluteMatches.forEach(absoluteMatch => {
             const isDuplicate = classicMatches.some(classicMatch => classicMatch.name === absoluteMatch.name);
             if (!isDuplicate) {
@@ -328,8 +329,8 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
         }
         
         torrentDetails.videos = allMatches;
-        return true;
-    }
+            return true;
+        }
     
     logger.debug(`[filterEpisode] ❌ No matches found for S${season}E${episode} (abs: ${absoluteEpisode})`);
     torrentDetails.videos = [];

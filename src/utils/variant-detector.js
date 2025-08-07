@@ -4,6 +4,7 @@
  */
 
 import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
+import { romanToNumber } from './roman-numeral-utils.js';
 
 /**
  * Simple variant detection based on title comparison
@@ -83,12 +84,50 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
 /**
  * Clean up variant name by removing technical terms using media patterns only
  * BUT preserve meaningful variant descriptors like "Directors Cut", "Extended", "Uncut", etc.
+ * AND exclude episode/season indicators that should not be treated as variants
  * @param {string} variantPart - The variant part to clean up
  * @returns {string} - Cleaned variant name
  */
 export function cleanupVariantName(variantPart) {
     let cleaned = variantPart;
     
+    // First, check if this is an episode/season indicator that should NOT be a variant
+    const lowerVariant = cleaned.toLowerCase().trim();
+    
+    // Episode number patterns (absolute episodes like 029, 001, etc.)
+    if (/^\d{1,3}$/.test(lowerVariant)) {
+        console.log(`[cleanupVariantName] Detected episode number: "${variantPart}", ignoring as variant`);
+        return ''; // Return empty to exclude from variant detection
+    }
+    
+    // Roman numeral season indicators (I, II, III, IV, V, etc.)
+    if (/^[ivx]{1,5}$/.test(lowerVariant)) {
+        const romanValue = romanToNumber(lowerVariant.toUpperCase());
+        if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
+            console.log(`[cleanupVariantName] Detected Roman numeral season: "${variantPart}" (${romanValue}), ignoring as variant`);
+            return ''; // Return empty to exclude from variant detection
+        }
+    }
+    
+    // Standard season patterns (S01, S1, Season 1, etc.)
+    if (/^s\d{1,2}$/.test(lowerVariant) || /^season\s*\d{1,2}$/.test(lowerVariant)) {
+        console.log(`[cleanupVariantName] Detected season indicator: "${variantPart}", ignoring as variant`);
+        return ''; // Return empty to exclude from variant detection
+    }
+    
+    // Episode patterns (E01, E1, Episode 1, etc.)
+    if (/^e\d{1,3}$/.test(lowerVariant) || /^episode\s*\d{1,3}$/.test(lowerVariant)) {
+        console.log(`[cleanupVariantName] Detected episode indicator: "${variantPart}", ignoring as variant`);
+        return ''; // Return empty to exclude from variant detection
+    }
+    
+    // Combined season/episode patterns (S01E01, 1x01, etc.)
+    if (/^s\d+e\d+$/.test(lowerVariant) || /^\d+x\d+$/.test(lowerVariant)) {
+        console.log(`[cleanupVariantName] Detected season/episode pattern: "${variantPart}", ignoring as variant`);
+        return ''; // Return empty to exclude from variant detection
+    }
+    
+    // Now proceed with normal variant cleanup for legitimate variants
     // First, preserve meaningful variant terms that we DON'T want to remove
     const meaningfulVariants = [
         'directors cut', 'director cut', 'extended', 'uncut', 'unrated',
@@ -97,7 +136,6 @@ export function cleanupVariantName(variantPart) {
     ];
     
     // Check if the variant contains any meaningful descriptors
-    const lowerVariant = cleaned.toLowerCase();
     const hasMeaningfulContent = meaningfulVariants.some(term => 
         lowerVariant.includes(term)
     );

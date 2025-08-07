@@ -181,27 +181,72 @@ export const ABSOLUTE_EPISODE_PATTERNS = {
 };
 
 export const EPISODE_TITLE_PATTERNS = [
+    // Quoted episode names (French/international format)
+    /''([^'']+)''/g, // Double single quotes like ''Rêve - Espoir lointain''
+    /'([^']+)'/g, // Single quotes like 'Episode Name'
+    /"([^"]+)"/g, // Double quotes like "Episode Name"
+    
+    // Standard patterns
     /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)\.(?:\d{3,4}p|BluRay|WEBRip|HDTV|x264|x265)/i, // S01E01.Title.720p
     /[Ss]\d{1,2}[Ee]\d{1,3}\s*-\s*(.+?)(?:\.|$)/i, // S01E01 - Title
     /[Ss]\d{1,2}[Ee]\d{1,3}\s+(.+?)(?:\s*\d{3,4}p|\s*BluRay|\s*WEBRip|\s*HDTV|\s*x264|\s*x265|$)/i, // S01E01 Title
     /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)(?:\.|$)/i, // S01E01.Title.
     /Episode\s*\d+\s*-\s*(.+?)(?:\.|$)/i, // Episode 1 - Title
+    
+    // Absolute episode with title patterns
+    /\d{2,3}\s+[A-Z].*?''([^'']+)''/i, // Like "029 MULTI ''Rêve - Espoir lointain''"
+    /\d{2,3}\s+.*?"([^"]+)"/i, // Like "029 MULTI "Episode Name""
 ];
 
 export function extractEpisodeTitleFromFilename(filename) {
     if (!filename) return null;
 
-    for (const pattern of EPISODE_TITLE_PATTERNS) {
+    // First try quoted patterns (highest priority for episode names)
+    const quotedPatterns = [
+        { name: 'double-single-quotes', pattern: /''([^'']+)''/g },
+        { name: 'double-quotes', pattern: /"([^"]+)"/g },
+        { name: 'single-quotes', pattern: /'([^']+)'/g },
+    ];
+    
+    for (const {name, pattern} of quotedPatterns) {
+        pattern.lastIndex = 0;
+        const match = pattern.exec(filename);
+        if (match && match[1]) {
+            let title = match[1].trim();
+            title = title.replace(/\s+/g, ' ').trim();
+            
+            if (title.length > 2) {
+                console.log(`[extractEpisodeTitleFromFilename] Found quoted episode title (${name}): "${title}"`);
+                return title;
+            }
+        }
+    }
+    
+    /*
+    // Then try standard patterns -- Too broad, can lead to false positives
+    // Commented out to avoid confusion, but can be used if needed
+    const standardPatterns = [
+        /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)\.(?:\d{3,4}p|BluRay|WEBRip|HDTV|x264|x265)/i, // S01E01.Title.720p
+        /[Ss]\d{1,2}[Ee]\d{1,3}\s*-\s*(.+?)(?:\.|$)/i, // S01E01 - Title
+        /[Ss]\d{1,2}[Ee]\d{1,3}\s+(.+?)(?:\s*\d{3,4}p|\s*BluRay|\s*WEBRip|\s*HDTV|\s*x264|\s*x265|$)/i, // S01E01 Title
+        /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)(?:\.|$)/i, // S01E01.Title.
+        /Episode\s*\d+\s*-\s*(.+?)(?:\.|$)/i, // Episode 1 - Title
+    ];
+    */
+
+    for (const pattern of standardPatterns) {
         const match = filename.match(pattern);
         if (match && match[1]) {
             let title = match[1]
-                .replace(/[._-]/g, ' ')
+                .replace(/[._]/g, ' ') // Replace dots and underscores but keep dashes
                 .replace(/\s+/g, ' ')
                 .trim();
             
+            // Remove technical terms from the end
             title = title.replace(/\b(720p|1080p|2160p|4K|BluRay|WEBRip|x264|x265).*$/i, '').trim();
             
-            if (title.length > 2) {
+            if (title.length > 2 && !title.match(/^\w{2,4}$/)) { // Avoid short technical terms
+                console.log(`[extractEpisodeTitleFromFilename] Found standard episode title: "${title}"`);
                 return title;
             }
         }
