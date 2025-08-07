@@ -45,16 +45,24 @@ const LANGUAGE_PATTERNS = [
     { pattern: /\bTRUEFRENCH\b/i, language: 'TrueFrench', displayName: 'TrueFrench', emoji: '🇫🇷' },
     { pattern: /\bSUBFRENCH\b/i, language: 'SubFrench', displayName: 'SubFrench', emoji: '🇫🇷' },
     { pattern: /\bVOSTFR\b/i, language: 'VOSTFR', displayName: 'VOSTFR', emoji: '🇫🇷' },
-    { pattern: /\b(FRENCH|FRANCAIS)\b/i, language: 'French', displayName: 'French', emoji: '🇫🇷' },
+    { pattern: /\b(FRENCH|FRANCAIS|FRE|FRA|FR)\b/i, language: 'French', displayName: 'French', emoji: '🇫🇷' },
     { pattern: /\bVFF\b/i, language: 'VFF', displayName: 'VFF', emoji: '🇫🇷' },
     { pattern: /\bVF\b/i, language: 'VF', displayName: 'VF', emoji: '🇫🇷' },
-    { pattern: /\bFR\b/i, language: 'FR', displayName: 'FR', emoji: '🇫🇷' },
     
-    { pattern: /\bENGLISH\b/i, language: 'English', displayName: 'English', emoji: '🇺🇸' },
-    { pattern: /\bJAPANESE\b/i, language: 'Japanese', displayName: 'Japanese', emoji: '🇯🇵' },
-    { pattern: /\bSPANISH\b/i, language: 'Spanish', displayName: 'Spanish', emoji: '🇪🇸' },
-    { pattern: /\bGERMAN\b/i, language: 'German', displayName: 'German', emoji: '🇩🇪' },
-    { pattern: /\bITALIAN\b/i, language: 'Italian', displayName: 'Italian', emoji: '🇮🇹' }
+    { pattern: /\b(ENGLISH|ENG)\b/i, language: 'English', displayName: 'English', emoji: '🇬🇧' },
+    { pattern: /\b(JAPANESE|JAP|JP)\b/i, language: 'Japanese', displayName: 'Japanese', emoji: '🇯🇵' },
+    { pattern: /\b(SPANISH|SPA)\b/i, language: 'Spanish', displayName: 'Spanish', emoji: '🇪🇸' },
+    { pattern: /\b(GERMAN|GER)\b/i, language: 'German', displayName: 'German', emoji: '🇩🇪' },
+    { pattern: /\b(ITALIAN|ITA)\b/i, language: 'Italian', displayName: 'Italian', emoji: '🇮🇹' },
+    { pattern: /\b(KOREAN|KOR)\b/i, language: 'Korean', displayName: 'Korean', emoji: '🇰🇷' },
+    { pattern: /\b(CHINESE|CHI|CN)\b/i, language: 'Chinese', displayName: 'Chinese', emoji: '🇨🇳' },
+    { pattern: /\b(RUSSIAN|RUS)\b/i, language: 'Russian', displayName: 'Russian', emoji: '🇷🇺' },
+    { pattern: /\b(PORTUGUESE|POR|PT)\b/i, language: 'Portuguese', displayName: 'Portuguese', emoji: '🇵🇹' },
+    //{ pattern: /\b(SWEDISH|SWE|SE)\b/i, language: 'Swedish', displayName: 'Swedish', emoji: '🇸🇪' },
+    //{ pattern: /\b(DANISH|DAN|DK)\b/i, language: 'Danish', displayName: 'Danish', emoji: '🇩🇰' },
+    //{ pattern: /\b(POLISH|POL|PL)\b/i, language: 'Polish', displayName: 'Polish', emoji: '🇵🇱' },
+    //{ pattern: /\b(HINDI|HIN)\b/i, language: 'Hindi', displayName: 'Hindi', emoji: '🇮🇳' },
+    //{ pattern: /\b(THAI|THA|TH)\b/i, language: 'Thai', displayName: 'Thai', emoji: '🇹🇭' }
 ];
 
 const AUDIO_PATTERNS = [
@@ -106,6 +114,20 @@ const TECHNICAL_PATTERNS = [
     /\b(HDR10\+|HDR10|HDR|HDLIGHT|HD-LIGHT|DOLBY\s*VISION|DV)/i,
     /\b(10BITS?|10BIT|12BITS?|12BIT|8BITS?|8BIT)/i
 ];
+
+const CONTENT_TYPE_PATTERNS = {
+    series: [
+        /[Ss]\d{1,2}[Ee]\d{1,3}/, // S01E01 format
+        /\d{1,2}x\d{1,3}/, // 1x01 format  
+        /Episode\s*\d+/i, // Episode 1
+        /[Ee]p\d+/i, // Ep1, EP01
+        /Season\s*\d+/i, // Season 1
+    ],
+    movie: [
+        /\b\d{4}\b/, // Year (common in movie names)
+        /\b(Part|Pt)\s*[I1-9]/i, // Part I, Part 1
+    ]
+};
 
 const COMPREHENSIVE_TECH_PATTERNS = [
     { pattern: /(HDR10\+|HDR10PLUS)/i, display: '🌈 HDR10+' },
@@ -283,6 +305,34 @@ function createCodecMap() {
     return map;
 }
 
+function detectContentType(filename) {
+    for (const pattern of CONTENT_TYPE_PATTERNS.series) {
+        if (pattern.test(filename)) {
+            return 'series';
+        }
+    }
+
+    for (const pattern of CONTENT_TYPE_PATTERNS.movie) {
+        if (pattern.test(filename)) {
+            return 'movie';
+        }
+    }
+
+    return 'series'; // Default fallback
+}
+
+function extractLanguageFromFilename(filename) {
+    if (!filename) return null;
+
+    for (const { pattern, language } of LANGUAGE_PATTERNS) {
+        if (pattern.test(filename)) {
+            return language;
+        }
+    }
+
+    return null;
+}
+
 export {
     QUALITY_PATTERNS,
     SOURCE_PATTERNS,
@@ -291,11 +341,14 @@ export {
     AUDIO_PATTERNS,
     TECHNICAL_PATTERNS,
     COMPREHENSIVE_TECH_PATTERNS,
+    CONTENT_TYPE_PATTERNS,
     CLEANUP_PATTERNS,
     EPISODE_NAME_FILTERS,
     FILE_EXTENSIONS,
     extractQualityInfo,
     extractQualityDisplay,
     createLanguageMap,
-    createCodecMap
+    createCodecMap,
+    detectContentType,
+    extractLanguageFromFilename
 };

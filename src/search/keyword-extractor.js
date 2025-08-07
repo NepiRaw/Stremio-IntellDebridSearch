@@ -1,6 +1,7 @@
 /**
- * Keyword Extractor - Extracted from working advanced-search.js
+ * Keyword Extractor
  * Handles text normalization and keyword extraction
+ * This module is used in Phase1 for fast title matching
  */
 
 import { isRomanNumeral, JOIN_ROMAN_NUMERALS_PATTERN } from '../utils/roman-numeral-utils.js';

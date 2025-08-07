@@ -31,7 +31,7 @@ export async function prepareSearchTerms(params) {
         logger.info(`[phase-0] Fetching absolute episode mapping for S${season}E${episode}`);
         absoluteEpisode = await getEpisodeMapping(traktApiKey, imdbId, season, episode);
         if (absoluteEpisode) {
-            logger.info(`[phase-0] ✅ Found absolute episode: ${absoluteEpisode}`);
+            logger.info(`[phase-0] ✅ Found absolute episode: ${absoluteEpisode.absoluteEpisode} (${absoluteEpisode.title || 'No title'})`);
         } else {
             logger.info(`[phase-0] ❌ No absolute episode found from Trakt API`);
         }
@@ -70,7 +70,7 @@ export async function prepareSearchTerms(params) {
         normalizedSearchKey,
         alternativeTitles,
         uniqueSearchTerms,
-        absoluteEpisode
+        absoluteEpisode: absoluteEpisode ? absoluteEpisode.absoluteEpisode : null
     };
 }
 

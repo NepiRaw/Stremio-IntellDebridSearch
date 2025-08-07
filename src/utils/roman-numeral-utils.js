@@ -5,9 +5,10 @@ const ROMAN_NUMERAL_MAP = {
 };
 
 const ROMAN_SEASON_PATTERNS = [
-    /(?:season|series|saison|staffel|temporada|stagione)[\s.-]*([IVX]+)/i,
-    /([IVX]+)[\s.-]*(?:season|series|saison|staffel|temporada|stagione)/i,
-    /\b([IVX]+)\b/i 
+    // Simple pattern: Look for Roman numerals in titles followed by episode indicators
+    // This should only be used when classic S##E## patterns are not found
+    /\b([IVX]{1,4})\s*[-–—]\s*(\d{1,3})/i,  // "III - 04", "V - 01", etc.
+    /\b([IVX]{1,4})\s+episode\s*(\d{1,3})/i  // "III Episode 4", "V Episode 1", etc.
 ];
 
 export function isRomanNumeral(text) {
@@ -53,20 +54,35 @@ export function romanToNumber(roman) {
 export function parseRomanSeasons(title) {
     if (!title || typeof title !== 'string') return null;
     
-    for (const pattern of ROMAN_SEASON_PATTERNS) {
+    // Only try Roman numeral parsing if there's no explicit S##E## pattern
+    // We still want to try if it's something like "AnimeName III - 04" vs "DanMachi.S03E04"
+    const hasExplicitSE = /s\d{1,2}e\d{1,3}/i.test(title);
+    if (hasExplicitSE) {
+        return null; // Use explicit S##E## numbering instead
+    }
+    
+    for (let i = 0; i < ROMAN_SEASON_PATTERNS.length; i++) {
+        const pattern = ROMAN_SEASON_PATTERNS[i];
         const match = title.match(pattern);
-        if (match?.[1]) {
-            const romanNumeral = match[1].toUpperCase();
-            const season = romanToNumber(romanNumeral);
+        
+        if (match) {
+            const romanNumeral = match[1];
+            const episodeNum = match[2];
             
-            if (season !== null) {
-                logger.debug(`[parseRomanSeasons] Found Roman season: ${romanNumeral} = ${season}`);
+            if (romanNumeral && isRomanNumeral(romanNumeral)) {
+                const upperRoman = romanNumeral.toUpperCase();
+                const season = romanToNumber(upperRoman);
                 
-                return {
-                    season: season,
-                    roman: romanNumeral,
-                    fullMatch: match[0]
-                };
+                if (season !== null && season >= 1 && season <= 10) { // Reasonable season range
+                    logger.debug(`[parseRomanSeasons] Found Roman season: ${upperRoman} = ${season}, episode = ${episodeNum}`);
+                    
+                    return {
+                        season: season,
+                        episode: parseInt(episodeNum, 10),
+                        roman: upperRoman,
+                        fullMatch: match[0]
+                    };
+                }
             }
         }
     }

@@ -1,6 +1,27 @@
+
 /**
  * Phase 2: Content Analysis Module
- * Handles deep content analysis for episode matching
+ * --------------------------------
+ * This module performs deep content analysis for episode matching after title-based filtering (Phase 1).
+ *
+ * Process Overview:
+ * 1. Batch fetches missing torrent details (e.g., file lists) from the provider for torrents that lack them.
+ *    - Uses provider.getTorrentDetails to enrich torrent objects with video/file info.
+ *
+ * 2. Analyzes each torrent to determine if it contains the requested episode (season/episode or absolute episode).
+ *    - Uses analyzeTorrent to inspect file names, metadata, and episode info.
+ *    - Filters out torrents that do not contain the requested episode.
+ *
+ * 3. Handles both direct episode files and containers (packs with multiple episodes):
+ *    - For containers, extracts each matching video as a separate result.
+ *    - For direct files, returns the torrent as-is.
+ *
+ * 4. Supports anime and non-standard episode numbering via episode remapping:
+ *    - If anime fallback (Phase 3) is triggered, an episodeMapping object is provided (e.g., { mappedSeason, mappedEpisode }).
+ *    - Re-analyzes torrents using the mapped season/episode to find the correct episode.
+ *    - Annotates results with animeMapping for traceability.
+ *
+ * 5. Returns an array of matching episodes, each with detailed info and, if applicable, anime mapping metadata.
  */
 
 import { logger } from '../utils/logger.js';

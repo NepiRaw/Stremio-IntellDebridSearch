@@ -101,7 +101,8 @@ export const EPISODE_PATTERNS = {
         regex: /(.+?)\s*-\s*(\d{2,3})(?:\s*\([^)]*\))?/,
         description: 'Anime dash number: Title - 06 or Title - 06 (1)',
         groups: { episode: 2 },
-        defaultSeason: 1
+        defaultSeason: 1,
+        forceDefaultSeason: true
     },
     writtenSeasonEpisode: {
         regex: /Season\s+(\d+)[\s\-]+Episode\s+(\d+)/i,
@@ -179,6 +180,36 @@ export const ABSOLUTE_EPISODE_PATTERNS = {
     }
 };
 
+export const EPISODE_TITLE_PATTERNS = [
+    /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)\.(?:\d{3,4}p|BluRay|WEBRip|HDTV|x264|x265)/i, // S01E01.Title.720p
+    /[Ss]\d{1,2}[Ee]\d{1,3}\s*-\s*(.+?)(?:\.|$)/i, // S01E01 - Title
+    /[Ss]\d{1,2}[Ee]\d{1,3}\s+(.+?)(?:\s*\d{3,4}p|\s*BluRay|\s*WEBRip|\s*HDTV|\s*x264|\s*x265|$)/i, // S01E01 Title
+    /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)(?:\.|$)/i, // S01E01.Title.
+    /Episode\s*\d+\s*-\s*(.+?)(?:\.|$)/i, // Episode 1 - Title
+];
+
+export function extractEpisodeTitleFromFilename(filename) {
+    if (!filename) return null;
+
+    for (const pattern of EPISODE_TITLE_PATTERNS) {
+        const match = filename.match(pattern);
+        if (match && match[1]) {
+            let title = match[1]
+                .replace(/[._-]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            title = title.replace(/\b(720p|1080p|2160p|4K|BluRay|WEBRip|x264|x265).*$/i, '').trim();
+            
+            if (title.length > 2) {
+                return title;
+            }
+        }
+    }
+
+    return null;
+}
+
 export function parseSeasonFromTitle(title, strict = false) {
     if (!title) return null;
     
@@ -247,14 +278,12 @@ export function parseEpisodeFromTitle(filename) {
         ...patternEntries.filter(([name]) => name === 'animeDashNumber')
     ];
     
-    // First check if we can find season info separately
     const seasonInfo = parseSeasonFromTitle(filename);
     
     for (const [patternName, pattern] of sortedPatterns) {
         const match = normalizedName.match(pattern.regex);
         if (!match) continue;
         
-        // Handle validation rules
         if (pattern.validation === 'skipResolution') {
             const num1 = parseInt(match[1]);
             const num2 = parseInt(match[2]);
@@ -279,8 +308,9 @@ export function parseEpisodeFromTitle(filename) {
                 season = parseInt(match[pattern.groups.season], 10);
             }
         } else if (pattern.defaultSeason) {
-            // For anime dash pattern, use detected season info if available
-            if (patternName === 'animeDashNumber' && seasonInfo) {
+            if (pattern.forceDefaultSeason) {
+                season = pattern.defaultSeason;
+            } else if (patternName === 'animeDashNumber' && seasonInfo) {
                 season = seasonInfo;
             } else {
                 season = pattern.defaultSeason;

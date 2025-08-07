@@ -15,14 +15,11 @@ import { isVideo } from '../stream/metadata-extractor.js';
  * @returns {boolean} - Whether the seasons match
  */
 export function checkSeasonMatch(foundSeason, targetSeason) {
-    // Handle null/undefined values, but allow 0 (since season 0 is valid for specials/OVA)
     if ((foundSeason === null || foundSeason === undefined) || 
         (targetSeason === null || targetSeason === undefined)) {
         return false;
     }
     
-    // If either is a string, try to parse it as a number directly
-    // (unified parser handles complex season parsing)
     if (typeof foundSeason === 'string') {
         const parsed = parseInt(foundSeason, 10);
         if (!isNaN(parsed)) foundSeason = parsed;
@@ -32,11 +29,9 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
         if (!isNaN(parsed)) targetSeason = parsed;
     }
     
-    // Convert both to numbers for comparison
     const normalizedTarget = parseInt(targetSeason, 10);
     const normalizedFound = parseInt(foundSeason, 10);
     
-    // Check if both are valid numbers within reasonable range (0-30, including season 0 for specials/OVA)
     if (!isNaN(normalizedTarget) && !isNaN(normalizedFound) &&
         normalizedTarget >= 0 && normalizedTarget <= 30 &&
         normalizedFound >= 0 && normalizedFound <= 30) {
@@ -52,7 +47,6 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
  * @returns {number|null} - Absolute episode number or null
  */
 export function extractAbsoluteEpisode(filename) {
-    // Use unified parser implementation for consistency
     return extractAbsoluteEpisodeLegacy(filename);
 }
 
@@ -76,36 +70,28 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
 
     const info = torrent.info || {};
     
-    // Function to check episode match accounting for different formats
     const isEpisodeMatch = (videoInfo, videoName = '') => {
         if (!videoInfo) return false;
         
-        // Try explicit season/episode first (classic matching)
         if (checkSeasonMatch(videoInfo.season, targetSeason) && 
             parseInt(videoInfo.episode, 10) === parseInt(targetEpisode, 10)) {
             logger.info(`[torrent-analyzer] ✅ Classic S${targetSeason}E${targetEpisode} match (found S${videoInfo.season}E${videoInfo.episode}) for: ${videoName}`);
             return true;
         }
         
-        // Try absolute episode number ONLY if we couldn't find clear season/episode pattern
-        if (absoluteEpisode && !videoInfo.season && !videoInfo.episode) {
-            logger.info(`[torrent-analyzer] No season/episode found, trying absolute episode matching for: ${videoName}`);
-            
-            // Check if videoInfo already has absoluteEpisode
+        if (absoluteEpisode) {
             if (videoInfo.absoluteEpisode && 
                 parseInt(videoInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
                 logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (from videoInfo) for: ${videoName}`);
                 return true;
             }
 
-            // Try extracting from filename using enhanced method
             const extractedAbsolute = extractAbsoluteEpisode(videoName || videoInfo.name || '');
             if (extractedAbsolute && extractedAbsolute === parseInt(absoluteEpisode, 10)) {
                 logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (extracted: ${extractedAbsolute}) for: ${videoName}`);
                 return true;
             }
 
-            // Fallback: try parsing absolute episode from filename using unified parser
             if (!videoInfo.absoluteEpisode) {
                 const parsedInfo = parseUnified(videoName || videoInfo.name || '');
                 if (parsedInfo.absoluteEpisode && parseInt(parsedInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
@@ -114,25 +100,19 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 }
             }
         }
-        
-        // Handle files with absolute numbering but no season/episode pattern
-        // This handles cases like "DanMachi 031" where no season/episode pattern is detected
-        // but an absolute number is found that could match the target episode
+
         if (!videoInfo.season && !videoInfo.episode) {
             logger.info(`[torrent-analyzer] No season/episode detected, trying absolute number extraction for: ${videoName}`);
             
-            // Extract potential absolute number from filename (not using Trakt absoluteEpisode)
             const extractedNumber = extractAbsoluteEpisode(videoName || videoInfo.name || '');
             if (extractedNumber) {
                 logger.info(`[torrent-analyzer] Extracted absolute number: ${extractedNumber} from filename: ${videoName}`);
                 
-                // Method 1: Direct match with target episode (for absolute episode numbering)
                 if (parseInt(extractedNumber, 10) === parseInt(targetEpisode, 10)) {
                     logger.info(`[torrent-analyzer] ✅ Direct absolute number ${extractedNumber} matches target episode ${targetEpisode}: ${videoName}`);
                     return true;
                 }
                 
-                // Method 2: Direct match with Trakt absolute episode (preferred)
                 if (absoluteEpisode && parseInt(extractedNumber, 10) === parseInt(absoluteEpisode, 10)) {
                     logger.info(`[torrent-analyzer] ✅ Direct absolute number ${extractedNumber} matches Trakt absolute ${absoluteEpisode}: ${videoName}`);
                     return true;
@@ -143,26 +123,21 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
         return false;
     };
     
-    // Check if this is a single video file
     if (isVideo(torrent.name)) {
         result.isDirect = true;
         
-        // Parse season/episode from filename if not in info using unified parser
         if (!info.season || !info.episode) {
             const parsed = parseUnified(torrent.name);
             logger.info(`[torrent-analyzer] parseUnified for "${torrent.name}": season=${parsed.season}, episode=${parsed.episode}`);
             info.season = info.season || parsed.season;
             info.episode = info.episode || parsed.episode;
-            info.absoluteEpisode = info.absoluteEpisode || parsed.absoluteEpisode; // For absolute numbering
+            info.absoluteEpisode = info.absoluteEpisode || parsed.absoluteEpisode;
             
-            // Enhanced Roman numeral detection is already handled by unified parser
             if (!info.season && parsed.season) {
                 info.season = parsed.season;
                 info.episode = info.episode || parsed.episode;
             }
             
-            // Fallback: if still no season and we're looking for season 1, assume it's season 1
-            // Note: Check for null/undefined explicitly since season 0 is valid (for OVAs/specials)
             if ((info.season === null || info.season === undefined) && targetSeason === 1 && info.episode) {
                 logger.warn(`[torrent-analyzer] PROBLEMATIC FALLBACK: Setting season=1 for "${torrent.name}" with episode=${info.episode} (originally season=${info.season})`);
                 info.season = 1;
@@ -177,36 +152,33 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
         return result;
     }
     
-    // It's a container, check its video files
     result.isContainer = true;
     if (torrent.videos?.length) {
         
-        // For containers, try to find matching episodes - NO FALLBACK CALCULATIONS
         const matchingVideos = torrent.videos.filter(video => {
             const videoInfo = video.info || {};
             
-            // Only parse if not already parsed (performance improvement)
             if (!videoInfo.season || !videoInfo.episode) {
                 const parsed = parseUnified(video.name);
-                logger.info(`[torrent-analyzer] parseUnified for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}`);
+                if (parsed.season || parsed.episode || parsed.absoluteEpisode) {
+                    logger.debug(`[torrent-analyzer] parseUnified for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}, absolute=${parsed.absoluteEpisode}`);
+                } else {
+                    logger.info(`[torrent-analyzer] parseUnified for video "${video.name}": season=null, episode=null, absolute=null - no episode info found`);
+                }
                 videoInfo.season = videoInfo.season || parsed.season;
                 videoInfo.episode = videoInfo.episode || parsed.episode;
-                videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.absoluteEpisode; // For absolute numbering
+                videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.absoluteEpisode;
                 
-                // Enhanced Roman numeral detection is already handled by unified parser
                 if (!videoInfo.season && parsed.season) {
                     videoInfo.season = parsed.season;
                     videoInfo.episode = videoInfo.episode || parsed.episode;
                 }
                 
-                // Fallback: if still no season and we're looking for season 1, assume it's season 1
-                // Note: Check for null/undefined explicitly since season 0 is valid (for OVAs/specials)
                 if ((videoInfo.season === null || videoInfo.season === undefined) && targetSeason === 1 && videoInfo.episode) {
                     logger.warn(`[torrent-analyzer] PROBLEMATIC FALLBACK (video): Setting season=1 for video "${video.name}" with episode=${videoInfo.episode} (originally season=${videoInfo.season})`);
                     videoInfo.season = 1;
                 }
                 
-                // Store parsed info for later use
                 video.info = videoInfo;
             }
 

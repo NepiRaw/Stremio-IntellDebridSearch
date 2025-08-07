@@ -1,7 +1,26 @@
+
 /**
  * Anime Fallback Search Module - Phase 3 Implementation
- * Handles anime season mapping and cross-season episode searches using Jikan API
- * This is Phase 3 of the search process when no matches are found in Phases 1-2
+ * -----------------------------------------------------
+ * This module implements the final fallback search logic for anime content when no matches are found in Phases 1-2.
+ * Purpose: Mainly for Anime series where seasoning is not correctly formatted by Stremio catalogs (eg. catalog showing only 1 season, but anime has multiple seasons)
+ *
+ * Process Overview:
+ * 1. Generates prioritized title variations for anime search (country-specific, alternative titles).
+ *
+ * 2. For each title variation, queries the Jikan API to fetch anime season info.
+ *    - Tries each variation until anime seasons are found.
+ *
+ * 3. Maps the requested season/episode to the correct anime season/episode using episode remapping logic.
+ *    - Converts standard or absolute episode numbers to mapped values (e.g., S2E5 → S3E2).
+ *
+ * 4. Re-analyzes torrents (from Phase 1 or all raw results) using the mapped season/episode.
+ *    - Uses analyzeTorrent to check if the torrent contains the mapped episode.
+ *    - Annotates results with animeMapping and original/mapped season/episode info.
+ *
+ * 5. Deduplicates and sorts results by quality, returning only the best matches.
+ *
+ * 6. Handles special cases (e.g., Season 0/OVA) by skipping remapping and searching for direct matches only.
  */
 
 import { logger } from '../utils/logger.js';
@@ -10,9 +29,6 @@ import { analyzeTorrent } from './torrent-analyzer.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from '../stream/quality-processor.js';
 
 /**
- * Execute Phase 3: Anime season mapping fallback search
- * Called by coordinator when Phases 1-2 return no results for anime content
- * 
  * @param {Object} params - Search parameters
  * @param {string} params.searchKey - Original search title
  * @param {number} params.season - Target season number
@@ -30,8 +46,7 @@ export async function executeAnimePhase3(params) {
     logger.debug('[anime-fallback] Phase 3: Trying anime season mapping as final fallback');
     
     try {
-        // Skip if this is Season 0 (specials/OVA)
-        if (season === 0) {
+        if (season === 0) { // Skip if this is Season 0 (specials/OVA)
             logger.debug('[anime-fallback] Season 0 (specials/OVA) detected - skipping anime mapping phase');
             logger.debug('[anime-fallback] For S00 episodes, we only look for direct S00E{episode} matches');
             logger.debug(`[anime-fallback] No matches found for S${season}E${episode} - this might be because:`);
@@ -68,28 +83,20 @@ export async function executeAnimePhase3(params) {
         }
 
         if (animeSeasons.length > 0 && successfulTitle) {
-            // Try to map the episode to correct anime season/episode
             const episodeMapping = mapAnimeEpisode(animeSeasons, season, episode);
             
             if (episodeMapping) {
                 logger.debug(`[anime-fallback] Anime mapping found using "${successfulTitle}": S${season}E${episode} → S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
                 
-                // Re-analyze existing torrents with new season/episode
-                logger.debug('[anime-fallback] Optimized anime retry: Re-analyzing existing torrents with new season/episode');
-                
                 const animeMatches = [];
                 
-                // Use all raw results if titleMatches is empty (Phase 1 found nothing)
                 const torrentsToAnalyze = titleMatches.length > 0 ? titleMatches : allRawResults;
                 logger.debug(`[anime-fallback] Analyzing ${torrentsToAnalyze.length} torrents (source: ${titleMatches.length > 0 ? 'titleMatches' : 'allRawResults'})`);
                 
-                // Re-analyze the torrents we have with the mapped season/episode
                 for (const [index, result] of torrentsToAnalyze.entries()) {
                     try {
-                        // Handle both titleMatches format and allRawResults format
                         const torrent = result.item || result;
                         
-                        // Analyze with mapped season/episode
                         const animeAnalysisResult = await analyzeTorrent(
                             torrent,
                             episodeMapping.mappedSeason,
@@ -102,7 +109,6 @@ export async function executeAnimePhase3(params) {
                         );
                         
                         if (animeAnalysisResult.videos && animeAnalysisResult.videos.length > 0) {
-                            // Add the mapping info to the result
                             animeAnalysisResult.animeMapping = episodeMapping;
                             animeAnalysisResult.originalSeasonEpisode = `S${season}E${episode}`;
                             animeAnalysisResult.mappedSeasonEpisode = `S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`;
@@ -119,7 +125,6 @@ export async function executeAnimePhase3(params) {
                 if (animeMatches.length > 0) {
                     logger.debug(`[anime-fallback] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
                     
-                    // Apply fuzzy matching and sorting to anime results
                     const processedAnimeMatches = sortMovieStreamsByQuality(animeMatches, type);
                     const deduplicatedAnimeMatches = deduplicateStreams(processedAnimeMatches);
                     
@@ -143,22 +148,4 @@ export async function executeAnimePhase3(params) {
     }
 }
 
-/**
- * Check if content should use anime fallback search
- * @param {string} searchKey - Content title
- * @param {Array} alternativeTitles - TMDb alternative titles
- * @returns {boolean} - True if content might be anime
- */
-export function shouldUseAnimeFallback(searchKey, alternativeTitles) {
-    // Simple heuristics to detect potential anime content
-    const animeKeywords = ['anime', 'shonen', 'shounen', 'seinen', 'shoujo', 'shojo', 'ova', 'oav'];
-    const searchLower = searchKey.toLowerCase();
-    
-    // Check if title contains anime-related keywords
-    const hasAnimeKeywords = animeKeywords.some(keyword => searchLower.includes(keyword));
-    
-    // Check if we have Japanese alternative titles (JP country code)
-    const hasJapaneseTitles = alternativeTitles && alternativeTitles.some(alt => alt.country === 'JP');
-    
-    return hasAnimeKeywords || hasJapaneseTitles;
-}
+

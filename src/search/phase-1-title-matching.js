@@ -1,6 +1,27 @@
+
 /**
  * Phase 1: Title Matching Module
- * Handles fast fuzzy title matching using Fuse.js
+ * --------------------------------
+ * This module performs fast fuzzy title matching for torrent results using Fuse.js.
+ *
+ * Process Overview:
+ * 1. For each torrent result, both the raw torrent name and the title (from metadata) are normalized using extractKeywords().
+ *    - normalizedName: extractKeywords(result.name) // splits words, removes punctuation, but technical details/tags (e.g. 1080p, WEB-DL, x264) remain
+ *    - normalizedTitle: extractKeywords(result.info?.title || '') // splits words, removes punctuation
+ *
+ * 2. The search terms (usually originating from normalized titles or user queries) are also normalized using extractKeywords().
+ *
+ * 3. Fuse.js is configured to match each normalized search term against both normalizedName and normalizedTitle for every torrent result.
+ *    - keys: ['normalizedName', 'normalizedTitle']
+ *    - threshold: controls fuzziness (lower = stricter, higher = more matches)
+ *
+ * 4. For each search term, Fuse.js returns matches with a score. Note that the score is ONLY informational and not used for filtering
+ *    - Lower score = better match (0 = exact match)
+ *    - Higher score = weaker match (potential false positive)
+ *
+ * 5. The process ensures that both the noisy torrent name and the clean title are considered for matching, improving robustness against release naming variations.
+ *
+ * 6. Results are deduplicated and returned with their scores for further filtering or ranking.
  */
 
 import { logger } from '../utils/logger.js';
@@ -17,15 +38,13 @@ import Fuse from 'fuse.js';
 export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3) {
     logger.info('[phase-1] Starting fast title matching');
     
-    // Normalize results for Fuse.js processing
-    const normalizedResults = allRawResults.map(result => ({
+    const normalizedResults = allRawResults.map(result => ({ // Normalize results for Fuse.js processing
         ...result,
         normalizedName: extractKeywords(result.name),
         normalizedTitle: extractKeywords(result.info?.title || ''),
         originalResult: result
     }));
 
-    // Configure Fuse.js for title matching
     const titleFuse = new Fuse(normalizedResults, {
         keys: ['normalizedName', 'normalizedTitle'],
         threshold: threshold,
@@ -36,11 +55,9 @@ export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold
     const titleMatches = [];
     const seenMatches = new Set(); // Track duplicates by original name
 
-    // Search for each unique normalized term
     for (const term of uniqueSearchTerms) {
         const matches = titleFuse.search(term);
         
-        // Add unique matches
         matches.forEach(match => {
             const originalName = match.item.originalResult.name;
             if (!seenMatches.has(originalName)) {
@@ -52,13 +69,11 @@ export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold
             }
         });
         
-        // Only log when matches are found
         if (matches.length > 0) {
             logger.info(`[phase-1] Found ${matches.length} matches for normalized term: "${term}"`);
         }
     }
     
-    // Log Phase 1 summary
     logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
     
     return titleMatches;
@@ -76,7 +91,6 @@ export function shouldProceedToPhase2(titleMatches, type, season, episode) {
     if (titleMatches.length === 0) {
         logger.info('[phase-1] ❌ No title matches found in Phase 1');
         
-        // For movies, return empty results immediately (no anime fallback needed)
         if (type === 'movie') {
             return {
                 shouldProceed: false,

@@ -169,7 +169,7 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
         }
 
         if (episodeMapping) {
-            logger.info(`[trakt-api] Found episode mapping for ${imdbId} S${season}E${episode}:`, episodeMapping);
+                logger.debug(`[trakt-api] Found episode mapping for ${imdbId} S${season}E${episode}:`, JSON.stringify(episodeMapping, null, 2));
         } else {
             logger.warn(`[trakt-api] No episode mapping found for ${imdbId} S${season}E${episode}`);
         }

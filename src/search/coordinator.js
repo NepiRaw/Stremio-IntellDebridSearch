@@ -2,6 +2,7 @@
  * Search Coordinator Module
  * Orchestrates multi-phase search across different providers and APIs
  * Two-phase approach: fast title matching, then deep content analysis
+ * Also handles anime season mapping as a final fallback (phase 3)
  */
 
 import { logger } from '../utils/logger.js';

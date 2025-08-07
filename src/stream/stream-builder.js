@@ -35,18 +35,16 @@ const STREAM_NAME_MAP = {
 export function toStream(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return null;
 
-    // Handle backward compatibility - if parsedMetadataOrKnownSeasonEpisode is not an object with metadata, treat as old signature
     let parsedMetadata = null;
     if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
         (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
         parsedMetadata = parsedMetadataOrKnownSeasonEpisode;
     } else {
-        // Old signature - shift parameters
         knownSeasonEpisode = parsedMetadataOrKnownSeasonEpisode;
     }
 
     logger.debug(`[toStream] Processing ${type} with details.name="${details.name}"`);
-    logger.debug(`[toStream] knownSeasonEpisode:`, knownSeasonEpisode);
+    logger.debug(`[toStream] knownSeasonEpisode:`, JSON.stringify(knownSeasonEpisode, null, 2));
     logger.debug(`[toStream] details.videos length:`, details.videos?.length || 0);
     logger.debug(`[toStream] parsedMetadata provided:`, !!parsedMetadata);
 
@@ -119,7 +117,6 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
     const size = formatSize(video?.size || 0);
     
     if (type === 'series') {
-        // Use pre-parsed metadata if available, otherwise parse on demand (fallback for compatibility)
         const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
         const releaseGroup = extractReleaseGroup(videoName || containerName);
         
@@ -263,25 +260,22 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
         }
     });
     
-    if (classicMatches.length > 0) {
-        logger.debug(`[filterEpisode] Using ${classicMatches.length} classic matches, skipping absolute matching`);
-        torrentDetails.videos = classicMatches;
-        return true;
-    }
-
     if (typeof absoluteEpisode === 'number') {
-        logger.debug(`[filterEpisode] No classic matches found, trying absolute episode matching for ${absoluteEpisode}`);
+        const logPrefix = classicMatches.length > 0 ? 
+            `[filterEpisode] Found ${classicMatches.length} classic matches, also checking absolute episode matching for ${absoluteEpisode}` :
+            `[filterEpisode] No classic matches found, trying absolute episode matching for ${absoluteEpisode}`;
+        logger.debug(logPrefix);
         
         torrentDetails.videos.forEach(video => {
             const videoSeason = video.info.season;
             
-            if (videoSeason && videoSeason != season) {
-                logger.debug(`[filterEpisode] ❌ Skipping absolute matching: video is S${videoSeason}, looking for S${season}`);
+            if (videoSeason !== null && videoSeason != season && !absoluteEpisode) {
                 return;
             }
-            
             const absolutePattern = new RegExp(`\\b0*${absoluteEpisode}\\b`);
-            if (absolutePattern.test(video.name)) {
+            const patternMatches = absolutePattern.test(video.name);
+
+            if (patternMatches) {
                 const seasonPattern = new RegExp(`[Ss]0*(\\d+)`, 'i');
                 const seasonMatch = video.name.match(seasonPattern);
                 
@@ -298,19 +292,43 @@ export function filterEpisode(torrentDetails, season, episode, absoluteEpisode =
                 return;
             }
             
-            if (video.info.absoluteEpisode && 
-                parseInt(video.info.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
+            const hasAbsoluteInfo = video.info.absoluteEpisode && 
+                parseInt(video.info.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10);
+            if (hasAbsoluteInfo) {
                 logger.debug(`[filterEpisode] ✅ Absolute info match: ${video.info.absoluteEpisode} = ${absoluteEpisode}`);
                 potentialAbsoluteMatches.push(video);
                 return;
             }
+            
         });
+    }
+    
+    const allMatches = [...classicMatches];
+    
+    if (potentialAbsoluteMatches.length > 0) {
+        potentialAbsoluteMatches.forEach(absoluteMatch => {
+            const isDuplicate = classicMatches.some(classicMatch => classicMatch.name === absoluteMatch.name);
+            if (!isDuplicate) {
+                allMatches.push(absoluteMatch);
+            }
+        });
+    }
+    
+    if (allMatches.length > 0) {
+        const classicCount = classicMatches.length;
+        const absoluteCount = potentialAbsoluteMatches.length;
+        const uniqueAbsoluteCount = allMatches.length - classicCount;
         
-        if (potentialAbsoluteMatches.length > 0) {
-            logger.debug(`[filterEpisode] Using ${potentialAbsoluteMatches.length} absolute matches`);
-            torrentDetails.videos = potentialAbsoluteMatches;
-            return true;
+        if (classicCount > 0 && uniqueAbsoluteCount > 0) {
+            logger.debug(`[filterEpisode] ✅ Combined matches: ${classicCount} classic + ${uniqueAbsoluteCount} absolute = ${allMatches.length} total`);
+        } else if (classicCount > 0) {
+            logger.debug(`[filterEpisode] ✅ Using ${classicCount} classic matches only`);
+        } else {
+            logger.debug(`[filterEpisode] ✅ Using ${uniqueAbsoluteCount} absolute matches only`);
         }
+        
+        torrentDetails.videos = allMatches;
+        return true;
     }
     
     logger.debug(`[filterEpisode] ❌ No matches found for S${season}E${episode} (abs: ${absoluteEpisode})`);

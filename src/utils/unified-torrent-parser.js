@@ -8,6 +8,7 @@ import { logger } from './logger.js';
 import { romanToNumber } from './roman-numeral-utils.js';
 import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
 import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
+import { parseRomanSeasons } from './roman-numeral-utils.js';
 
 // Cache to avoid re-parsing the same torrent names
 const parseCache = new Map();
@@ -97,27 +98,75 @@ function cleanFilename(filename) {
 function applyRegexFallbacks(filename, pttResult) {
     const result = { ...pttResult };
     
+    // Extract absolute episode FIRST to determine if this is absolute episode content
+    result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
+    
     // Episode extraction fallbacks (now uses comprehensive patterns from episode-patterns.js)
     const episodeInfo = extractEpisodeWithFallback(filename, pttResult);
     if (typeof episodeInfo === 'object' && episodeInfo !== null) {
-        // If episode-patterns.js returned season info too, use it
+        // Always use the episode number from episode parsing initially
         result.episode = episodeInfo.episode;
-        if (episodeInfo.season && !result.season) {
+        
+        // Only use season info if we don't have an absolute episode
+        // Absolute episodes are season-independent and should not have season defaulting
+        if (episodeInfo.season && !result.absoluteEpisode && !result.season) {
             result.season = episodeInfo.season;
+            logger.debug(`[unified-parser] Season extracted via episode-patterns: ${episodeInfo.season}`);
+        } else if (episodeInfo.season && result.absoluteEpisode) {
+            logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode}`);
         }
     } else {
         result.episode = episodeInfo;
     }
     
-    // Season extraction fallbacks (only if not already set by episode parsing)
-    if (!result.season) {
+    // If we have an absolute episode, use it as the episode number too
+    // This handles cases where episode parsing truncates large numbers (e.g., 1000 -> 100)
+    if (result.absoluteEpisode && result.episode !== result.absoluteEpisode) {
+        logger.debug(`[unified-parser] Using absolute episode ${result.absoluteEpisode} over parsed episode ${result.episode}`);
+        result.episode = result.absoluteEpisode;
+    }
+    
+    // Only extract season if we don't have an absolute episode
+    // Absolute episodes are season-independent and should not default to season=1
+    if (!result.absoluteEpisode && !result.season) {
         result.season = extractSeasonWithFallback(filename, pttResult);
     }
     
-    // Absolute episode extraction
-    result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
+    // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
+    // This handles anime titles like "DanMachi III - 04.mkv" where III=season 3, 04=episode 4
+    const romanSeasonInfo = parseRomanSeasons(filename);
+    if (romanSeasonInfo) {
+        // Use Roman results if:
+        // 1. We don't have season/episode from classic parsing, OR
+        // 2. Classic parsing found season=1 (might be incorrect default) and Roman parsing has better info
+        // 3. BUT only if we don't have an absolute episode (absolute episodes are season-independent)
+        const shouldUseRoman = !result.absoluteEpisode && 
+                              (!result.season || !result.episode || 
+                               (result.season === 1 && romanSeasonInfo.season > 1));
+        
+        if (shouldUseRoman) {
+            logger.debug(`[unified-parser] Using Roman numeral parsing: season=${romanSeasonInfo.season}, episode=${romanSeasonInfo.episode} (${romanSeasonInfo.roman})`);
+            
+            if (romanSeasonInfo.season) {
+                result.season = romanSeasonInfo.season;
+            }
+            if (romanSeasonInfo.episode) {
+                result.episode = romanSeasonInfo.episode;
+            }
+            
+            // When we use Roman numeral parsing, this is NOT an absolute episode
+            // It's season-based numbering with Roman season indicators
+            result.absoluteEpisode = null;
+        } else {
+            logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanSeasonInfo.season},${romanSeasonInfo.episode}), absoluteEpisode=${result.absoluteEpisode}`);
+        }
+    }
     
-    // Clean title if needed
+    // Ensure season is explicitly null when not set (for consistency)
+    if (!result.season) {
+        result.season = null;
+    }
+    
     result.title = cleanTitle(filename, pttResult);
     
     return result;
@@ -228,6 +277,14 @@ function extractSeasonWithFallback(filename, pttResult) {
  * @returns {number|null} Absolute episode number
  */
 function extractAbsoluteEpisode(filename, pttResult) {
+    // Check if there's Roman numeral season context first
+    // If there are Roman numerals, this is likely season-based, not absolute
+    const romanSeasonInfo = parseRomanSeasons(filename);
+    if (romanSeasonInfo) {
+        logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanSeasonInfo.roman}`);
+        return null;
+    }
+    
     // First try the comprehensive absolute episode patterns from episode-patterns.js
     const absoluteEpisode = parseAbsoluteEpisode(filename);
     
