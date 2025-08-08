@@ -232,7 +232,6 @@ export function extractEpisodeTitleFromFilename(filename) {
         /[Ss]\d{1,2}[Ee]\d{1,3}\.(.+?)(?:\.|$)/i, // S01E01.Title.
         /Episode\s*\d+\s*-\s*(.+?)(?:\.|$)/i, // Episode 1 - Title
     ];
-    */
 
     for (const pattern of standardPatterns) {
         const match = filename.match(pattern);
@@ -251,6 +250,7 @@ export function extractEpisodeTitleFromFilename(filename) {
             }
         }
     }
+    */
 
     return null;
 }

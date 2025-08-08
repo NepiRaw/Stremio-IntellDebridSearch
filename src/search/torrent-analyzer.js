@@ -83,12 +83,19 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
             if (videoInfo.absoluteEpisode && 
                 parseInt(videoInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
                 logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (from videoInfo) for: ${videoName}`);
+                logger.info(`[torrent-analyzer] Applying Trakt mapping: absolute ${absoluteEpisode} → S${targetSeason}E${targetEpisode}`);
+                videoInfo.season = targetSeason;
+                videoInfo.episode = targetEpisode;
                 return true;
             }
 
             const extractedAbsolute = extractAbsoluteEpisode(videoName || videoInfo.name || '');
             if (extractedAbsolute && extractedAbsolute === parseInt(absoluteEpisode, 10)) {
                 logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (extracted: ${extractedAbsolute}) for: ${videoName}`);
+                logger.info(`[torrent-analyzer] Applying Trakt mapping: absolute ${absoluteEpisode} → S${targetSeason}E${targetEpisode}`);
+                videoInfo.season = targetSeason;
+                videoInfo.episode = targetEpisode;
+                videoInfo.absoluteEpisode = extractedAbsolute;
                 return true;
             }
 
@@ -96,6 +103,10 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 const parsedInfo = parseUnified(videoName || videoInfo.name || '');
                 if (parsedInfo.absoluteEpisode && parseInt(parsedInfo.absoluteEpisode, 10) === parseInt(absoluteEpisode, 10)) {
                     logger.info(`[torrent-analyzer] ✅ Trakt absolute episode ${absoluteEpisode} match (parsed: ${parsedInfo.absoluteEpisode}) for: ${videoName}`);
+                    logger.info(`[torrent-analyzer] Applying Trakt mapping: absolute ${absoluteEpisode} → S${targetSeason}E${targetEpisode}`);
+                    videoInfo.season = targetSeason;
+                    videoInfo.episode = targetEpisode;
+                    videoInfo.absoluteEpisode = parsedInfo.absoluteEpisode;
                     return true;
                 }
             }
@@ -115,6 +126,10 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 
                 if (absoluteEpisode && parseInt(extractedNumber, 10) === parseInt(absoluteEpisode, 10)) {
                     logger.info(`[torrent-analyzer] ✅ Direct absolute number ${extractedNumber} matches Trakt absolute ${absoluteEpisode}: ${videoName}`);
+                    logger.info(`[torrent-analyzer] Applying Trakt mapping: absolute ${absoluteEpisode} → S${targetSeason}E${targetEpisode}`);
+                    videoInfo.season = targetSeason;
+                    videoInfo.episode = targetEpisode;
+                    videoInfo.absoluteEpisode = extractedNumber;
                     return true;
                 }
             }

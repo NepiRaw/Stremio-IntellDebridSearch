@@ -22,22 +22,22 @@ The Stremio IntellDebridSearch Addon is a sophisticated streaming addon that pro
 The addon follows a modular, service-oriented architecture with clear separation of concerns:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Stremio Addon API                          │
-├─────────────────────────────────────────────────────────────────┤
-│                    Express.js Server                           │
-├─────────────────────────────────────────────────────────────────┤
-│  Catalog Provider  │  Stream Provider  │  Search Provider      │
-├─────────────────────────────────────────────────────────────────┤
-│              Unified Parsing Engine                             │
-├─────────────────────────────────────────────────────────────────┤
+┌───────────────────────────────────────────────────────────────┐
+│                     Stremio Addon API                         │
+├───────────────────────────────────────────────────────────────┤
+│                    Express.js Server                          │
+├───────────────────────────────────────────────────────────────┤
+│  Catalog Provider  │  Stream Provider  │  Search Provider     │
+├───────────────────────────────────────────────────────────────┤
+│              Unified Parsing Engine                           │
+├───────────────────────────────────────────────────────────────┤
 │   Metadata       │   Performance     │   Quality              │
 │   Extractor      │   Optimizer       │   Detector             │
-├─────────────────────────────────────────────────────────────────┤
-│              Debrid Service Integrations                       │
-├─────────────────────────────────────────────────────────────────┤
-│  Real-Debrid │ AllDebrid │ Premiumize │ Debrid-Link │ TorBox   │
-└─────────────────────────────────────────────────────────────────┘
+├───────────────────────────────────────────────────────────────┤
+│              Debrid Service Integrations                      │
+├───────────────────────────────────────────────────────────────┤
+│  Real-Debrid │ AllDebrid │ Premiumize │ Debrid-Link │ TorBox  │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Components
