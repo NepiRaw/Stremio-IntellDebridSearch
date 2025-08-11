@@ -10,6 +10,7 @@ import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparati
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
+import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
 
 import { extractKeywords } from './keyword-extractor.js';
 
@@ -96,6 +97,7 @@ export async function coordinateSearch(params) {
 
     // OPTIMIZATION: Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
+    logger.debug(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
     const relevantTorrents = preFilterTorrentsByKeywords(allTorrents, keywords);
     
     if (relevantTorrents.length === 0) {
@@ -207,13 +209,21 @@ export async function coordinateSearch(params) {
                     logger.info('[coordinator] Optimized anime retry: Re-analyzing existing torrents with new season/episode');
                     
                     // Re-analyze the same torrents we already found with the new season/episode
-                    const animeMatches = reAnalyzeWithMapping(titleMatches, episodeMapping, absoluteEpisode);
+                    const animeMatches = reAnalyzeWithMapping(titleMatches, episodeMapping);
                     
                     if (animeMatches.length > 0) {
                         logger.info(`[coordinator] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
                         
+                        // Apply absolute episode post-processing if Trakt data available
+                        // Convert anime matches to the expected format and apply absolute episode processing
+                        const wrappedAnimeMatches = animeMatches.map(torrent => ({
+                            item: torrent,
+                            torrentDetails: torrent
+                        }));
+                        const finalAnimeMatches = applyAbsoluteEpisodePostProcessing(wrappedAnimeMatches, absoluteEpisode);
+                        
                         return {
-                            results: animeMatches,
+                            results: finalAnimeMatches.map(r => r.item), // Extract back to flat format
                             absoluteEpisode: absoluteEpisode,
                             animeMapping: episodeMapping, // Pass the complete mapping object instead of just true
                             mappedSeason: episodeMapping.mappedSeason,
@@ -233,8 +243,17 @@ export async function coordinateSearch(params) {
         }
     }
     
+    // Apply absolute episode post-processing to all final results
+    // Convert flat torrent results to the expected format with torrentDetails
+    const wrappedMatches = matches.map(torrent => ({
+        item: torrent,
+        torrentDetails: torrent // The torrent already has videos array from phase-2
+    }));
+    
+    const finalResults = applyAbsoluteEpisodePostProcessing(wrappedMatches, absoluteEpisode);
+    
     return {
-        results: matches,
+        results: finalResults.map(r => r.item), // Extract back to flat format
         absoluteEpisode: absoluteEpisode,
         searchContext: {
             searchTitle: normalizedSearchKey,
@@ -243,4 +262,40 @@ export async function coordinateSearch(params) {
             type: type
         }
     };
+}
+
+/**
+ * Apply absolute episode post-processing to search results
+ * This is the new centralized approach that processes absolute episodes
+ * AFTER all standard parsing is complete
+ */
+function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) {
+    if (!absoluteEpisodeData || !Array.isArray(searchResults)) {
+        return searchResults; // No absolute episode data or invalid input
+    }
+    
+    logger.debug(`[coordinator] Applying absolute episode post-processing to ${searchResults.length} results`);
+    
+    const processedResults = searchResults.map(result => {
+        if (!result.torrentDetails || !result.torrentDetails.videos) {
+            return result; // No videos to process
+        }
+        
+        // Apply absolute episode processing
+        const enhancedVideos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
+            absoluteEpisodeData, 
+            result.torrentDetails.videos
+        );
+        
+        // Return enhanced result with processed videos
+        return {
+            ...result,
+            torrentDetails: {
+                ...result.torrentDetails,
+                videos: enhancedVideos
+            }
+        };
+    });
+    
+    return processedResults;
 }

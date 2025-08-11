@@ -70,7 +70,7 @@ export async function prepareSearchTerms(params) {
         normalizedSearchKey,
         alternativeTitles,
         uniqueSearchTerms,
-        absoluteEpisode: absoluteEpisode ? absoluteEpisode.absoluteEpisode : null
+        absoluteEpisode
     };
 }
 
@@ -89,12 +89,17 @@ export function generateEpisodeKeywords(type, season, episode, absoluteEpisode, 
     // Add episode-specific keywords for series
     if (type === 'series' && season && episode) {
         keywords.push(`S${season}E${episode}`);
-        if (absoluteEpisode && absoluteEpisode !== parseInt(episode)) {
-            keywords.push(`${absoluteEpisode}`);
-            keywords.push(`${absoluteEpisode} MULTI`);
-            keywords.push(`${absoluteEpisode} BluRay`);
+        
+        // Add absolute episode keywords if available
+        if (absoluteEpisode && absoluteEpisode.absoluteEpisode && absoluteEpisode.absoluteEpisode !== parseInt(episode)) {
+            const absNum = absoluteEpisode.absoluteEpisode;
+            
+            const paddedAbs = absNum.toString().padStart(3, '0'); // Add 3-digit zero-padded format (e.g., "029")
+            keywords.push(`${paddedAbs}`);
+            keywords.push(`${absNum}`);// Also add non-padded format (e.g., "29")
         }
     }
 
+    logger.debug(`[phase-0] Generated keywords (${keywords.length}): ${keywords.join(', ')}`);
     return keywords;
 }

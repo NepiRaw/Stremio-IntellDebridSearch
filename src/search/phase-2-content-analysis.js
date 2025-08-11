@@ -59,10 +59,10 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
  * @param {Array} titleMatches - Matches from Phase 1
  * @param {number} season - Target season
  * @param {number} episode - Target episode  
- * @param {Object} absoluteEpisode - Absolute episode object
+ * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Array} Array of matching episodes
  */
-export function performContentAnalysis(titleMatches, season, episode, absoluteEpisode) {
+export function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null) {
     logger.info('[phase-2] Starting deep content analysis for episode matching');
     
     // Analyze torrents for episode matching
@@ -120,10 +120,9 @@ export function performContentAnalysis(titleMatches, season, episode, absoluteEp
  * Re-analyze existing torrents with new season/episode criteria (for anime mapping)
  * @param {Array} titleMatches - Original title matches
  * @param {Object} episodeMapping - Anime episode mapping
- * @param {Object} absoluteEpisode - Absolute episode object
  * @returns {Array} Array of matching episodes with anime mapping
  */
-export function reAnalyzeWithMapping(titleMatches, episodeMapping, absoluteEpisode) {
+export function reAnalyzeWithMapping(titleMatches, episodeMapping) {
     logger.info('[phase-2] Re-analyzing existing torrents with anime mapping');
     
     // Re-analyze the same torrents we already found with the new season/episode
@@ -131,8 +130,7 @@ export function reAnalyzeWithMapping(titleMatches, episodeMapping, absoluteEpiso
         const analysis = analyzeTorrent(
             match.item, 
             parseInt(episodeMapping.mappedSeason), 
-            parseInt(episodeMapping.mappedEpisode), 
-            absoluteEpisode
+            parseInt(episodeMapping.mappedEpisode)
         );
         return {
             torrent: match.item,

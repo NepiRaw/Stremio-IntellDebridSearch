@@ -14,6 +14,7 @@ import RealDebrid from './providers/real-debrid.js';
 import DebridLink from './providers/debrid-link.js';
 import Premiumize from './providers/premiumize.js';
 import TorBox from './providers/torbox.js';
+
 class StreamProvider {
     
     static async getMovieStreams(config, type, id) {
@@ -241,10 +242,8 @@ class StreamProvider {
                         logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                         continue;
                     }
-                    const absoluteEpisodeNumber = searchResponse.absoluteEpisode && typeof searchResponse.absoluteEpisode === 'object' 
-                        ? searchResponse.absoluteEpisode.absoluteEpisode 
-                        : searchResponse.absoluteEpisode;
-                    const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode, absoluteEpisodeNumber);
+
+                    const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);
                     if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                         logger.debug(`[stream-provider] No matching episodes found in torrent ${result.id} for S${filterSeason}E${targetEpisode}${searchResponse.animeMapping ? ` (mapped from S${season}E${episode})` : ''}`);
                         continue;
