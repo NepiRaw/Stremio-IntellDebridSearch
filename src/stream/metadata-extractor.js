@@ -1,6 +1,5 @@
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
-import PTT, { romanToNumber } from '../utils/parse-torrent-title.js';
-import { extractQuality } from './quality-processor.js';
+import PTT from '../utils/parse-torrent-title.js';
 import { logger } from '../utils/logger.js';
 import { FILE_EXTENSIONS, detectContentType as detectContentTypeUtil, extractLanguageFromFilename } from '../utils/media-patterns.js';
 import { extractEpisodeTitleFromFilename } from '../utils/episode-patterns.js';
@@ -148,7 +147,7 @@ export function extractSeriesInfo(videoName, containerName = '') {
             metadata.releaseGroup = containerInfo.releaseGroup || metadata.releaseGroup;
         }
 
-            console.log(`🐛 [DEBUG] [metadata-extractor] Series extraction result:`, JSON.stringify(metadata, null, 2));
+        logger.debug(`[metadata-extractor] Series extraction result:`, JSON.stringify(metadata, null, 2));
         return metadata;
 
     } catch (err) {

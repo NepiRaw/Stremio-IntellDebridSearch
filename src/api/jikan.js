@@ -1,5 +1,6 @@
 ﻿/**
- * Jikan API client for anime season information
+ * Jikan API client for anime season information - Rate limited but no API key needed
+ * Could be replaced by TVDB if desired
  */
 
 import { logger } from '../utils/logger.js';
@@ -172,7 +173,6 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 
             } catch (error) {
                 logger.warn(`[anime-search] Error fetching details for MAL ID ${malId}:`, error.message);
-                // Continue to next MAL ID instead of failing completely
                 continue;
             }
         }
@@ -197,28 +197,26 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                     season_number: 'S00'
                 };
             }
-            
+
             // Detect if this is a part/continuation of the previous season
             let actualSeasonNumber = seasonIndex;
-            
+
             if (index > 0) {
                 const currentTitle = anime.title.toLowerCase();
                 const previousAnime = sorted[index - 1];
                 const previousTitle = previousAnime.title.toLowerCase();
-                
-                // Check if this is a "Part 2", "Part II", "Cour 2", etc. of the same season
+
+                // Treats 'Part 2', 'Part II', 'Cour 2', etc. as continuation of previous season
                 const isPartContinuation = (
-                    (currentTitle.includes('part 2') || currentTitle.includes('part ii') || 
+                    (currentTitle.includes('part 2') || currentTitle.includes('part ii') ||
                      currentTitle.includes('cour 2') || currentTitle.includes('cours 2') ||
                      currentTitle.includes('season part 2')) &&
-                    previousTitle.includes('season') && currentTitle.includes('season') &&
-                    // Check if they share the same season number pattern (e.g., "2nd season")
-                    (currentTitle.match(/(\d+)(?:st|nd|rd|th)\s*season/) || [])[1] === 
-                    (previousTitle.match(/(\d+)(?:st|nd|rd|th)\s*season/) || [])[1]
+                    previousAnime.type !== 'Special' &&
+                    (currentTitle.replace(/part 2|part ii|cour 2|cours 2|season part 2/g, '').trim() === previousTitle.replace(/season \d+|part 1|part i|cour 1|cours 1/g, '').trim() ||
+                     currentTitle.includes(previousTitle.split(' ')[0]))
                 );
-                
-                if (isPartContinuation && previousAnime.type !== 'Special') {
-                    // Use the same season number as the previous anime
+
+                if (isPartContinuation) { // Use the same season number as the previous anime
                     actualSeasonNumber = seasonIndex - 1;
                     logger.debug(`[anime-search] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
                 } else {
@@ -229,7 +227,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 seasonIndex++;
                 actualSeasonNumber = seasonIndex - 1;
             }
-            
+
             return {
                 ...anime,
                 season_number: `S${actualSeasonNumber.toString().padStart(2, '0')}`
@@ -239,7 +237,6 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         logger.info(`[anime-search] ✅ Found ${result.length} anime seasons for "${titleQuery}":`, 
             result.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
         
-        // Cache the result to avoid repeated API calls
         animeSeasonCache.set(cacheKey, {
             data: result,
             timestamp: Date.now()
@@ -253,10 +250,6 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
     }
 }
 
-/**
- * Get queue status for monitoring
- * @returns {object}
- */
 export function getRateLimiterStatus() {
     return {
         cacheSize: animeSeasonCache.size,
@@ -276,7 +269,6 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
         return null;
     }
     
-    // Filter out specials for episode counting
     const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
     
     if (mainSeasons.length === 0) {
@@ -305,15 +297,14 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
             });
         }
     }
-    
-    // Convert back to array and sort by season number
+
     const combinedSeasons = Array.from(seasonGroups.values()).sort((a, b) => {
         const aNum = parseInt(a.season_number.replace('S', ''));
         const bNum = parseInt(b.season_number.replace('S', ''));
         return aNum - bNum;
     });
     
-    // IMPORTANT: Check if the requested season exists and has enough episodes
+    // Check if the requested season exists and has enough episodes
     // Only map to a different season if the episode number exceeds what's available
     const requestedSeasonNum = `S${targetSeason.toString().padStart(2, '0')}`;
     const requestedSeasonData = combinedSeasons.find(s => s.season_number === requestedSeasonNum);
@@ -371,7 +362,6 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
 export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWithCountry, contentType = 'anime') {
     const titleVariations = [];
     
-    // 1. Always include the original title first
     titleVariations.push(originalTitle);
     
     if (!alternativeTitlesWithCountry || alternativeTitlesWithCountry.length === 0) {
@@ -383,13 +373,11 @@ export function selectTitleVariationsForAnime(originalTitle, alternativeTitlesWi
     
     const addedTitles = new Set([originalTitle.toLowerCase()]);
     
-    // Helper function to get titles for a country in their original TMDb order
     const getTitlesForCountry = (countryCode) => {
         return alternativeTitlesWithCountry
             .filter(alt => alt.country === countryCode);
     };
     
-    // Helper function to add a title if it's unique and valid
     const addTitle = (title, countryCode, label) => {
         const normalizedForComparison = title.toLowerCase();
         if (!addedTitles.has(normalizedForComparison) && title.length > 2) {

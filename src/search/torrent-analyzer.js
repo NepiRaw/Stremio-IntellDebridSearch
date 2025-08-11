@@ -4,7 +4,6 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { FILE_EXTENSIONS } from '../utils/media-patterns.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { isVideo } from '../stream/metadata-extractor.js';
 import { AbsoluteEpisodeProcessor } from '../utils/absolute-episode-processor.js';

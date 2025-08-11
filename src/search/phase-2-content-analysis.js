@@ -40,7 +40,6 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
     );
 
     if (torrentsNeedingDetails.length > 0) {
-        logger.info(`[phase-2] Batch fetching details for ${torrentsNeedingDetails.length} torrents`);
         await Promise.all(
             torrentsNeedingDetails.map(async match => {
                 try {

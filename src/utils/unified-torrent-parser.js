@@ -5,7 +5,6 @@
 
 import PTT from 'parse-torrent-title';
 import { logger } from './logger.js';
-import { romanToNumber } from './roman-numeral-utils.js';
 import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
 import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
 import { parseRomanSeasons } from './roman-numeral-utils.js';
@@ -182,15 +181,6 @@ function cleanTitle(filename, pttResult) {
     let title = pttResult.title;
     
     if (!title) return null;
-    
-    // Remove episode numbers from title for anime
-    if (filename.includes('- 06') && title.includes('- 06')) {
-        title = title.replace(/\s*-\s*\d+\s*$/, '').trim();
-    }
-    
-    if (filename.includes('030') && title.includes('030')) {
-        title = title.replace(/\s*\d{2,3}\s*$/, '').trim();
-    }
     
     return title;
 }

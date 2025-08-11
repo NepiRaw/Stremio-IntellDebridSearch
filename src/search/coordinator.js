@@ -73,8 +73,6 @@ export async function coordinateSearch(params) {
     const { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode } = preparationResult;
 
     // ========== OPTIMIZED PROVIDER SEARCH (SINGLE FETCH + PRE-FILTER) ==========
-    logger.info('[coordinator] Optimized provider search - fetching all torrents once');
-    
     const providerImpl = providers[provider];
     if (!providerImpl) {
         throw new Error(`Invalid provider: ${provider}`);
@@ -84,7 +82,6 @@ export async function coordinateSearch(params) {
     let allTorrents = [];
     try {
         allTorrents = await fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold);
-        logger.info(`[coordinator] Retrieved ${allTorrents.length} total torrents`);
     } catch (error) {
         logger.warn('[coordinator] Failed to fetch torrents:', error);
         return [];
@@ -177,7 +174,7 @@ export async function coordinateSearch(params) {
                 'anime'
             );
             
-            logger.info(`[coordinator] Country-prioritized anime search with ${titleVariations.length} title variations:`, titleVariations);
+            logger.info(`[coordinator] Country-prioritized anime search with ${titleVariations.length} title variations`);
             
             // Try each title variation until we find anime seasons
             let animeSeasons = [];
@@ -190,7 +187,7 @@ export async function coordinateSearch(params) {
                 if (animeSeasons.length > 0) {
                     successfulTitle = titleVariation;
                     logger.info(`[coordinator] ✅ Found anime seasons with country-prioritized title: "${titleVariation}"`);
-                    console.log(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`, 
+                    logger.info(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`, 
                         animeSeasons.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
                     break;
                 } else {

@@ -2,9 +2,9 @@
  * Provides movie and series streams
  */
 import { coordinateSearch } from './search/coordinator.js';
-import { toStream, toStreams, filterEpisode, filterYear } from './stream/stream-builder.js';
+import { filterEpisode } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
-import { batchExtractTechnicalDetails, parallelStreamFormatting } from './stream/performance-optimizer.js';
+import { parallelStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './utils/configuration.js';
@@ -289,6 +289,9 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
+            // Format and log the response streams for debugging/inspection
+            const { formatStreamsForDisplay } = await import('./stream/stream-builder.js');
+            const formattedOutput = formatStreamsForDisplay(sortedStreams);
             return sortedStreams;
 
         } catch (error) {

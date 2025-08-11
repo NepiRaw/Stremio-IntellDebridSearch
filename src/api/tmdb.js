@@ -87,8 +87,8 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
             }))
             .filter(t => t.normalizedTitle.length > 0); // Remove titles that normalize to empty
         
-        logger.info(`[tmdb-api] Found ${titlesWithCountry.length} alternative titles with countries:`, 
-            titlesWithCountry.map(t => `"${t.title}" (${t.country})`));
+    logger.info(`[tmdb-api] ✅ Found ${titlesWithCountry.length} alternative titles with countries.`);
+    logger.debug(`[tmdb-api] Alternative titles list: [\n${titlesWithCountry.map(t => `"${t.title}" (${t.country})`).join(',\n')}\n]`);
         
         // Cache result for 24 hours
         cache.set(cacheKey, titlesWithCountry, 24 * 3600);

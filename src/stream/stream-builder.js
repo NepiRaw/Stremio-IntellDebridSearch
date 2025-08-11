@@ -2,22 +2,12 @@
  * Stream builder module - constructs stream objects with detailed titles and quality info
  */
 import { FILE_TYPES } from './metadata-extractor.js';
-import { 
-    extractQualityDisplay, 
-    LANGUAGE_PATTERNS, 
-    AUDIO_PATTERNS, 
-    CODEC_PATTERNS, 
-    SOURCE_PATTERNS, 
-    COMPREHENSIVE_TECH_PATTERNS,
-    FILE_EXTENSIONS,
-    TECHNICAL_PATTERNS
-} from '../utils/media-patterns.js';
+import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
-import { parseUnified, extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
+import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
 import { extractQuality } from './quality-processor.js';
 import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
-import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
 
 const STREAM_NAME_MAP = {
@@ -187,8 +177,6 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
         const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
         
         if (variantSystemEnabled && searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
-            // For variant detection, always use the individual video name, not the container series info
-            // This ensures each video file is analyzed separately for variant detection
             const videoSeriesInfo = extractSeriesInfo(videoName, '');
             logger.debug(`[formatStreamTitle] Variant detection: videoSeriesInfo.title="${videoSeriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}`);
             detectedVariant = detectSimpleVariant(videoSeriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
@@ -362,4 +350,23 @@ export function filterEpisode(torrentDetails, season, episode) {
         torrentDetails.videos = [];
         return false;
     }
+}
+
+/**
+ * Format an array of stream objects for display - for terminal output only.
+ */
+export function formatStreamsForDisplay(streams) {
+    if (!Array.isArray(streams)) return '';
+    return streams.map(stream => {
+        const nameLines = (stream.name || '').split('\n');
+        const titleLines = (stream.title || '').split('\n').map(line => '\t' + line);
+        //const urlLine = 'URL: ' + (stream.url || ''); //Uncomment this line to include URL for debug purpose
+        const hintsLine = 'behaviorHints: ' + JSON.stringify(stream.behaviorHints || {});
+        return [
+            ...nameLines,
+            ...titleLines,
+        //    urlLine,  //Uncomment this line to include URL for debug purpose
+            hintsLine
+        ].join('\n');
+    }).join('\n\n');
 }

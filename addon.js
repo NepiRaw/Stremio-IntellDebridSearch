@@ -5,7 +5,6 @@ import { getManifest } from './src/config/manifest.js'
 
 import { logger } from './src/utils/logger.js';
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
-const STALE_REVALIDATE_AGE = 1 * 60 // 1 min
 const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
 
 const builder = new addonBuilder(getManifest())
@@ -68,8 +67,10 @@ builder.defineStreamHandler(args => {
         switch (args.type) {
             case 'movie':
                 StreamProvider.getMovieStreams(args.config, args.type, args.id)
-                    .then(streams => {
-                        logger.info("Response streams: " + JSON.stringify(streams))
+                    .then(async streams => {
+                        const { formatStreamsForDisplay } = await import('./src/stream/stream-builder.js');
+                        const formatted = formatStreamsForDisplay(streams);
+                        logger.info("Response streams:\n" + formatted);
                         resolve({
                             streams,
                             ...enrichCacheParams()
@@ -79,8 +80,10 @@ builder.defineStreamHandler(args => {
                 break
             case 'series':
                 StreamProvider.getSeriesStreams(args.config, args.type, args.id)
-                    .then(streams => {
-                        logger.info("Response streams: " + JSON.stringify(streams))
+                    .then(async streams => {
+                        const { formatStreamsForDisplay } = await import('./src/stream/stream-builder.js');
+                        const formatted = formatStreamsForDisplay(streams);
+                        logger.info("Response streams:\n" + formatted);
                         resolve({
                             streams,
                             ...enrichCacheParams()

@@ -101,8 +101,6 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
     }
 
     try {
-        logger.info(`[provider-search] Using ${provider} bulk ${config.bulkMethod} method`);
-        
         let result;
         if (config.methodArgs) {
             // Insert apiKey at the correct position
