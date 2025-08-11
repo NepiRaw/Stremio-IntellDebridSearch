@@ -55,7 +55,7 @@ Addon currently available at: [WIP]
 ## ⚙️ Configuration
 
 ### Access Configuration
-1. Navigate to your addon URL (e.g., http://localhost:3000 or your domain)
+1. Navigate to your addon URL (e.g., http://localhost:3001 or your domain)
 2. Configure your Debrid provider and API keys
 3. Click "Install Addon" to add it to Stremio
 
@@ -79,7 +79,7 @@ FROM node:18
 WORKDIR /app
 COPY . .
 RUN npm install && npm run build
-EXPOSE 3000
+EXPOSE 3001
 CMD ["npm", "start"]
 ```
 
@@ -93,11 +93,11 @@ services:
     container_name: stremio-intelldebridsearch
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3001"
     env_file:
       - .env
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -124,7 +124,7 @@ services:
  docker-compose up -d --build
 ```
 
-4. **Access your addon at `http://localhost:3000` (or your configured domain)**
+4. **Access your addon at `http://localhost:3001` (or your configured domain)**
 
 
 
@@ -148,7 +148,7 @@ cp .env.example .env
 ```bash
 npm start
 ```
-5. **Access your addon at `http://localhost:3000` (or your configured domain)**
+5. **Access your addon at `http://localhost:3001` (or your configured domain)**
 
 ### 🔺 Vercel Deployment
 
@@ -168,7 +168,7 @@ npm start
 | `TMDB_API_KEY`          | ❌ Recommended      | (empty)           | TMDb API key for enhanced title matching (optional, get from themoviedb.org)                  |
 | `VARIANT_SYSTEM_ENABLED`| ❌       | true             | True/False - Enables detection of content variants (Directors Cut, Extended Edition, OVA, title variants, etc.)                 |
 | `BASE_URL`              | ❌       | http://localhost  | Base URL for the addon (optional, used for deployment)                                        |
-| `PORT`                  | ❌       | 3000              | Server port (optional)                                                                        |
+| `PORT`                  | ❌       | 3001              | Server port (optional)                                                                        |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
 
 **API Key Scenarios:**
