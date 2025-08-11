@@ -29,8 +29,61 @@ const STREAM_NAME_MAP = {
 };
 
 /**
+ * Create multiple stream objects from torrent details when it contains multiple valid videos
+ * This function addresses Issue 1: ensuring all valid videos in a torrent container are returned as separate streams
+ */
+export function toStreams(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+    if (!details) return [];
+
+    let parsedMetadata = null;
+    if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
+        (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
+        parsedMetadata = parsedMetadataOrKnownSeasonEpisode;
+    } else {
+        knownSeasonEpisode = parsedMetadataOrKnownSeasonEpisode;
+    }
+
+    logger.debug(`[toStreams] Processing ${type} with details.name="${details.name}"`);
+    logger.debug(`[toStreams] knownSeasonEpisode:`, JSON.stringify(knownSeasonEpisode, null, 2));
+    logger.debug(`[toStreams] details.videos length:`, details.videos?.length || 0);
+    logger.debug(`[toStreams] parsedMetadata provided:`, !!parsedMetadata);
+
+    const streams = [];
+    const icon = details.fileType == FILE_TYPES.DOWNLOADS ? '⬇️' : '💾';
+
+    if (details.fileType == FILE_TYPES.DOWNLOADS) {
+        // Direct download - create single stream
+        const stream = createSingleStream(details, details, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+        if (stream) streams.push(stream);
+    } else {
+        // Torrent container - create stream for each valid video
+        if (!details.videos?.length) return [];
+        
+        logger.debug(`[toStreams] Creating streams for ${details.videos.length} videos`);
+        
+        for (const video of details.videos) {
+            logger.debug(`[toStreams] Processing video: "${video.name}" (S${video.info?.season}E${video.info?.episode})`);
+            
+            const stream = createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+            if (stream) {
+                streams.push(stream);
+                logger.debug(`[toStreams] ✅ Created stream for: "${video.name}"`);
+            } else {
+                logger.debug(`[toStreams] ❌ Failed to create stream for: "${video.name}"`);
+            }
+        }
+    }
+
+    logger.debug(`[toStreams] Generated ${streams.length} streams from ${details.videos?.length || 1} videos`);
+    return streams;
+}
+
+/**
  * Create stream object from torrent details and video file
  * Updated to accept pre-parsed metadata for performance optimization
+ * 
+ * DEPRECATED: Use toStreams() instead for Issue 1 compliance
+ * This function is kept for backwards compatibility only
  */
 export function toStream(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return null;
@@ -79,12 +132,22 @@ export function toStream(details, type, parsedMetadataOrKnownSeasonEpisode = nul
 
     if (!video) return null;
 
+    return createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+}
+
+/**
+ * Helper function to create a single stream from container details and video
+ * Extracted from original toStream to avoid code duplication
+ */
+function createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
+    if (!video) return null;
+
     const quality = extractQuality(video, details);
     
     let name = STREAM_NAME_MAP[details.source] || 'Unknown'
     name = name + '\n' + quality
 
-    let title = formatStreamTitle(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext); // Enhanced title formatting - pass known season/episode info and variant info if available
+    let title = formatStreamTitle(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
 
     let bingeGroup = details.source + '|' + details.id
 
@@ -124,8 +187,11 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
         const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
         
         if (variantSystemEnabled && searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
-            logger.debug(`[formatStreamTitle] Variant detection: seriesInfo.title="${seriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}`);
-            detectedVariant = detectSimpleVariant(seriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
+            // For variant detection, always use the individual video name, not the container series info
+            // This ensures each video file is analyzed separately for variant detection
+            const videoSeriesInfo = extractSeriesInfo(videoName, '');
+            logger.debug(`[formatStreamTitle] Variant detection: videoSeriesInfo.title="${videoSeriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}`);
+            detectedVariant = detectSimpleVariant(videoSeriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
             logger.debug(`[formatStreamTitle] Variant result: ${JSON.stringify(detectedVariant)}`);
         } else if (!variantSystemEnabled) {
             logger.debug(`[formatStreamTitle] Variant detection disabled via VARIANT_SYSTEM_ENABLED=false`);

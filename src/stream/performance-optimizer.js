@@ -154,7 +154,7 @@ async function processChunkWithWorker(chunk, workerIndex) {
 }
 
 async function formatStreamsSequentially(streamData) {
-    const { toStream } = await import('../stream/stream-builder.js');
+    const { toStreams } = await import('../stream/stream-builder.js');
     
     logger.debug(`[performance] Processing ${streamData.length} streams sequentially with optimizations`);
     
@@ -165,7 +165,9 @@ async function formatStreamsSequentially(streamData) {
     
     await batchExtractTechnicalDetails(streamsForOptimization);
     
-    return streamData.map((data, index) => {
+    const allStreams = [];
+    
+    streamData.forEach((data, index) => {
         try {
             // Pre-parse metadata using lazy caching
             const parsedMetadata = getOrParseMetadata(
@@ -174,20 +176,27 @@ async function formatStreamsSequentially(streamData) {
                 data.type
             );
             
-            const stream = toStream(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
+            // Use toStreams to get all streams from a torrent container (fixes Issue 1)
+            const streams = toStreams(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
             
             if (streamsForOptimization[index] && streamsForOptimization[index].cachedTechnicalDetails) {
-                if (stream && stream.title) {
-                    logger.debug(`[performance] Using cached technical details for stream: ${data.details?.name?.substring(0, 30)}...`);
-                }
+                streams.forEach(stream => {
+                    if (stream && stream.title) {
+                        logger.debug(`[performance] Using cached technical details for stream: ${data.details?.name?.substring(0, 30)}...`);
+                    }
+                });
             }
             
-            return stream;
+            // Add all streams from this container
+            allStreams.push(...streams);
+            
         } catch (error) {
-            logger.warn(`[performance] Failed to format stream ${data.details?.name}:`, error);
-            return null;
+            logger.warn(`[performance] Failed to format streams for ${data.details?.name}:`, error);
         }
-    }).filter(stream => stream !== null);
+    });
+    
+    logger.debug(`[performance] Generated ${allStreams.length} total streams from ${streamData.length} containers`);
+    return allStreams.filter(stream => stream !== null);
 }
 
 function normalizeFilename(filename) {

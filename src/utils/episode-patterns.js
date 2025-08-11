@@ -383,6 +383,13 @@ export function parseAbsoluteEpisode(filename) {
     const videoExtensionPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
     const cleanFilename = filename.replace(videoExtensionPattern, '');
     
+    // Skip if this looks like a year in parentheses (not an absolute episode)
+    // Pattern: (1900-2099) followed by season/episode format like S01E01
+    if (/\(\d{4}\).*?S\d+E\d+/i.test(cleanFilename)) {
+        logger.debug(`[parseAbsoluteEpisode] Skipping absolute episode detection - year in parentheses with S##E## format detected`);
+        return null;
+    }
+    
     // Sort patterns by priority (more specific patterns first)
     const patternEntries = Object.entries(ABSOLUTE_EPISODE_PATTERNS);
     const sortedPatterns = [
