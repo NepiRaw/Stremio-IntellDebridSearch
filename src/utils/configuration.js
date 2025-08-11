@@ -192,15 +192,14 @@ function getSearchCapabilities(tmdbApiKey, traktApiKey) {
 export function logApiStartupStatus(config = {}) {
     const apiConfig = getApiConfig(config);
     
-    logger.info('[configuration] === API Key Status ===');
+    logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
     logger.info(`[configuration] TMDb API: ${apiConfig.isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] Trakt API: ${apiConfig.isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] Advanced search: ${apiConfig.hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
+    logger.info(`[configuration] ⚡ Advanced search: ${apiConfig.hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
     
     const caps = apiConfig.searchCapabilities;
     logger.info('[configuration] Search capabilities:');
     logger.info(`  • Alternative titles: ${caps.alternativeTitles ? '✅' : '❌'}`);
-    logger.info(`  • Alternatives titles: ${caps.internationalTitles ? '✅' : '❌'}`);
     logger.info(`  • Anime/absolute episodes: ${caps.animeSupport ? '✅' : '❌'}`);
 }
 
