@@ -5,11 +5,9 @@ import TorBox from './providers/torbox.js'
 import Premiumize from './providers/premiumize.js'
 import { coordinateSearch } from './search/coordinator.js'
 import { BadRequestError } from './utils/error-handler.js'
-import { logger } from './utils/logger.js'
-import { getApiConfig } from './utils/configuration.js'
+import { getApiConfig } from './config/configuration.js'
 
 async function searchTorrents(config, searchKey) {
-    // Get API configuration using the centralized system
     const apiConfig = getApiConfig(config);
     
     const apiKey = config.DebridLinkApiKey ? config.DebridLinkApiKey : config.DebridApiKey

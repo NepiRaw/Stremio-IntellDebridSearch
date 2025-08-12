@@ -7,7 +7,7 @@ import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-
 import { parallelStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
-import { getApiConfig } from './utils/configuration.js';
+import { getApiConfig } from './config/configuration.js';
 import Cinemeta from './api/cinemeta.js';
 import AllDebrid from './providers/all-debrid.js';
 import RealDebrid from './providers/real-debrid.js';
@@ -289,7 +289,6 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
-            // Format and log the response streams for debugging/inspection
             const { formatStreamsForDisplay } = await import('./stream/stream-builder.js');
             const formattedOutput = formatStreamsForDisplay(sortedStreams);
             return sortedStreams;

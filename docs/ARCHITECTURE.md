@@ -1,8 +1,12 @@
+
 # Stremio IntellDebridSearch Addon - Architecture Documentation
+
 
 ## Overview
 
-The Stremio IntellDebridSearch Addon is a sophisticated streaming addon that provides intelligent torrent search and debrid service integration for Stremio. This document describes the complete system architecture, including all components, their interactions, and the unified parsing system implemented through comprehensive refactoring.
+Stremio IntellDebridSearch is a modular, content-agnostic streaming addon for Stremio. <br> 
+It provides intelligent torrent search, unified parsing, and seamless integration with multiple debrid services. <br>
+This document is designed for developers, maintainers, and stakeholders to understand the system’s architecture, how its components interact, and how to extend or debug it. No prior knowledge of the codebase is required.
 
 ## Table of Contents
 
@@ -17,9 +21,13 @@ The Stremio IntellDebridSearch Addon is a sophisticated streaming addon that pro
 9. [Configuration Management](#configuration-management)
 10. [Deployment](#deployment)
 
+
 ## System Architecture
 
-The addon follows a modular, service-oriented architecture with clear separation of concerns:
+The addon is built on a modular, service-oriented architecture. Each layer is responsible for a distinct concern, making the system easy to maintain and extend.
+
+**Architecture Layers:**
+
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -39,6 +47,142 @@ The addon follows a modular, service-oriented architecture with clear separation
 │  Real-Debrid │ AllDebrid │ Premiumize │ Debrid-Link │ TorBox  │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+**Layer Explanations:**
+- **Stremio Addon API**: Entry point for all requests from Stremio clients.
+- **Express.js Server**: Handles HTTP requests, routing, and middleware.
+- **Providers**: 
+     - *Catalog Provider*: Supplies content catalogs.
+     - *Stream Provider*: Resolves streams for playback.
+     - *Search Provider*: Handles search queries and result ranking.
+- **Unified Parsing Engine**: Centralized logic for parsing torrent and video filenames, used by all providers.
+- **Metadata/Performance/Quality Modules**: Extracts technical details, optimizes performance, and detects quality.
+- **Debrid Service Integrations**: Pluggable modules for each supported debrid service.
+## Provider Integration & Extensibility
+
+Providers are implemented as modular files in `/src/providers/`. <br>
+Each provider exports a standard interface (e.g., `listTorrents`, `searchTorrents`, `getTorrentDetails`, etc.) and plugs into the main system via the provider registry. <p>
+
+Adding a new provider requires:
+
+1. Creating a new file in `/src/providers/` following the standard interface.
+2. Implementing authentication, API calls, and error handling.
+3. Registering the provider in the main configuration.
+4. Ensuring it uses the unified parsing engine for filename parsing and metadata extraction.
+
+**Unified Parsing Usage:**
+All providers call the unified parser (`parseUnified`) to ensure consistent metadata extraction and content-agnostic handling. This guarantees that new providers or content types are automatically supported by the parsing logic.
+
+
+## Request Lifecycle (End-to-End Flow)
+
+The following steps describe how a Stremio client request is processed from entry to response:
+
+```
+1. Stremio Client Request
+     ↓
+2. Express.js Server (server.js)
+     - Receives HTTP request from Stremio client
+     - Logs request
+     ↓
+3. Handler Selection (addon.js)
+     - Determines if request is for catalog, stream, or search
+     ↓
+4. Provider Selection
+     - Chooses the appropriate provider (e.g., RealDebrid, AllDebrid) based on config and request type
+     ↓
+5. Provider Logic (src/providers/)
+     - Provider module executes requested action (listTorrents, searchTorrents, getTorrentDetails, etc.)
+     - Calls Unified Parsing Engine for filename parsing
+     ↓
+6. Unified Parsing Engine (parseUnified)
+     - Parses torrent/video filenames for metadata
+     ↓
+7. Metadata Extraction (extractSeriesInfo, extractMovieInfo, ...)
+     - Extracts technical details and content info
+     ↓
+8. Performance Optimization
+     - Applies caching, batch processing, and parallel formatting
+     ↓
+9. Quality Filtering
+     - Filters streams for quality (resolution, codec, etc.)
+     ↓
+10. Debrid Service API
+      - Provider interacts with debrid service API (fetch, resolve, unrestrict)
+     ↓
+11. Stream Generation
+      - Stream provider assembles final stream objects
+     ↓
+12. Response Caching
+      - Results may be cached for performance
+     ↓
+13. Stremio Client Response
+      - Final response sent back to Stremio client
+```
+
+**Notes:**
+- Unified parsing and metadata extraction are always performed before any stream is returned.
+- Provider selection is dynamic and based on configuration and request type.
+- Caching and error handling are applied throughout the flow for robustness and performance.
+
+## Getting Started (Onboarding)
+
+**For New Developers:**
+1. Clone the repository and install dependencies (`npm install` or `pnpm install`).
+2. Copy `.env.example` to `.env` and fill in your debrid API keys and server config.
+3. Start the server (`node server.js`).
+4. Run tests from the `/tests/` folder to validate your setup.
+5. Explore `/src/` for main logic, `/docs/` for documentation, and `/tests/` for validation scripts.
+
+**Configuration Tips:**
+- All sensitive keys and settings are managed via `.env`.
+- Provider-specific options are set in `/src/config/configuration.js`.
+- For local development, use test API keys and enable verbose logging in `/src/utils/logger.js`.
+## Error Handling & Logging (Practical)
+
+All errors are logged via the centralized logger (`/src/utils/logger.js`).
+- API errors, parsing failures, and network issues are caught and logged with context.
+- The system uses fallback strategies and retries for transient errors.
+## Extending & Debugging
+
+**To Add a New Provider:**
+- Copy an existing provider file in `/src/providers/` and update API endpoints and logic.
+- Register the provider in `/src/config/configuration.js`.
+- Ensure all exported functions match the standard interface.
+- Add tests in `/tests/` to validate provider integration.
+
+**To Add a New Content Type:**
+- Update `/src/utils/unified-torrent-parser.js` and `/src/stream/metadata-extractor.js` to recognize new patterns.
+- Add relevant tests and update documentation.
+
+**Debugging Tips:**
+- Use verbose logging and run integration tests.
+- Check `output.log` for error traces.
+- Use the test scripts in `/tests/` to simulate real-world scenarios.
+## Real-World Usage Notes
+
+- The addon is designed to be content-agnostic and provider-agnostic. It works for movies, series, anime, and any future content types.
+- All parsing and metadata extraction is centralized, so improvements benefit all providers and content types.
+- The system is robust against malformed input, API failures, and edge cases, with graceful degradation and fallback logic.
+## Navigation Guide
+
+- `/src/` — Main source code (providers, parsing, metadata, search, stream logic)
+- `/docs/` — Documentation (architecture, caching, performance, refactoring)
+- `/tests/` — Test scripts and validation tools
+- `/public/` — UI templates and static assets
+## FAQ
+
+**Q: How do I add a new debrid provider?**
+A: Copy an existing provider file, implement the required interface, register it in config, and add tests.
+
+**Q: How do I support a new content type?**
+A: Update the unified parser and metadata extractor, then add tests and documentation.
+
+**Q: How do I debug errors?**
+A: Use verbose logging, and run integration tests in `/tests/`.
+
+**Q: How do I deploy to production?**
+A: See the Deployment section for supported platforms and step-by-step instructions.
 
 ## Core Components
 
@@ -127,19 +271,18 @@ parseSeasonFromTitle(filename)
 - Multi-episode ranges
 
 ### 5. Stream Provider Services
-**Locations**: `src/stream/`, `lib/`
+**Locations**: `src/stream/`, `src/providers`
 
 Multiple debrid service integrations:
 
-- **Real-Debrid**: `lib/real-debrid.js`
-- **AllDebrid**: `lib/all-debrid.js`
-- **Premiumize**: `lib/premiumize.js`
-- **Debrid-Link**: `lib/debrid-link.js`
-- **TorBox**: `lib/torbox.js`
+- **Real-Debrid**: `src/real-debrid.js`
+- **AllDebrid**: `src/all-debrid.js`
+- **Premiumize**: `src/premiumize.js`
+- **Debrid-Link**: `src/debrid-link.js`
+- **TorBox**: `src/torbox.js`
 
 Each service provides:
 - Authentication handling
-- API rate limiting
 - Error recovery
 - Stream resolution
 - Quality filtering
@@ -157,40 +300,54 @@ Each service provides:
 
 #### `/src/api/`
 - `cinemeta.js` - Cinemeta API integration for metadata
+- `jikan.js` - Anime metadata via Jikan API
+- `tmdb.js` - Movie/TV metadata via TMDB API
+- `trakt.js` - TV/streaming metadata via Trakt API
 
 #### `/src/catalog/`
 - `catalog-provider.js` - Content catalog management
 
 #### `/src/config/`
 - `configuration.js` - System configuration management
+- `manifest.js` - Addon manifest and metadata
 
 #### `/src/providers/`
 - Individual debrid provider implementations
 
 #### `/src/search/`
-- Search functionality and algorithms
+- `provider-search.js` - Main provider search logic, ranking, and fuzzy matching
+- `phase-0-preparation.js` - Initial preparation and normalization of search input
+- `phase-1-title-matching.js` - Title-based matching and scoring of torrents
+- `phase-2-content-analysis.js` - Enriches torrent results with metadata and technical details
+- `anime-fallback.js` - Handles anime-specific search fallbacks and edge cases (phase 3)
+- `coordinator.js` - Orchestrates multi-phase search and result aggregation
+- `episode-mapper.js` - Maps episode numbers and titles for accurate matching
+- `keyword-extractor.js` - Extracts and scores keywords from torrent names
+- `torrent-analyzer.js` - Analyzes torrent files for technical and content details
 
 #### `/src/stream/`
 - `metadata-extractor.js` - Core metadata extraction
 - `performance-optimizer.js` - Performance optimizations
 - `stream-provider.js` - Stream generation logic
+- `quality-processor.js` - Stream quality analysis and filtering
 
 #### `/src/utils/`
-- `unified-torrent-parser.js` - Main parsing engine
-- `episode-patterns.js` - Pattern recognition
-- `roman-numeral-utils.js` - Roman numeral processing
-- `logger.js` - Logging system
-- `error-handler.js` - Error management
-- `cache-manager.js` - Caching utilities
-
-#### `/lib/`
-Legacy debrid service implementations (maintained for compatibility)
+- `unified-torrent-parser.js` - Main parsing engine for torrent/video filenames
+- `absolute-episode-processor.js` - Handles absolute episode number detection and mapping
+- `cache-manager.js` - Caching utilities and LRU cache management
+- `debrid-processor.js` - Utility functions for debrid service integration and normalization
+- `episode-patterns.js` - Pattern recognition for episodes and seasons
+- `error-handler.js` - Centralized error management and reporting
+- `groups-util.js` - Release group identification and normalization
+- `logger.js` - Logging system for errors, warnings, and info
+- `media-patterns.js` - Media type and quality pattern recognition
+- `parse-torrent-title.js` - Advanced parsing for torrent titles and metadata
+- `roman-numeral-utils.js` - Roman numeral processing and conversion
+- `variant-detector.js` - Detects and normalizes variant releases and editions
 
 #### `/public/`
 - `landing-template.js` - User interface template
 
-#### `/tests/`
-Comprehensive testing suite with validation and performance tests
 
 ## Data Flow
 
@@ -256,27 +413,6 @@ Based on comprehensive testing:
 - Retry mechanisms with exponential backoff
 - Comprehensive error logging
 
-### Validation Results
-- **Error handling grade**: A+ (99.8% success rate)
-- **Edge case coverage**: 1160/1162 tests passed
-- **Fault tolerance**: Excellent across all scenarios
-
-## Testing Framework
-
-### Test Categories
-1. **Unit Tests**: Individual component validation
-2. **Integration Tests**: End-to-end workflow validation
-3. **Performance Tests**: Speed and memory optimization
-4. **Error Handling Tests**: Edge case and fault tolerance
-5. **Memory Tests**: Memory leak detection and optimization
-
-### Test Results Summary
-- **Comprehensive Validation**: 91% success rate (20/22 tests)
-- **Performance**: Grade A (90/100) - 2.37ms avg parsing
-- **Memory**: Grade C (70/100) - No leaks detected
-- **Error Handling**: Grade A+ (100/100) - 99.8% success
-- **Integration**: Grade B+ (90/100) - 92.6% success
-
 ## Configuration Management
 
 ### Environment Variables
@@ -294,7 +430,7 @@ Based on comprehensive testing:
 
 ### Supported Platforms
 1. **Traditional Server**: Node.js with Express
-2. **Serverless**: AWS Lambda, Vercel, Netlify
+2. **Serverless**: AWS Lambda, Vercel, Netlify, ...
 3. **Container**: Docker deployment
 4. **Cloud**: Heroku, Railway, etc.
 
@@ -304,50 +440,13 @@ Based on comprehensive testing:
 - `vercel.json` - Vercel configuration
 - `beamup.json` - BeamUp deployment config
 
-## Architecture Benefits
-
-### 1. Maintainability
-- **Modular Design**: Clear separation of concerns
-- **Unified Parsing**: Single source of truth for parsing logic
-- **Comprehensive Tests**: Extensive validation coverage
-- **Documentation**: Complete system documentation
-
-### 2. Performance
-- **Optimized Parsing**: 20.6x cache speedup
-- **Memory Efficient**: 0.007MB per file processing
-- **Fast Response**: 2.37ms average parsing time
-- **Scalable**: Supports concurrent processing
-
-### 3. Reliability
-- **Error Handling**: 99.8% success rate in edge cases
-- **Fault Tolerance**: Graceful degradation
-- **Service Redundancy**: Multiple debrid providers
-- **Recovery Mechanisms**: Automatic retry and fallback
-
-### 4. Extensibility
-- **Content Agnostic**: Works with all media types
-- **Provider Agnostic**: Easy to add new debrid services
-- **Configuration Driven**: Flexible behavior modification
-- **API Compatible**: Standard Stremio addon interface
-
-## Future Considerations
-
-### Planned Improvements
-1. **Machine Learning**: Enhanced parsing accuracy through ML
-2. **Real-time Analytics**: Advanced performance monitoring
-3. **Auto-scaling**: Dynamic resource allocation
-4. **Enhanced Caching**: Distributed cache support
-
-### Scalability Targets
-- Support for 1000+ concurrent users
-- Sub-millisecond parsing times
-- 99.99% uptime reliability
-- Global CDN distribution
 
 ---
 
 *This architecture documentation represents the current state of the Stremio IntellDebridSearch Addon after comprehensive refactoring and optimization. The system demonstrates excellent performance, reliability, and maintainability through its unified parsing engine and modular design.*
 
-**Last Updated**: December 2024  
-**Version**: 2.0.0 (Post-Refactoring)  
-**Author**: Stremio IntellDebridSearch Development Team
+---
+
+**Last Updated**: August 2025  
+**Version**: 2.1.0 (Unified, Extensible, Post-Refactoring)  
+**Author**: NepiRaw

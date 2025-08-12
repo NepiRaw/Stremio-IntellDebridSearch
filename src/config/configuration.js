@@ -1,4 +1,4 @@
-import { logger } from './logger.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Configuration utilities - handles addon configuration parsing and validation

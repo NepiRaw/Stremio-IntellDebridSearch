@@ -8,7 +8,7 @@ import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 
 import { logger } from './src/utils/logger.js';
-import { logApiStartupStatus } from './src/utils/configuration.js';
+import { logApiStartupStatus } from './src/config/configuration.js';
 const app = express()
 app.enable('trust proxy')
 app.use(cors())

@@ -6,7 +6,7 @@ import { decode } from 'urlencode'
 import qs from 'querystring'
 import requestIp from 'request-ip'
 import { getManifest } from './src/config/manifest.js'
-import { parseConfiguration } from './src/utils/configuration.js'
+import { parseConfiguration } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
 
 const router = new Router();

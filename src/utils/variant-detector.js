@@ -184,7 +184,7 @@ export function cleanupVariantName(variantPart) {
             .replace(CLEANUP_PATTERNS.trailingDash, '') // Remove trailing dashes
             .trim(); // Remove leading/trailing whitespace
             
-        // ADDITIONAL CLEANUP for variant detection issues (Task 4.23.2 fixes)
+        // ADDITIONAL CLEANUP for variant detection
         cleaned = cleaned
             .replace(/\b\d{3,4}x\d{3,4}\b/g, '') // Remove resolution patterns like "1920x1080"
             .replace(/\b\d{1,2}\b/g, '') // Remove episode numbers like "02", "1", "12"
