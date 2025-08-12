@@ -92,7 +92,6 @@ export class AbsoluteEpisodeProcessor {
         // Explicit season/episode patterns take precedence over absolute episode numbers
         const seasonEpisodeMatch = filenameLower.match(/s(\d+)(?:e(\d+)|\s*-\s*(\d+))/);
         if (seasonEpisodeMatch) {
-            logger.debug(`[AbsoluteEpisodeProcessor] Skipping absolute episode matching for file with explicit season/episode pattern: "${filename}"`);
             return false; // Never match absolute episodes for files with explicit season/episode patterns
         }
         

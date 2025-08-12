@@ -133,7 +133,8 @@ export function extractSeriesInfo(videoName, containerName = '') {
         metadata.language = extractLanguage(videoName);
         metadata.episodeTitle = extractEpisodeTitle(videoName);
 
-        if (metadata.season && metadata.episode) {
+        if (metadata.season !== null && metadata.season !== undefined && 
+            metadata.episode !== null && metadata.episode !== undefined) {
             const season = String(metadata.season).padStart(2, '0');
             const episode = String(metadata.episode).padStart(2, '0');
             metadata.seasonEpisode = `S${season}E${episode}`;

@@ -211,7 +211,7 @@ export function extractEpisodeTitleFromFilename(filename) {
     const quotedPatterns = [
         { name: 'double-single-quotes', pattern: /''([^'']+)''/g },
         { name: 'double-quotes', pattern: /"([^"]+)"/g },
-        { name: 'single-quotes', pattern: /'([^']+)'/g },
+        // { name: 'single-quotes', pattern: /'([^']+)'/g }, // Single-quotes pattern disabled due to false positives
     ];
     
     for (const {name, pattern} of quotedPatterns) {

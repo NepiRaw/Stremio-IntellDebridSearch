@@ -206,7 +206,6 @@ function extractEpisodeWithFallback(filename, pttResult) {
     // First try the comprehensive episode patterns from episode-patterns.js
     const episodeInfo = parseEpisodeFromTitle(filename);
     if (episodeInfo && episodeInfo.episode) {
-        logger.debug(`[unified-parser] Episode extracted via episode-patterns: S${episodeInfo.season}E${episodeInfo.episode} (pattern: ${episodeInfo.pattern})`);
         return episodeInfo; // Return full object with season and episode
     }
     
@@ -259,7 +258,6 @@ function extractSeasonWithFallback(filename, pttResult) {
     // First try the comprehensive season patterns from episode-patterns.js
     const season = parseSeasonFromTitle(filename, false);
     if (season !== null) {
-        logger.debug(`[unified-parser] Season extracted via episode-patterns: ${season}`);
         return season;
     }
     
