@@ -15,7 +15,7 @@ export function extractKeywords(title) {
     if (!title || typeof title !== 'string') return '';
     
     return title
-        .normalize("NFKC") // Unicode normalization
+        .normalize("NFKC")
         .replace(/[^\p{L}\p{N}\s]/gu, " ") // Replace ALL punctuation with spaces to preserve word boundaries
         .trim()
         .replace(/\s{2,}/g, " ") // Collapse multiple spaces

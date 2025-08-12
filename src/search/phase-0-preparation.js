@@ -48,9 +48,18 @@ export async function prepareSearchTerms(params) {
         alternativeTitles = await fetchTMDbAlternativeTitles(null, type, tmdbApiKey, imdbId);
     }
     
-    // Prepare all search terms
-    const normalizedSearchKey = extractKeywords(searchKey);
-    const allSearchTerms = [normalizedSearchKey];
+    // Prepare all search terms + Add raw titles first for exact matching
+    const allSearchTerms = [];
+    
+    allSearchTerms.push(searchKey); // 1. Add the original search key (non-normalized) first for exact matches
+    
+    if (alternativeTitles.length > 0) { // 2. Add raw alternative titles (non-normalized) for exact matches
+        const rawAlternatives = alternativeTitles.map(alt => alt.title || alt);
+        allSearchTerms.push(...rawAlternatives);
+    }
+    
+    const normalizedSearchKey = extractKeywords(searchKey); // 3. Then add normalized versions for fuzzy matching
+    allSearchTerms.push(normalizedSearchKey);
     
     if (alternativeTitles.length > 0) {
         // Extract normalized titles from the new format with country info

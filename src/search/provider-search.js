@@ -184,14 +184,18 @@ export function preFilterTorrentsByKeywords(allTorrents, keywords) {
         const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
         
         return keywords.some(keyword => {
+            const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+            const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+            
+            if (normalizedTorrentForRaw.includes(normalizedKeywordForRaw)) {
+                return true;
+            }
             const normalizedKeyword = extractKeywords(keyword).toLowerCase();
             
-            // Use ultra-fast fuzzy matching (includes exact matching as fast path)
-            return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);
+            return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);// Use ultra-fast fuzzy matching (includes exact matching as fast path)
         });
     });
     
-    // Only log in production scenarios (when dealing with substantial data)
     if (allTorrents.length > 50) {
         logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents`);
     }

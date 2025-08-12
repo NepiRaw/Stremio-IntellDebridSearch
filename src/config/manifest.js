@@ -1,11 +1,18 @@
 import packageInfo from "../../package.json" with { type: "json" };
 
 function getManifest(config = {}) {
+    // Dynamic name and description based on debrid provider
+    const providerName = config.DebridProvider || '';
+    const dynamicName = providerName ? `Intelligent Debrid Search (${providerName})` : "Intelligent Debrid Search";
+    const dynamicDescription = providerName 
+        ? `A smarter Stremio add-on to search downloads and torrents in your Debrid cloud (${providerName}).`
+        : packageInfo.description;
+    
     const manifest = {
         id: "community.stremio.debrid-search",
         version: packageInfo.version,
-        name: "Intelligent Debrid Search",
-        description: packageInfo.description,
+        name: dynamicName,
+        description: dynamicDescription,
         logo: `https://img.icons8.com/fluency/256/search-in-cloud.png`,
         catalogs: getCatalogs(config),
         resources: [

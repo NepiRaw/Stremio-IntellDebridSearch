@@ -178,9 +178,10 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
         const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
         
         if (variantSystemEnabled && searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
-            const videoSeriesInfo = extractSeriesInfo(videoName, '');
-            logger.debug(`[formatStreamTitle] Variant detection: videoSeriesInfo.title="${videoSeriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}`);
-            detectedVariant = detectSimpleVariant(videoSeriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles);
+            // Use existing seriesInfo instead of extracting again, and pass episode title info to exclude from variant detection
+            const episodeTitle = seriesInfo.episodeName || seriesInfo.episodeTitle || parsedMetadata?.episodeTitle;
+            logger.debug(`[formatStreamTitle] Variant detection: videoSeriesInfo.title="${seriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}, episodeTitle="${episodeTitle}"`);
+            detectedVariant = detectSimpleVariant(seriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles, episodeTitle);
             logger.debug(`[formatStreamTitle] Variant result: ${JSON.stringify(detectedVariant)}`);
         } else if (!variantSystemEnabled) {
             logger.debug(`[formatStreamTitle] Variant detection disabled via VARIANT_SYSTEM_ENABLED=false`);

@@ -5,6 +5,7 @@
 
 import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
 import { romanToNumber } from './roman-numeral-utils.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Simple variant detection based on title comparison
@@ -12,9 +13,10 @@ import { romanToNumber } from './roman-numeral-utils.js';
  * @param {string} extractedTitle - The torrent title to check
  * @param {string} searchTitle - The original search title  
  * @param {Array} alternativeTitles - Alternative titles from metadata
+ * @param {string} episodeTitle - Detected episode title to exclude from variant detection
  * @returns {Object} - Result object with isVariant and variantName
  */
-export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitles = []) {
+export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitles = [], episodeTitle = null) {
     if (!extractedTitle || !searchTitle) {
         return { isVariant: false, variantName: null };
     }
@@ -58,13 +60,24 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
                 .replace(/[-:\s]+$/, ''); // Remove trailing separators
             
             if (variantPart && variantPart.length > 2) {
+                if (episodeTitle) { // Check if the variant part matches a detected episode title (exclude episode names from being variants)
+                    const normalizedEpisodeTitle = normalizeTitle(episodeTitle);
+                    const normalizedVariantPart = normalizeTitle(variantPart);
+                    
+                    if (normalizedVariantPart === normalizedEpisodeTitle || 
+                        normalizedVariantPart.includes(normalizedEpisodeTitle) ||
+                        normalizedEpisodeTitle.includes(normalizedVariantPart)) {
+                        return { isVariant: false, variantName: null };
+                    }
+                }
+                
                 // Clean up variant part using media patterns to remove technical terms
                 variantPart = cleanupVariantName(variantPart);
                 
                 // Check if variant part is meaningful after cleanup
                 const trimmedVariant = variantPart.trim();
                 if (trimmedVariant && trimmedVariant.length > 1 && !/^\s*$/.test(trimmedVariant)) {
-                    console.log(`[detectSimpleVariant] Found variant: "${extractedTitle}" -> base: "${baseTitle}" -> variant part: "${variantPart}"`);
+                    logger.debug(`[detectSimpleVariant] Found variant: "${extractedTitle}" -> base: "${baseTitle}" -> variant part: "${variantPart}"`);
                     return { 
                         isVariant: true, 
                         variantName: trimmedVariant.split(' ').map(word => 
@@ -72,7 +85,7 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
                         ).join(' ')
                     };
                 } else {
-                    console.log(`[detectSimpleVariant] Variant part "${variantPart}" cleaned to empty/meaningless, ignoring`);
+                    logger.debug(`[detectSimpleVariant] Variant part "${variantPart}" cleaned to empty/meaningless, ignoring`);
                 }
             }
         }
@@ -96,7 +109,7 @@ export function cleanupVariantName(variantPart) {
     
     // Episode number patterns (absolute episodes like 029, 001, etc.)
     if (/^\d{1,3}$/.test(lowerVariant)) {
-        console.log(`[cleanupVariantName] Detected episode number: "${variantPart}", ignoring as variant`);
+        logger.debug(`[cleanupVariantName] Detected episode number: "${variantPart}", ignoring as variant`);
         return ''; // Return empty to exclude from variant detection
     }
     
@@ -104,26 +117,22 @@ export function cleanupVariantName(variantPart) {
     if (/^[ivx]{1,5}$/.test(lowerVariant)) {
         const romanValue = romanToNumber(lowerVariant.toUpperCase());
         if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
-            console.log(`[cleanupVariantName] Detected Roman numeral season: "${variantPart}" (${romanValue}), ignoring as variant`);
             return ''; // Return empty to exclude from variant detection
         }
     }
     
     // Standard season patterns (S01, S1, Season 1, etc.)
     if (/^s\d{1,2}$/.test(lowerVariant) || /^season\s*\d{1,2}$/.test(lowerVariant)) {
-        console.log(`[cleanupVariantName] Detected season indicator: "${variantPart}", ignoring as variant`);
         return ''; // Return empty to exclude from variant detection
     }
     
     // Episode patterns (E01, E1, Episode 1, etc.)
     if (/^e\d{1,3}$/.test(lowerVariant) || /^episode\s*\d{1,3}$/.test(lowerVariant)) {
-        console.log(`[cleanupVariantName] Detected episode indicator: "${variantPart}", ignoring as variant`);
         return ''; // Return empty to exclude from variant detection
     }
     
     // Combined season/episode patterns (S01E01, 1x01, etc.)
     if (/^s\d+e\d+$/.test(lowerVariant) || /^\d+x\d+$/.test(lowerVariant)) {
-        console.log(`[cleanupVariantName] Detected season/episode pattern: "${variantPart}", ignoring as variant`);
         return ''; // Return empty to exclude from variant detection
     }
     
@@ -132,7 +141,7 @@ export function cleanupVariantName(variantPart) {
     const meaningfulVariants = [
         'directors cut', 'director cut', 'extended', 'uncut', 'unrated',
         'remastered', 'special', 'ova', 'oav', 'special edition',
-        'theatrical','ultimate', 'definitive', 'extra', 'bonus'
+        'theatrical','ultimate', 'definitive', 'extra', 'bonus', 'NCED', 'NCOP'
     ];
     
     // Check if the variant contains any meaningful descriptors
