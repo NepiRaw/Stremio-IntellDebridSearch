@@ -48,7 +48,7 @@ export function parseVideoInfoEnhanced(filename) {
     if (unifiedResult.episode) {
         return {
             title: unifiedResult.title,
-            season: unifiedResult.season || 1, // Default season 1 if not specified
+            season: unifiedResult.season !== null ? unifiedResult.season : 1, // Default season 1 only if null, preserve 0 for specials
             episode: unifiedResult.episode,
             year: unifiedResult.year,
             quality: unifiedResult.quality,

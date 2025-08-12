@@ -120,7 +120,7 @@ export const EPISODE_PATTERNS = {
 // Avoidance patterns for false episode matches like "... (1).mkv"
 export const AVOID_EPISODE_PATTERNS = [
     // Matches any filename ending with (1), (2), or (3) followed by a video extension
-    new RegExp(`\(([1-3])\)\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i'),
+    new RegExp(`\\(([1-3])\\)\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i'),
 ];
 
 export const ABSOLUTE_EPISODE_PATTERNS = {

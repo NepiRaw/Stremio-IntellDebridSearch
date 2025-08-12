@@ -18,6 +18,14 @@ export function parseConfiguration(configuration = '{}') {
     let configToParse = configuration;
 
     try {
+        if (isBase64String(configToParse)) {
+            try {
+                configToParse = Buffer.from(configToParse, 'base64').toString('utf8');
+            } catch (base64Error) {
+                configToParse = configuration;
+            }
+        }
+
         if (configuration.includes('%')) {
             try {
                 configToParse = decodeURIComponent(configuration);
@@ -50,6 +58,18 @@ export function parseConfiguration(configuration = '{}') {
         }
         return {};
     }
+}
+
+function isBase64String(str) {
+    const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+    const minLength = 8; // Minimum reasonable length for a JSON config in base64
+    
+    return str.length >= minLength && 
+           str.length % 4 === 0 && 
+           base64Pattern.test(str) &&
+           !str.includes(' ') && // Base64 doesn't contain spaces
+           !str.includes('.') && // Base64 doesn't contain dots
+           !str.includes(':');   // Base64 doesn't contain colons
 }
 
 function isObviouslyNotJSON(str) {

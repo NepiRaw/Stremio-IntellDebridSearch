@@ -88,41 +88,15 @@ export class AbsoluteEpisodeProcessor {
         const filenameLower = filename.toLowerCase();
         
         // Check if file contains season/episode patterns that would conflict
-        // If file has clear S01E01, S02E01, etc. patterns, be more careful with absolute matching
-        const seasonEpisodeMatch = filenameLower.match(/s(\d+)e(\d+)/);
+        // If file has clear S01E01, S02E01, S02 - 01, etc. patterns, do NOT use absolute episode matching
+        // Explicit season/episode patterns take precedence over absolute episode numbers
+        const seasonEpisodeMatch = filenameLower.match(/s(\d+)(?:e(\d+)|\s*-\s*(\d+))/);
         if (seasonEpisodeMatch) {
-            const fileSeason = parseInt(seasonEpisodeMatch[1], 10);
-            const fileEpisode = parseInt(seasonEpisodeMatch[2], 10);
-            
-            // For files with season/episode patterns, only consider absolute matching if:
-            // 1. It's a high episode number (>100, likely anime absolute numbering)
-            // 2. Or it's a specific anime-style pattern (like "029", "030", etc.)
-            if (absoluteEpisode <= 50) {
-                // For low absolute episode numbers, be very restrictive
-                // Only match if it's clearly anime-style absolute numbering
-                const animeAbsolutePatterns = [
-                    // Padded absolute episode numbers (anime style)
-                    new RegExp(`\\b0{1,2}${absoluteEpisode}\\b`),        // " 029 ", " 030 "
-                    // Separated by dots/dashes with padding
-                    new RegExp(`[-\\.]0{1,2}${absoluteEpisode}[\\.\\s-]`),   // "-029.", ".030 "
-                ];
-                
-                for (const pattern of animeAbsolutePatterns) {
-                    if (pattern.test(filename)) {
-                        logger.debug(`[AbsoluteEpisodeProcessor] Anime-style absolute pattern match: "${pattern.source}" found in "${filename}"`);
-                        return true;
-                    }
-                }
-                
-                // Don't match generic "Episode X" patterns for low numbers
-                // This prevents S02E01 "Episode 1" from matching absolute episode 1
-                logger.debug(`[AbsoluteEpisodeProcessor] Skipping generic episode pattern for low absolute number ${absoluteEpisode} in season/episode file: "${filename}"`);
-                return false;
-            }
+            logger.debug(`[AbsoluteEpisodeProcessor] Skipping absolute episode matching for file with explicit season/episode pattern: "${filename}"`);
+            return false; // Never match absolute episodes for files with explicit season/episode patterns
         }
         
         // Original patterns for files without clear season/episode structure
-        // or for high absolute episode numbers (>50, likely genuine absolute numbering)
         const patterns = [
             // Word boundary patterns (most reliable)
             new RegExp(`\\b0*${absoluteEpisode}\\b`),        // " 030 ", " 30 "

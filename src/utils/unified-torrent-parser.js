@@ -108,7 +108,8 @@ function applyRegexFallbacks(filename, pttResult) {
         
         // Only use season info if we don't have an absolute episode
         // Absolute episodes are season-independent and should not have season defaulting
-        if (episodeInfo.season && !result.absoluteEpisode && !result.season) {
+        // EXCEPTION: Always preserve explicit season/episode patterns (S00E01, S01E01, etc.)
+        if (episodeInfo.season !== null && (!result.absoluteEpisode || episodeInfo.season !== undefined)) {
             result.season = episodeInfo.season;
             logger.debug(`[unified-parser] Season extracted via episode-patterns: ${episodeInfo.season}`);
         } else if (episodeInfo.season && result.absoluteEpisode) {
@@ -118,11 +119,21 @@ function applyRegexFallbacks(filename, pttResult) {
         result.episode = episodeInfo;
     }
     
-    // If we have an absolute episode, use it as the episode number too
-    // This handles cases where episode parsing truncates large numbers (e.g., 1000 -> 100)
+    // If we have an absolute episode, use it ONLY if we don't have clear season/episode patterns
+    // When we have explicit season/episode patterns (like S01E01, S00E33), we should NEVER override them with absolute episode numbers as this leads to false matches
     if (result.absoluteEpisode && result.episode !== result.absoluteEpisode) {
-        logger.debug(`[unified-parser] Using absolute episode ${result.absoluteEpisode} over parsed episode ${result.episode}`);
-        result.episode = result.absoluteEpisode;
+        // Check if we have explicit season/episode info from the episode parsing
+        const hasSeasonEpisodePattern = episodeInfo && typeof episodeInfo === 'object' && 
+                                       episodeInfo.season !== null && episodeInfo.episode !== null;
+        if (hasSeasonEpisodePattern) {
+            logger.debug(`[unified-parser] Preserving explicit season/episode pattern: S${episodeInfo.season}E${episodeInfo.episode} (ignoring absolute episode ${result.absoluteEpisode})`);
+            result.season = episodeInfo.season; // Preserve the season from episode parsing
+            result.episode = episodeInfo.episode; // Preserve the episode from episode parsing
+            result.absoluteEpisode = null; // Clear absolute episode when we have explicit patterns
+        } else {
+            logger.debug(`[unified-parser] Using absolute episode ${result.absoluteEpisode} over parsed episode ${result.episode}`);
+            result.episode = result.absoluteEpisode;
+        }
     }
     
     // Only extract season if we don't have an absolute episode
@@ -162,7 +173,7 @@ function applyRegexFallbacks(filename, pttResult) {
     }
     
     // Ensure season is explicitly null when not set (for consistency)
-    if (!result.season) {
+    if (result.season === undefined) {
         result.season = null;
     }
     
@@ -451,7 +462,7 @@ function extractVariantHints(filename, baseResult) {
     
     // Special editions
     const editionPatterns = [
-        'Directors Cut', 'Extended', 'Uncut', 'Special', 'OVA', 'Movie'
+        'Directors Cut', 'Extended', 'Uncut', 'Special', 'OVA', 'Movie', 'OAV','extra'
     ];
     
     for (const edition of editionPatterns) {

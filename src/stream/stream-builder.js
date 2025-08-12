@@ -8,6 +8,7 @@ import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.j
 import { extractQuality } from './quality-processor.js';
 import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
+import { AVOID_EPISODE_PATTERNS } from '../utils/episode-patterns.js';
 import { logger } from '../utils/logger.js';
 
 const STREAM_NAME_MAP = {
@@ -194,8 +195,9 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
             const knownSeasonEpisodeStr = `S${season}E${episode}`;
             
             const shouldOverride = 
-                seriesInfo.seasonEpisode === 'Unknown Episode' ||
-                seriesInfo.seasonEpisode.startsWith('S00E');
+                seriesInfo.seasonEpisode === 'Unknown Episode';
+                // Note: Removed S00E override - Season 0 episodes (specials) should not be
+                // relabeled as regular season episodes as they are legitimate separate content
             
             if (shouldOverride) {
                 seasonEpisode = knownSeasonEpisodeStr;
@@ -306,6 +308,7 @@ export function filterYear(torrent, cinemetaDetails) {
 /**
  * Filter videos for a specific episode
  * Uses pre-processed absolute episode matches from AbsoluteEpisodeProcessor
+ * Also applies AVOID_EPISODE_PATTERNS to filter out false positives like (1).mkv files
  */
 export function filterEpisode(torrentDetails, season, episode) {
     if (!torrentDetails || !torrentDetails.videos) {
@@ -316,6 +319,12 @@ export function filterEpisode(torrentDetails, season, episode) {
     const matches = [];
     
     torrentDetails.videos.forEach(video => {
+        const shouldAvoid = AVOID_EPISODE_PATTERNS.some(pattern => pattern.test(video.name));
+        if (shouldAvoid) {
+            logger.debug(`[filterEpisode] ❌ Avoided file matching avoidance pattern "...(1)": "${video.name}"`);
+            return; 
+        }
+        
         if (video.isAbsoluteMatch) {
             logger.debug(`[filterEpisode] ✅ Pre-processed absolute match: "${video.name}"`);
             matches.push(video);
