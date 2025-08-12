@@ -90,6 +90,31 @@ export async function prepareSearchTerms(params) {
 export function generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms) {
     const keywords = uniqueSearchTerms.filter(term => term && typeof term === "string");
     
+    // Add title variations for movies to handle common punctuation differences
+    if (type === 'movie') {
+        const variations = new Set(); // Generate variations for titles with "&" symbols that become spaces
+        
+        keywords.forEach(term => {
+            variations.add(term); // Original term
+            
+            const words = term.split(/\s+/); // If term contains multiple words, try "and" variation
+            if (words.length >= 2) {
+                const andVariation = words.join(' and '); // Add "word1 and word2 ..." variation
+                variations.add(andVariation);
+                
+                words.forEach(word => { // Also add just the main words as individual keywords for broader matching
+                    if (word.length > 2) { // Only meaningful words
+                        variations.add(word);
+                    }
+                });
+            }
+        });
+        
+        const finalKeywords = Array.from(variations);
+        logger.debug(`[phase-0] Generated movie keywords (${finalKeywords.length}): ${finalKeywords.join(', ')}`);
+        return finalKeywords;
+    }
+    
     // Add episode-specific keywords for series
     if (type === 'series' && season && episode) {
         keywords.push(`S${season}E${episode}`);

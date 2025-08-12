@@ -54,7 +54,7 @@ class StreamProvider {
                 imdbId,
                 season: null,
                 episode: null,
-                threshold: 0.3,
+                threshold: 0.4,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
                 traktApiKey: apiConfig.traktApiKey
