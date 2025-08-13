@@ -20,7 +20,7 @@ const sharedProviders = {
 };
 
 async function searchTorrents(config, searchKey) {
-    const apiConfig = getApiConfig(config);
+    const apiConfig = getApiConfig();
     
     // All providers use standard DebridProvider + DebridApiKey pattern
     const apiKey = config.DebridApiKey;

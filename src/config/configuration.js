@@ -131,11 +131,9 @@ class ConfigurationManager {
         if (tmdbApiKey && traktApiKey) {
             return true; // Scenario 1: Both APIs
         }
-        
         if (tmdbApiKey && !traktApiKey) {
             return true; // Scenario 2: TMDb only
         }
-        
         return false;
     }
 
@@ -155,16 +153,13 @@ class ConfigurationManager {
         if (tmdbApiKey && traktApiKey) {
             return true;
         }
-        
         if (tmdbApiKey && !traktApiKey) {
             return true;
         }
-        
         if (!tmdbApiKey && traktApiKey) {
             logger.warn('[configuration] Only Trakt API key available. TMDb API key is required for advanced search. Falling back to basic search.');
             return false;
         }
-
         return false;
     }
 
@@ -266,28 +261,6 @@ function isObviouslyNotJSON(str) {
     return nonJsonPatterns.some(pattern => pattern.test(trimmed));
 }
 
-export function validateConfiguration(config) {
-    const validation = {
-        isValid: true,
-        errors: [],
-        warnings: []
-    };
-
-    if (!config || typeof config !== 'object') {
-        validation.isValid = false;
-        validation.errors.push('Configuration must be an object');
-        return validation;
-    }
-
-    const hasDebridProvider = config.DebridProvider && config.DebridApiKey;
-    
-    if (!hasDebridProvider) {
-        validation.isValid = false;
-        validation.errors.push('No valid debrid provider configuration found');
-    }
-    return validation;
-}
-
 export function getProviderConfig(config) {
     if (!config) return null;
 
@@ -302,24 +275,8 @@ export function getProviderConfig(config) {
     return null;
 }
 
-export function getApiConfig(config) {
+export function getApiConfig() {
     return configManager.getApiConfig();
-}
-
-function getIsTmdbEnabled(tmdbApiKey, traktApiKey) {
-    return configManager.getIsTmdbEnabled(tmdbApiKey, traktApiKey);
-}
-
-function getIsTraktEnabled(tmdbApiKey, traktApiKey) {
-    return configManager.getIsTraktEnabled(tmdbApiKey, traktApiKey);
-}
-
-function determineSearchCapabilities(tmdbApiKey, traktApiKey) {
-    return configManager.determineSearchCapabilities(tmdbApiKey, traktApiKey);
-}
-
-function getSearchCapabilities(tmdbApiKey, traktApiKey) {
-    return configManager.getSearchCapabilities(tmdbApiKey, traktApiKey);
 }
 
 export function logApiStartupStatus() {
@@ -337,19 +294,4 @@ export function logApiStartupStatus() {
     logger.info('[configuration] Search capabilities:');
     logger.info(`  • Alternative titles: ${capabilities.alternativeTitles ? '✅' : '❌'}`);
     logger.info(`  • Anime/absolute episodes: ${capabilities.animeSupport ? '✅' : '❌'}`);
-}
-
-export function mergeWithDefaults(config, defaults = {}) {
-    const defaultConfig = {
-        searchThreshold: 0.1,
-        maxResults: 100,
-        cacheEnabled: true,
-        cacheDuration: 3600,
-        ...defaults
-    };
-
-    return {
-        ...defaultConfig,
-        ...config
-    };
 }

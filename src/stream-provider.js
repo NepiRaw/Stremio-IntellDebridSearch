@@ -56,7 +56,7 @@ class StreamProvider {
 
             const providers = sharedProviders;
             
-            const apiConfig = getApiConfig(config);
+            const apiConfig = getApiConfig();
             
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
@@ -189,7 +189,7 @@ class StreamProvider {
 
             const providers = sharedProviders;
 
-            const apiConfig = getApiConfig(config);
+            const apiConfig = getApiConfig();
 
             const searchResponse = await coordinateSearch({
                 apiKey: config.DebridApiKey,
