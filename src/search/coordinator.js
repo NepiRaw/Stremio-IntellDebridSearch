@@ -95,7 +95,7 @@ export async function coordinateSearch(params) {
     // OPTIMIZATION: Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
     logger.debug(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
-    const relevantTorrents = preFilterTorrentsByKeywords(allTorrents, keywords);
+    const relevantTorrents = await preFilterTorrentsByKeywords(allTorrents, keywords);
     
     if (relevantTorrents.length === 0) {
         logger.info('❌ [coordinator] No relevant torrents found after pre-filtering');
@@ -106,7 +106,7 @@ export async function coordinateSearch(params) {
     const allRawResults = relevantTorrents;
     
     // ========== PHASE 1: FAST TITLE MATCHING ==========
-    const titleMatches = performTitleMatching(allRawResults, uniqueSearchTerms, threshold);
+    const titleMatches = await performTitleMatching(allRawResults, uniqueSearchTerms, threshold);
     
     // Check if we should proceed to Phase 2 or return early
     const phase2Decision = shouldProceedToPhase2(titleMatches, type, season, episode);

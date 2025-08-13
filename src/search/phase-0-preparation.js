@@ -25,27 +25,52 @@ export async function prepareSearchTerms(params) {
     
     logger.info('[phase-0] Starting search preparation');
     
-    // Get absolute episode number early if Trakt API is available
-    let absoluteEpisode = null;
+    const apiCalls = [];
+    
+    let absoluteEpisodePromise = null;
     if (traktApiKey && type === 'series' && season && episode) {
         logger.info(`[phase-0] Fetching absolute episode mapping for S${season}E${episode}`);
-        absoluteEpisode = await getEpisodeMapping(traktApiKey, imdbId, season, episode);
+        absoluteEpisodePromise = getEpisodeMapping(traktApiKey, imdbId, season, episode);
+        apiCalls.push(absoluteEpisodePromise);
+    }
+    
+    // Fetch alternative titles from TMDb
+    let alternativeTitlesPromise = null;
+    if (tmdbApiKey && type && imdbId) {
+        logger.info('[phase-0] TMDb API available, fetching alternative titles');
+        alternativeTitlesPromise = fetchTMDbAlternativeTitles(null, type, tmdbApiKey, imdbId);
+        apiCalls.push(alternativeTitlesPromise);
+    }
+    
+    // Wait for all API calls to complete in parallel
+    let absoluteEpisode = null;
+    let alternativeTitles = [];
+    
+    if (apiCalls.length > 0) {
+        logger.info(`[phase-0] ⚡ Running ${apiCalls.length} API calls in parallel`);
+        const startTime = Date.now();
+        
+        const results = await Promise.all([
+            absoluteEpisodePromise || Promise.resolve(null),
+            alternativeTitlesPromise || Promise.resolve([])
+        ]);
+        
+        absoluteEpisode = results[0];
+        alternativeTitles = results[1];
+        
+        const duration = Date.now() - startTime;
+        logger.info(`[phase-0] ⚡ Parallel API calls completed in ${duration}ms`);
+        
+        // Log results
         if (absoluteEpisode) {
             if (absoluteEpisode.absoluteEpisode != null) {
                 logger.info(`[phase-0] ✅ Found absolute episode: ${absoluteEpisode.absoluteEpisode} (${absoluteEpisode.title || 'No title'})`);
             } else {
                 logger.info(`[phase-0] ❌ No absolute episode number found, but got title: ${absoluteEpisode.title || 'No title'}`);
             }
-        } else {
+        } else if (traktApiKey && type === 'series' && season && episode) {
             logger.info(`[phase-0] ❌ No absolute episode found from Trakt API`);
         }
-    }
-    
-    // Fetch alternative titles from TMDb
-    let alternativeTitles = [];
-    if (tmdbApiKey && type && imdbId) {
-        logger.info('[phase-0] TMDb API available, fetching alternative titles');
-        alternativeTitles = await fetchTMDbAlternativeTitles(null, type, tmdbApiKey, imdbId);
     }
     
     // Prepare all search terms + Add raw titles first for exact matching

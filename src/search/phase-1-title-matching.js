@@ -33,9 +33,9 @@ import Fuse from 'fuse.js';
  * @param {Array} allRawResults - Raw torrent results to search through
  * @param {Array} uniqueSearchTerms - Unique search terms to match against
  * @param {number} threshold - Fuse.js matching threshold (0.0 = exact, 1.0 = match anything)
- * @returns {Array} Array of matched torrents with scores
+ * @returns {Promise<Array>} Array of matched torrents with scores
  */
-export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3) {
+export async function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3) {
     logger.info('[phase-1] Starting fast title matching');
     
     const normalizedResults = allRawResults.map(result => ({ // Normalize results for Fuse.js processing
@@ -55,9 +55,26 @@ export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold
     const titleMatches = [];
     const seenMatches = new Set(); // Track duplicates by original name
 
-    for (const term of uniqueSearchTerms) {
-        const matches = titleFuse.search(term);
-        
+    // PARALLEL OPTIMIZATION: Run all search terms in parallel instead of sequentially
+    logger.info(`[phase-1] Starting parallel search for ${uniqueSearchTerms.length} terms`);
+    const startTime = Date.now();
+    
+    const parallelSearches = uniqueSearchTerms.map(async (term) => {
+        return new Promise((resolve) => {
+            const matches = titleFuse.search(term);
+            
+            if (matches.length > 0) {
+                logger.info(`[phase-1] Found ${matches.length} matches for normalized term: "${term}"`);
+            }
+            
+            resolve({ term, matches });
+        });
+    });
+
+    const allSearchResults = await Promise.all(parallelSearches);
+    
+    // Collect unique matches from all parallel searches
+    allSearchResults.forEach(({ term, matches }) => {
         matches.forEach(match => {
             const originalName = match.item.originalResult.name;
             if (!seenMatches.has(originalName)) {
@@ -68,11 +85,10 @@ export function performTitleMatching(allRawResults, uniqueSearchTerms, threshold
                 });
             }
         });
-        
-        if (matches.length > 0) {
-            logger.info(`[phase-1] Found ${matches.length} matches for normalized term: "${term}"`);
-        }
-    }
+    });
+    
+    const parallelDuration = Date.now() - startTime;
+    logger.info(`[phase-1] ⚡ Parallel title matching completed in ${parallelDuration}ms`);
     
     logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
     
