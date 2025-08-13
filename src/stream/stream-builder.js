@@ -21,7 +21,7 @@ const STREAM_NAME_MAP = {
 
 /**
  * Create multiple stream objects from torrent details when it contains multiple valid videos
- * This function addresses Issue 1: ensuring all valid videos in a torrent container are returned as separate streams
+ * This function ensures all valid videos in a torrent container are returned as separate streams
  */
 export function toStreams(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return [];
@@ -215,9 +215,16 @@ function formatStreamTitle(details, video, type, icon, parsedMetadata = null, kn
         
         // Line 2: Clean series title with season/episode
         let displayTitle = seriesInfo.title;
-        if (searchContext && searchContext.searchTitle) {
+        
+        // Use the matched term from search phase if available (this is the actual title that matched the torrent)
+        if (details && details.matchedTerm) {
+            displayTitle = details.matchedTerm;
+            logger.debug(`[formatStreamTitle] Using matched search term: "${details.matchedTerm}"`);
+        } else if (searchContext && searchContext.searchTitle) {
             displayTitle = searchContext.searchTitle;
+            logger.debug(`[formatStreamTitle] Using searchContext.searchTitle: "${searchContext.searchTitle}"`);
         }
+        
         const cleanTitle = displayTitle.replace(/[\[\]()]/g, '').trim();
         lines.push(`${cleanTitle} - ${seasonEpisode}`);
         

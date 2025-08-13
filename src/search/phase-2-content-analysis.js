@@ -70,7 +70,8 @@ export function performContentAnalysis(titleMatches, season, episode, absoluteEp
         return {
             torrent: match.item,
             analysis,
-            score: match.score
+            score: match.score,
+            matchedTerm: match.matchedTerm // Preserve the matched term from phase 1
         };
     });
 
@@ -100,13 +101,18 @@ export function performContentAnalysis(titleMatches, season, episode, absoluteEp
                     containerName: result.torrent.name,
                     isExtractedVideo: true,
                     // Create a videos array with only this video
-                    videos: [video]
+                    videos: [video],
+                    // Preserve the matched term
+                    matchedTerm: result.matchedTerm
                 }));
                 
                 return extractedVideos;
             } else {
-                // For direct files, return as is
-                return [result.torrent];
+                // For direct files, return as is but preserve matched term
+                return [{
+                    ...result.torrent,
+                    matchedTerm: result.matchedTerm
+                }];
             }
         });
         

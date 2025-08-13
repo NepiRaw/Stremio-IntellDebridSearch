@@ -375,7 +375,6 @@ export function parseEpisodeFromTitle(filename) {
         if (season !== null && episode !== null && 
             season >= 0 && season <= 30 && 
             episode >= 1 && episode <= 999) {
-            logger.debug(`[parseEpisodeFromTitle] Found S${season}E${episode} using pattern: ${patternName}`);
             return { season, episode, pattern: patternName };
         }
     }
@@ -392,7 +391,6 @@ export function parseAbsoluteEpisode(filename) {
     // Skip if this looks like a year in parentheses (not an absolute episode)
     // Pattern: (1900-2099) followed by season/episode format like S01E01
     if (/\(\d{4}\).*?S\d+E\d+/i.test(cleanFilename)) {
-        logger.debug(`[parseAbsoluteEpisode] Skipping absolute episode detection - year in parentheses with S##E## format detected`);
         return null;
     }
     

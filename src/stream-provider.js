@@ -262,7 +262,10 @@ class StreamProvider {
                     };
 
                     const streamData = {
-                        details: torrentDetails,
+                        details: {
+                            ...torrentDetails,
+                            matchedTerm: result.matchedTerm // Preserve the matched term from search
+                        },
                         type: 'series',
                         knownSeasonEpisode,
                         variantInfo: result.variantInfo,

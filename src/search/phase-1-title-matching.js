@@ -81,7 +81,8 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
                 seenMatches.add(originalName);
                 titleMatches.push({
                     ...match,
-                    item: match.item.originalResult
+                    item: match.item.originalResult,
+                    matchedTerm: term // Store which search term actually matched this torrent
                 });
             }
         });

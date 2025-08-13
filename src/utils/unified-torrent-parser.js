@@ -111,7 +111,6 @@ function applyRegexFallbacks(filename, pttResult) {
         // EXCEPTION: Always preserve explicit season/episode patterns (S00E01, S01E01, etc.)
         if (episodeInfo.season !== null && (!result.absoluteEpisode || episodeInfo.season !== undefined)) {
             result.season = episodeInfo.season;
-            logger.debug(`[unified-parser] Season extracted via episode-patterns: ${episodeInfo.season}`);
         } else if (episodeInfo.season && result.absoluteEpisode) {
             logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode}`);
         }
