@@ -1,160 +1,78 @@
 ﻿import { TorboxApi } from '@torbox/torbox-api'
-import Fuse from 'fuse.js'
 import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
 import PTT from '../utils/parse-torrent-title.js'
 import { logger } from '../utils/logger.js'
+import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
+import { BaseProvider } from './BaseProvider.js'
 
 const API_BASE_URL = 'https://api.torbox.app'
 const API_VERSION = 'v1'
 const API_VALIDATION_OPTIONS = { responseValidation: false }
 
-async function searchFiles(fileType, apiKey, searchKey, threshold) {
-    logger.debug("Search " + fileType.description + " with searchKey: " + searchKey)
-
-    const files = await listFilesParallel(fileType, apiKey)
-    let results = []
-    if (fileType == FILE_TYPES.TORRENTS)
-        results = files.map(result => toTorrent(apiKey, result))
-    else if (fileType == FILE_TYPES.DOWNLOADS)
-        results = files.map(result => toDownload(result))
-    // logger.debug(fileType.description + ": " + JSON.stringify(results))
-
-    const fuse = new Fuse(results, {
-        keys: ['info.title'],
-        threshold: threshold,
-        minMatchCharLength: 2
-    })
-
-    const searchResults = fuse.search(searchKey)
-    if (searchResults && searchResults.length) {
-        return searchResults.map(searchResult => searchResult.item)
-    } else {
-        return []
+class TorBoxProvider extends BaseProvider {
+    constructor() {
+        super('torbox')
     }
-}
 
-async function searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-    return searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
-}
+    async searchFiles(fileType, apiKey, searchKey, threshold) {
+        logger.debug("Search " + fileType.description + " with searchKey: " + searchKey)
 
-async function searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
-    return searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
-}
+        const files = await this.listFilesParallel(fileType, apiKey)
+        let results = []
+        if (fileType == FILE_TYPES.TORRENTS)
+            results = files.map(result => this.toTorrent(apiKey, result))
+        else if (fileType == FILE_TYPES.DOWNLOADS)
+            results = files.map(result => this.toDownload(result))
 
-async function getTorrentDetails(apiKey, id) {
-    // TorBox already returns full details from searchTorrents, but for consistency 
-    // we need to fetch individual torrent details from the list
-    const torboxApi = new TorboxApi({
-        token: apiKey,
-        baseUrl: API_BASE_URL,
-        validation: API_VALIDATION_OPTIONS
-    });
+        return this.performFuzzySearch(results, searchKey, threshold)
+    }
 
-    try {
-        // Get the full torrent list and find the specific torrent by ID
-        const response = await torboxApi.torrents.getTorrentList(API_VERSION, {
-            bypassCache: true,
-            limit: 1000  // Get enough to find our torrent
+    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
+        return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
+    }
+
+    async searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
+        return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
+    }
+
+    async getTorrentDetails(apiKey, id) {
+        const torboxApi = new TorboxApi({
+            token: apiKey,
+            baseUrl: API_BASE_URL,
+            validation: API_VALIDATION_OPTIONS
         });
 
-        if (response.data?.success && response.data?.data) {
-            const torrent = response.data.data.find(t => t.id == id);
-            if (torrent && torrent.download_finished && torrent.download_present) {
-                return toTorrent(apiKey, torrent);
-            }
-        }
-        return null;
-    } catch (err) {
-        return handleError(err);
-    }
-}
-
-async function unrestrictUrl(apiKey, torrentId, fileId, userIp) {
-    const torboxApi = new TorboxApi({
-        token: apiKey,
-        baseUrl: API_BASE_URL,
-        validation: API_VALIDATION_OPTIONS
-    });
-
-    return torboxApi.torrents
-        .requestDownloadLink(API_VERSION, {
-            token: apiKey,
-            torrentId,
-            fileId,
-            userIp
-        })
-        .then(res => res.data)
-        .then(res => {
-            if (res.success) {
-                return res.data
-            }
-        })
-        .catch(err => handleError(err))
-}
-
-function toTorrent(apiKey, item) {
-    const videos = item.files
-        .filter(file => isVideo(file.short_name))
-        .map((file) => {
-            const url = `${process.env.ADDON_URL}/resolve/TorBox/${apiKey}/${item.id}/${file.id}`
-
-            return {
-                id: `${item.id}:${file.id}`,
-                name: file.short_name,
-                url: url,
-                size: file.size,
-                created: new Date(item.created_at),
-                info: PTT.parse(file.short_name)
-            }
-    })
-
-    return {
-        source: 'torbox',
-        id: item.id,
-        name: item.name,
-        type: 'other',
-        fileType: FILE_TYPES.TORRENTS,
-        hash: item.hash,
-        info: PTT.parse(item.name),
-        size: item.size,
-        created: new Date(item.created_at),
-        videos: videos || []
-    }
-}
-
-function toDownload(item) {
-    return {
-        source: 'torbox',
-        id: item.id,
-        url: item.name,
-        name: item.filename,
-        type: 'other',
-        fileType: FILE_TYPES.DOWNLOADS,
-        info: PTT.parse(item.name),
-        size: item.size,
-        created: new Date(item.created_at),
-    }
-}
-
-async function listTorrents(apiKey, skip = 0) {
-    // Todo: catalogs
-    return []
-}
-
-async function listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
-    const torboxApi = new TorboxApi({
-        token: apiKey,
-        baseUrl: API_BASE_URL,
-        validation: API_VALIDATION_OPTIONS
-    });
-    let offset = (page - 1) * pageSize
-
-    if (fileType == FILE_TYPES.TORRENTS) {
-        return torboxApi.torrents
-            .getTorrentList(API_VERSION, {
+        try {
+            const response = await torboxApi.torrents.getTorrentList(API_VERSION, {
                 bypassCache: true,
-                offset,
-                limit: pageSize
+                limit: 1000  // Get enough to find our torrent
+            });
+
+            if (response.data?.success && response.data?.data) {
+                const torrent = response.data.data.find(t => t.id == id);
+                if (torrent && torrent.download_finished && torrent.download_present) {
+                    return this.toTorrent(apiKey, torrent);
+                }
+            }
+            return null;
+        } catch (err) {
+            return this.handleError(err);
+        }
+    }
+
+    async unrestrictUrl(apiKey, torrentId, fileId, userIp) {
+        const torboxApi = new TorboxApi({
+            token: apiKey,
+            baseUrl: API_BASE_URL,
+            validation: API_VALIDATION_OPTIONS
+        });
+
+        return torboxApi.torrents
+            .requestDownloadLink(API_VERSION, {
+                token: apiKey,
+                torrentId,
+                fileId,
+                userIp
             })
             .then(res => res.data)
             .then(res => {
@@ -162,26 +80,132 @@ async function listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
                     return res.data
                 }
             })
-            .then(files => files.filter(f => f.download_finished && f.download_present))
-            .catch(err => handleError(err))
-    } else if (fileType == FILE_TYPES.DOWNLOADS) {
-        // Todo: Web hoster downloads functionality
+            .catch(err => this.handleError(err))
+    }
+
+    toTorrent(apiKey, item) {
+        const videos = item.files
+            .filter(file => isVideo(file.short_name))
+            .map((file) => {
+                const url = `${process.env.ADDON_URL}/resolve/TorBox/${apiKey}/${item.id}/${file.id}`
+
+                return {
+                    id: `${item.id}:${file.id}`,
+                    name: file.short_name,
+                    url: url,
+                    size: file.size,
+                    created: new Date(item.created_at),
+                    info: PTT.parse(file.short_name)
+                }
+        })
+
+        return {
+            source: 'torbox',
+            id: item.id,
+            name: item.name,
+            type: 'other',
+            fileType: FILE_TYPES.TORRENTS,
+            hash: item.hash,
+            info: PTT.parse(item.name),
+            size: item.size,
+            created: new Date(item.created_at),
+            videos: videos || []
+        }
+    }
+
+    toDownload(item) {
+        return {
+            source: 'torbox',
+            id: item.id,
+            url: item.name,
+            name: item.filename,
+            type: 'other',
+            fileType: FILE_TYPES.DOWNLOADS,
+            info: PTT.parse(item.name),
+            size: item.size,
+            created: new Date(item.created_at),
+        }
+    }
+
+    async listTorrents(apiKey, skip = 0) {
+        // Todo: catalogs
         return []
     }
+
+    async listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
+        const torboxApi = new TorboxApi({
+            token: apiKey,
+            baseUrl: API_BASE_URL,
+            validation: API_VALIDATION_OPTIONS
+        });
+        let offset = (page - 1) * pageSize
+
+        if (fileType == FILE_TYPES.TORRENTS) {
+            return torboxApi.torrents
+                .getTorrentList(API_VERSION, {
+                    bypassCache: true,
+                    offset,
+                    limit: pageSize
+                })
+                .then(res => res.data)
+                .then(res => {
+                    if (res.success) {
+                        return res.data
+                    }
+                })
+                .then(files => files.filter(f => f.download_finished && f.download_present))
+                .catch(err => this.handleError(err))
+        } else if (fileType == FILE_TYPES.DOWNLOADS) {
+            // Todo: Web hoster downloads functionality
+            return []
+        }
+    }
+
+    handleError(err) {
+        logger.debug(err)
+        
+        if (err?.response?.data?.error === 'invalid_token' || err?.response?.status === 401) {
+            return Promise.reject(BadTokenError)
+        }
+        if (err?.response?.status === 403) {
+            return Promise.reject(AccessDeniedError)
+        }
+        
+        return Promise.reject(err)
+    }
 }
 
-function handleError(err) {
-    logger.debug(err)
-    
-    // Handle TorBox-specific error codes
-    if (err?.response?.data?.error === 'invalid_token' || err?.response?.status === 401) {
-        return Promise.reject(BadTokenError)
-    }
-    if (err?.response?.status === 403) {
-        return Promise.reject(AccessDeniedError)
-    }
-    
-    return Promise.reject(err)
-}
+const torBoxProvider = new TorBoxProvider()
+
+// Legacy function exports for backward compatibility
+// TODO: Remove this section when provider is confirmed working
+// 
+// MIGRATION INSTRUCTIONS for removing legacy functions:
+// 
+// 1. In this file (torbox.js):
+//    - Remove the legacy function exports below (listTorrents, searchTorrents, getTorrentDetails, unrestrictUrl, searchDownloads, listFilesParallel)
+//    - Change default export from object to: export default torBoxProvider;
+// 
+// 2. In stream-provider.js:
+//    - Change import from: import TorBox from './providers/torbox.js';
+//    - To class import: import { TorBoxProvider } from './providers/torbox.js';
+//    - Update providers object from: TorBox: TorBox,
+//    - To class instance: TorBox: new TorBoxProvider(),
+// 
+// 3. In catalog-provider.js:
+//    - Change import from: import TorBox from './providers/torbox.js'
+//    - To class import: import { TorBoxProvider } from './providers/torbox.js'
+//    - Add provider instance: const torBoxProvider = new TorBoxProvider();
+//    - Update providers object from: TorBox: TorBox,
+//    - To class instance: TorBox: torBoxProvider,
+//    - Note: Currently TorBox method calls return Promise.resolve([]) in catalog-provider.js
+// 
+const listTorrents = (apiKey, skip) => torBoxProvider.listTorrents(apiKey, skip)
+const searchTorrents = (apiKey, searchKey, threshold) => torBoxProvider.searchTorrents(apiKey, searchKey, threshold)
+const getTorrentDetails = (apiKey, id) => torBoxProvider.getTorrentDetails(apiKey, id)
+const unrestrictUrl = (apiKey, torrentId, fileId, userIp) => torBoxProvider.unrestrictUrl(apiKey, torrentId, fileId, userIp)
+const searchDownloads = (apiKey, searchKey, threshold) => torBoxProvider.searchDownloads(apiKey, searchKey, threshold)
+const listFilesParallel = (fileType, apiKey, page, pageSize) => torBoxProvider.listFilesParallel(fileType, apiKey, page, pageSize)
 
 export default { listTorrents, searchTorrents, getTorrentDetails, unrestrictUrl, searchDownloads, listFilesParallel }
+export { TorBoxProvider };

@@ -5,76 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
-import parseTorrentTitle from '../utils/parse-torrent-title.js';
-import { FILE_TYPES } from '../stream/metadata-extractor.js';
-
-/**
- * Provider method mapping configuration
- */
-const PROVIDER_CONFIGS = {
-    AllDebrid: {
-        bulkMethod: 'listTorrentsParallel',
-        dataMapper: (item) => ({
-            source: 'alldebrid',
-            id: item.id,
-            name: item.filename,
-            type: 'other',
-            info: parseTorrentTitle.parse(item.filename),
-            size: item.size,
-            created: new Date(item.completionDate)
-        })
-    },
-    DebridLink: {
-        bulkMethod: 'listTorrentsParallel',
-        dataMapper: (item) => ({
-            source: 'debridlink',
-            id: item.id.split('-')[0],
-            name: item.name,
-            type: 'other',
-            info: parseTorrentTitle.parse(item.name),
-            size: item.size,
-            created: new Date(item.created * 1000)
-        })
-    },
-    RealDebrid: {
-        bulkMethod: 'listFilesParrallel',
-        methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
-        dataMapper: (item) => ({
-            source: 'realdebrid',
-            id: item.id,
-            name: item.filename,
-            type: 'other',
-            info: parseTorrentTitle.parse(item.filename),
-            size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
-            created: new Date(item.added) // RealDebrid uses 'added' field
-        })
-    },
-    TorBox: {
-        bulkMethod: 'listFilesParallel',
-        methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
-        dataMapper: (item) => ({
-            source: 'torbox',
-            id: item.id,
-            name: item.name,
-            type: 'other',
-            info: parseTorrentTitle.parse(item.name),
-            size: item.size,
-            created: new Date(item.created_at)
-        })
-    },
-    Premiumize: {
-        bulkMethod: 'listFiles',
-        dataMapper: (item) => ({
-            source: 'premiumize',
-            id: item.id,
-            name: item.name,
-            type: 'other',
-            info: parseTorrentTitle.parse(item.name),
-            size: item.size,
-            created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
-        })
-    }
-};
+import { configManager } from '../config/configuration.js';
 
 /**
  * Fetch all torrents from provider using optimized bulk methods
@@ -88,22 +19,19 @@ const PROVIDER_CONFIGS = {
 export async function fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold) {
     logger.info(`[provider-search] Fetching all torrents from ${provider}`);
     
-    const config = PROVIDER_CONFIGS[provider];
+    const config = configManager.getProviderConfig(provider);
     if (!config) {
         throw new Error(`Unsupported provider: ${provider}`);
     }
 
     const bulkMethod = providerImpl[config.bulkMethod];
     if (!bulkMethod) {
-        // Fallback: search with main title only
-        logger.info(`[provider-search] Using fallback search with main title for ${provider}`);
         return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
     }
 
     try {
         let result;
         if (config.methodArgs) {
-            // Insert apiKey at the correct position
             const args = [...config.methodArgs];
             args[1] = apiKey;
             result = await bulkMethod.apply(providerImpl, args);
@@ -111,7 +39,6 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
             result = await bulkMethod.call(providerImpl, apiKey);
         }
         
-        // Transform results using provider-specific mapper
         const normalizedTorrents = result.map(config.dataMapper);
         
         logger.info(`[provider-search] Retrieved ${normalizedTorrents.length} total torrents from ${provider}`);
@@ -120,9 +47,7 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
     } catch (error) {
         logger.warn(`[provider-search] Failed to fetch torrents from ${provider}:`, error);
         
-        // Fallback to search method if available
         if (providerImpl.searchTorrents) {
-            logger.info(`[provider-search] Attempting fallback search for ${provider}`);
             return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
         }
         
@@ -132,36 +57,30 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
 
 /**
  * Ultra-fast fuzzy matching for typo tolerance
- * Only checks exact-length windows with character substitutions
  * @param {string} title - The torrent title to search in
  * @param {string} keyword - The keyword to find
  * @param {number} minSimilarity - Minimum similarity (0.85 = allow 15% character differences)
  * @returns {boolean} Whether the keyword matches the title with typo tolerance
  */
 function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
-    // 1. Exact match first (fastest path)
     if (title.includes(keyword)) {
         return true;
     }
     
-    // 2. Skip fuzzy for very short keywords (too many false positives)
     if (keyword.length < 4) {
         return false;
     }
     
-    // 3. Calculate maximum allowed character differences
     const maxDifferences = Math.floor(keyword.length * (1 - minSimilarity));
     
-    // 4. Check exact-length windows with character substitution counting
     for (let i = 0; i <= title.length - keyword.length; i++) {
         const window = title.substring(i, i + keyword.length);
         let differences = 0;
         
-        // Count character differences
         for (let j = 0; j < keyword.length; j++) {
             if (keyword[j] !== window[j]) {
                 differences++;
-                if (differences > maxDifferences) break; // Early exit
+                if (differences > maxDifferences) break;
             }
         }
         
@@ -174,8 +93,7 @@ function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
 }
 
 /**
- * Pre-filter torrents by keyword inclusion with ultra-fast typo tolerance
- * Uses chunked parallel processing for large datasets and worker threads for very large datasets
+ * Pre-filter torrents by keyword inclusion with optimized performance
  * @param {Array} allTorrents - Array of all torrents
  * @param {Array} keywords - Keywords to filter by
  * @returns {Promise<Array>} Filtered torrents
@@ -183,90 +101,28 @@ function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
 export async function preFilterTorrentsByKeywords(allTorrents, keywords) {
     const startTime = Date.now();
     
-    // Direct filtering - optimal for real-world data sizes (typically < 500 torrents)
-    const shouldUseParallel = allTorrents.length > 500 && keywords.length > 10;
-    
-    if (!shouldUseParallel) {
-        const relevantTorrents = allTorrents.filter(torrent => {
-            const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
+    const relevantTorrents = allTorrents.filter(torrent => {
+        const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
+        
+        return keywords.some(keyword => {
+            const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+            const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
             
-            return keywords.some(keyword => {
-                const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-                const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-                
-                if (normalizedTorrentForRaw.includes(normalizedKeywordForRaw)) {
-                    return true;
-                }
-                const normalizedKeyword = extractKeywords(keyword).toLowerCase();
-                
-                return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);// Use ultra-fast fuzzy matching (includes exact matching as fast path)
-            });
+            if (normalizedTorrentForRaw.includes(normalizedKeywordForRaw)) {
+                return true;
+            }
+            const normalizedKeyword = extractKeywords(keyword).toLowerCase();
+            
+            return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);
         });
-        
-        if (allTorrents.length > 50) {
-            const duration = Date.now() - startTime;
-            logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${duration}ms)`);
-        }
-        
-        return relevantTorrents;
-    }
-    
-    // For large datasets, use chunked parallel processing
-    return await preFilterTorrentsParallel(allTorrents, keywords, startTime);
-}
-
-/**
- * Parallel torrent pre-filtering for large datasets
- * @param {Array} allTorrents - Array of all torrents  
- * @param {Array} keywords - Keywords to filter by
- * @param {number} startTime - Start time for performance tracking
- * @returns {Array} Filtered torrents
- */
-function preFilterTorrentsParallel(allTorrents, keywords, startTime) {
-    const CHUNK_SIZE = Math.max(50, Math.floor(allTorrents.length / 4)); // Process in 4 chunks minimum
-    const chunks = [];
-    
-    // Split torrents into chunks for parallel processing
-    for (let i = 0; i < allTorrents.length; i += CHUNK_SIZE) {
-        chunks.push(allTorrents.slice(i, i + CHUNK_SIZE));
-    }
-    
-    logger.info(`[provider-search] ⚡ Using parallel pre-filtering: ${chunks.length} chunks of ~${CHUNK_SIZE} torrents`);
-    
-    // Process each chunk in "parallel" (Note: Node.js is single-threaded, but this approach 
-    // allows better scheduling and can be easily upgraded to worker threads later)
-    const chunkPromises = chunks.map(chunk => 
-        new Promise(resolve => {
-            const filteredChunk = chunk.filter(torrent => {
-                const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
-                
-                return keywords.some(keyword => {
-                    const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-                    const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-                    
-                    if (normalizedTorrentForRaw.includes(normalizedKeywordForRaw)) {
-                        return true;
-                    }
-                    const normalizedKeyword = extractKeywords(keyword).toLowerCase();
-                    
-                    return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);
-                });
-            });
-            
-            resolve(filteredChunk);
-        })
-    );
-    
-    return Promise.all(chunkPromises).then(results => {
-        const relevantTorrents = results.flat();
-        const duration = Date.now() - startTime;
-        
-        logger.info(`[provider-search] ⚡ Parallel pre-filter complete: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${duration}ms, ${chunks.length} chunks)`);
-        
-        return relevantTorrents;
     });
+    
+    const endTime = Date.now();
+    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${endTime - startTime}ms)`);
+    
+    return relevantTorrents;
 }
 
 export function getProviderConfig(provider) {
-    return PROVIDER_CONFIGS[provider] || null;
+    return configManager.getProviderConfig(provider);
 }

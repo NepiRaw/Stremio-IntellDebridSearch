@@ -7,23 +7,142 @@ import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TE
 import { romanToNumber } from './roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
 
+/**
+ * TextUtils Class - Consolidated text processing utilities
+ */
+class TextUtils {
+    static calculateSimilarity(str1, str2) {
+        if (!str1 || !str2) return 0;
+        
+        const words1 = this.extractWords(str1);
+        const words2 = this.extractWords(str2);
+        
+        if (words1.length === 0 || words2.length === 0) return 0;
+        
+        const commonWords = words1.filter(word => words2.includes(word));
+        const totalWords = Math.max(words1.length, words2.length);
+        
+        return commonWords.length / totalWords;
+    }
+
+    static extractWords(text) {
+        return text.toLowerCase()
+            .split(/\s+/)
+            .filter(w => w.length > 0);
+    }
+
+    static normalizeTitle(title) {
+        if (!title) return '';
+        
+        return title.toLowerCase()
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    static containsEpisodePattern(text) {
+        const lowerText = text.toLowerCase().trim();
+        
+        if (/^\d{1,3}$/.test(lowerText)) {
+            return true;
+        }
+        
+        if (/^[ivx]{1,5}$/.test(lowerText)) {
+            const romanValue = romanToNumber(lowerText.toUpperCase());
+            if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
+                return true;
+            }
+        }
+        
+        return isEpisodeSeasonPattern(lowerText);
+    }
+
+    static cleanupText(text, options = {}) {
+        const {
+            preserveMeaningfulVariants = false,
+            removeFileExtensions = true,
+            removeTechnicalTerms = true
+        } = options;
+
+        let cleaned = text;
+        const lowerText = cleaned.toLowerCase().trim();
+
+        // Check if the text contains meaningful descriptors
+        if (preserveMeaningfulVariants && isMeaningfulVariant(lowerText)) {
+            // Do minimal cleanup for meaningful variants
+            const words = cleaned.split(/\s+/);
+            const cleanedWords = words.filter(word => !isTechnicalTerm(word));
+            cleaned = cleanedWords.join(' ');
+        } else {
+            // Apply comprehensive cleanup
+            if (removeTechnicalTerms) {
+                // Remove technical patterns
+                for (const pattern of TECHNICAL_PATTERNS) {
+                    cleaned = cleaned.replace(pattern, '');
+                }
+                
+                // Remove comprehensive tech patterns
+                for (const techPattern of COMPREHENSIVE_TECH_PATTERNS) {
+                    cleaned = cleaned.replace(techPattern.pattern, '');
+                }
+            }
+
+            if (removeFileExtensions) {
+                // Remove file extensions
+                for (const ext of Object.values(FILE_EXTENSIONS).flat()) {
+                    const extPattern = new RegExp(`\\b${ext}\\b`, 'gi');
+                    cleaned = cleaned.replace(extPattern, '');
+                }
+            }
+
+            // Apply cleanup patterns
+            cleaned = cleaned
+                .replace(CLEANUP_PATTERNS.qualityRemoval, '')
+                .replace(CLEANUP_PATTERNS.sourceRemoval, '')
+                .replace(CLEANUP_PATTERNS.unwantedTerms, '')
+                .replace(CLEANUP_PATTERNS.bracketContent, '')
+                .replace(CLEANUP_PATTERNS.emptyBrackets, '')
+                .replace(CLEANUP_PATTERNS.emptyParentheses, '')
+                .replace(CLEANUP_PATTERNS.groupTags, '')
+                .replace(CLEANUP_PATTERNS.dotsUnderscores, ' ')
+                .replace(CLEANUP_PATTERNS.multipleSpaces, ' ')
+                .replace(CLEANUP_PATTERNS.trailingDash, '');
+        }
+
+        // Final cleanup
+        return cleaned
+            .replace(/\b\d{3,4}x\d{3,4}\b/g, '') // Remove resolution patterns
+            .replace(/\b\d{1,2}\b/g, '') // Remove episode numbers
+            .replace(/\b(rip|dl)\b/gi, '') // Remove partial technical terms
+            .replace(/\b(bd|web|hd|tv|dvd)\b/gi, '') // Remove source fragments
+            .replace(/\s+/g, ' ') // Collapse spaces
+            .trim();
+    }
+
+    /**
+     * Remove episode suffix from title
+     */
+    static removeEpisodeSuffix(title) {
+        return title.replace(/\s+\d{1,3}$/, '').trim();
+    }
+
+    /**
+     * Capitalize words in a string
+     */
+    static capitalizeWords(text) {
+        return text.split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    }
+}
+
 function calculateSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    
-    const words1 = str1.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-    const words2 = str2.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-    
-    if (words1.length === 0 || words2.length === 0) return 0;
-    
-    const commonWords = words1.filter(word => words2.includes(word));
-    const totalWords = Math.max(words1.length, words2.length);
-    
-    return commonWords.length / totalWords;
+    return TextUtils.calculateSimilarity(str1, str2);
 }
 
 /**
  * Simple variant detection based on title comparison
- * This is a content-agnostic approach using string normalization
+ * Uses TextUtils for optimized text processing
  * @param {string} extractedTitle - The torrent title to check
  * @param {string} searchTitle - The original search title  
  * @param {Array} alternativeTitles - Alternative titles from metadata
@@ -35,21 +154,18 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
         return { isVariant: false, variantName: null };
     }
     
-    const normalizeTitle = (title) => {
-        return title.toLowerCase()
-            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-    };
-    
-    const normalizedExtracted = normalizeTitle(extractedTitle);
-    const normalizedSearch = normalizeTitle(searchTitle);
+    // Use TextUtils for normalization
+    const normalizedExtracted = TextUtils.normalizeTitle(extractedTitle);
+    const normalizedSearch = TextUtils.normalizeTitle(searchTitle);
     
     if (normalizedExtracted === normalizedSearch) {
         return { isVariant: false, variantName: null };
     }
     
-    const allTitles = [normalizedSearch, ...alternativeTitles.map(alt => normalizeTitle(alt.title || alt.normalizedTitle || alt))];
+    // Normalize all alternative titles using TextUtils
+    const allTitles = [normalizedSearch, ...alternativeTitles.map(alt => 
+        TextUtils.normalizeTitle(alt.title || alt.normalizedTitle || alt)
+    )];
     
     for (const altTitle of allTitles) {
         if (normalizedExtracted === altTitle) {
@@ -57,23 +173,22 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
         }
     }
     
-    const extractedWithoutEpisode = normalizedExtracted.replace(/\s+\d{1,3}$/, '').trim(); // Remove trailing episode numbers
+    const extractedWithoutEpisode = TextUtils.removeEpisodeSuffix(normalizedExtracted);
     
     for (const altTitle of allTitles) {
         if (extractedWithoutEpisode === altTitle) {
-            logger.debug(`[detectSimpleVariant] Extracted title (minus episode) "${extractedWithoutEpisode}" exactly matches alternative title "${altTitle}", not a variant`);
             return { isVariant: false, variantName: null };
         }
         
-        const similarity = calculateSimilarity(extractedWithoutEpisode, altTitle);
+        const similarity = TextUtils.calculateSimilarity(extractedWithoutEpisode, altTitle);
         if (similarity > 0.85) { // 85% similarity threshold
-            logger.debug(`[detectSimpleVariant] Extracted title "${extractedWithoutEpisode}" is ${Math.round(similarity * 100)}% similar to alternative title "${altTitle}", not a variant`);
             return { isVariant: false, variantName: null };
         }
     }
     
-    const allBaseTitles = [normalizedSearch, ...alternativeTitles.map(alt => normalizeTitle(alt.title || alt.normalizedTitle || alt))]
-        .sort((a, b) => b.length - a.length);
+    const allBaseTitles = [normalizedSearch, ...alternativeTitles.map(alt => 
+        TextUtils.normalizeTitle(alt.title || alt.normalizedTitle || alt)
+    )].sort((a, b) => b.length - a.length);
     
     for (const baseTitle of allBaseTitles) {
         if (normalizedExtracted.includes(baseTitle)) {
@@ -83,30 +198,28 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
                 .replace(/^[-:\s]+/, '') // Remove leading separators
                 .replace(/[-:\s]+$/, ''); // Remove trailing separators
             
-                if (variantPart && variantPart.length > 2) {
-                    const normalizedVariantPart = normalizeTitle(variantPart);
-                    logger.debug(`[detectSimpleVariant] Checking variant part "${normalizedVariantPart}" against ${alternativeTitles.length} alternative titles`);
+            if (variantPart && variantPart.length > 2) {
+                const normalizedVariantPart = TextUtils.normalizeTitle(variantPart);
+                
+                for (const altTitle of alternativeTitles) {
+                    const normalizedAltTitle = TextUtils.normalizeTitle(altTitle.title || altTitle.normalizedTitle || altTitle);
                     
-                    for (const altTitle of alternativeTitles) {
-                        const normalizedAltTitle = normalizeTitle(altTitle.title || altTitle.normalizedTitle || altTitle);
-                        logger.debug(`[detectSimpleVariant] Comparing variant "${normalizedVariantPart}" with alt title "${normalizedAltTitle}"`);
-                        
-                        if (normalizedAltTitle.includes(normalizedVariantPart) || normalizedVariantPart.includes(normalizedAltTitle)) {
-                            logger.debug(`[detectSimpleVariant] Variant part "${variantPart}" found in alternative title "${normalizedAltTitle}", not a variant`);
-                            return { isVariant: false, variantName: null };
-                        }
+                    if (normalizedAltTitle.includes(normalizedVariantPart) || normalizedVariantPart.includes(normalizedAltTitle)) {
+                        return { isVariant: false, variantName: null };
                     }
+                }
+                
+                if (episodeTitle) {
+                    const normalizedEpisodeTitle = TextUtils.normalizeTitle(episodeTitle);
+                    const normalizedVariantPartForEpisode = TextUtils.normalizeTitle(variantPart);
                     
-                    if (episodeTitle) {
-                        const normalizedEpisodeTitle = normalizeTitle(episodeTitle);
-                        const normalizedVariantPartForEpisode = normalizeTitle(variantPart);
-                        
-                        if (normalizedVariantPartForEpisode === normalizedEpisodeTitle || 
-                            normalizedVariantPartForEpisode.includes(normalizedEpisodeTitle) ||
-                            normalizedEpisodeTitle.includes(normalizedVariantPartForEpisode)) {
-                            return { isVariant: false, variantName: null };
-                        }
+                    if (normalizedVariantPartForEpisode === normalizedEpisodeTitle || 
+                        normalizedVariantPartForEpisode.includes(normalizedEpisodeTitle) ||
+                        normalizedEpisodeTitle.includes(normalizedVariantPartForEpisode)) {
+                        return { isVariant: false, variantName: null };
                     }
+                }
+
                 variantPart = cleanupVariantName(variantPart);
                 
                 const trimmedVariant = variantPart.trim();
@@ -114,12 +227,8 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
                     logger.debug(`[detectSimpleVariant] Found variant: "${extractedTitle}" -> base: "${baseTitle}" -> variant part: "${variantPart}"`);
                     return { 
                         isVariant: true, 
-                        variantName: trimmedVariant.split(' ').map(word => 
-                            word.charAt(0).toUpperCase() + word.slice(1)
-                        ).join(' ')
+                        variantName: TextUtils.capitalizeWords(trimmedVariant)
                     };
-                } else {
-                    logger.debug(`[detectSimpleVariant] Variant part "${variantPart}" cleaned to empty/meaningless, ignoring`);
                 }
             }
         }
@@ -133,78 +242,17 @@ export function cleanupVariantName(variantPart) {
     
     const lowerVariant = cleaned.toLowerCase().trim();
     
-    if (/^\d{1,3}$/.test(lowerVariant)) {
-        logger.debug(`[cleanupVariantName] Detected episode number: "${variantPart}", ignoring as variant`);
+    if (TextUtils.containsEpisodePattern(lowerVariant)) {
         return ''; 
     }
     
-    if (/^[ivx]{1,5}$/.test(lowerVariant)) {
-        const romanValue = romanToNumber(lowerVariant.toUpperCase());
-        if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
-            return '';
-        }
-    }
-    
-    // Use centralized episode/season pattern detection
-    if (isEpisodeSeasonPattern(lowerVariant)) {
-        return '';
-    }
-    
-    // Now proceed with normal variant cleanup for legitimate variants
-    // Check if the variant contains any meaningful descriptors using centralized patterns
-    const hasMeaningfulContent = isMeaningfulVariant(lowerVariant);
-    
-    // If it contains meaningful variant content, do minimal cleanup
-    if (hasMeaningfulContent) {
-        // Use centralized technical term detection instead of hardcoded patterns
-        const words = cleaned.split(/\s+/);
-        const cleanedWords = words.filter(word => !isTechnicalTerm(word));
-        cleaned = cleanedWords.join(' ')
-            .replace(/\[[^\]]*\]/g, '') // Remove brackets content
-            .replace(/\([^)]*\)/g, '') // Remove parentheses content
-            .replace(/[\._\-]+/g, ' ') // Replace separators with spaces
-            .replace(/\s+/g, ' ') // Multiple spaces to single space
-            .trim();
-    } else {
-        // For non-meaningful content, apply comprehensive cleanup using centralized patterns
-        for (const pattern of TECHNICAL_PATTERNS) {
-            cleaned = cleaned.replace(pattern, '');
-        }
-        
-        // Apply comprehensive tech patterns to remove additional technical terms
-        for (const techPattern of COMPREHENSIVE_TECH_PATTERNS) {
-            cleaned = cleaned.replace(techPattern.pattern, '');
-        }
-        
-        // Remove file extensions using centralized patterns
-        for (const ext of Object.values(FILE_EXTENSIONS).flat()) {
-            const extPattern = new RegExp(`\\b${ext}\\b`, 'gi');
-            cleaned = cleaned.replace(extPattern, '');
-        }
-        
-        // Apply cleanup patterns from media-patterns.js
-        cleaned = cleaned
-            .replace(CLEANUP_PATTERNS.qualityRemoval, '') // Remove quality indicators
-            .replace(CLEANUP_PATTERNS.sourceRemoval, '') // Remove source indicators  
-            .replace(CLEANUP_PATTERNS.unwantedTerms, '') // Remove streaming services
-            .replace(CLEANUP_PATTERNS.bracketContent, '') // Remove bracket content
-            .replace(CLEANUP_PATTERNS.emptyBrackets, '') // Remove empty brackets
-            .replace(CLEANUP_PATTERNS.emptyParentheses, '') // Remove empty parentheses
-            .replace(CLEANUP_PATTERNS.groupTags, '') // Remove group tags
-            .replace(CLEANUP_PATTERNS.dotsUnderscores, ' ') // Replace dots/underscores with spaces
-            .replace(CLEANUP_PATTERNS.multipleSpaces, ' ') // Multiple spaces to single space
-            .replace(CLEANUP_PATTERNS.trailingDash, '') // Remove trailing dashes
-            .trim(); // Remove leading/trailing whitespace
-            
-        // SIMPLIFIED cleanup for variant detection (keeping essential partial term removal)
-        cleaned = cleaned
-            .replace(/\b\d{3,4}x\d{3,4}\b/g, '') // Remove resolution patterns like "1920x1080"
-            .replace(/\b\d{1,2}\b/g, '') // Remove episode numbers like "02", "1", "12"
-            .replace(/\b(rip|dl)\b/gi, '') // Remove standalone "rip", "dl" (partial technical terms)
-            .replace(/\b(bd|web|hd|tv|dvd)\b/gi, '') // Remove standalone source fragments
-            .replace(/\s+/g, ' ') // Collapse multiple spaces
-            .trim(); // Final trim
-    }
+    cleaned = TextUtils.cleanupText(cleaned, {
+        preserveMeaningfulVariants: true,
+        removeFileExtensions: true,
+        removeTechnicalTerms: true
+    });
     
     return cleaned;
 }
+
+export { TextUtils };

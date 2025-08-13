@@ -1,5 +1,6 @@
 /**
- * Centralized patterns for quality, codecs, sources, languages, etc.
+ * Media Patterns Utility - Centralized patterns for quality, codecs, sources, languages, audio, etc.
+ * 
  */
 
 const QUALITY_PATTERNS = [
@@ -168,15 +169,7 @@ const CLEANUP_PATTERNS = {
     groupTags: /^[\[\{][^\]\}]+[\]\}]\s*/
 };
 
-const EPISODE_NAME_FILTERS = {
-    technicalPatterns: /^\d+p$|^x26[45]$|^hevc$|^avc$|^10bits?$/i,
-    hashPatterns: /^[A-Z0-9]{8,}$/i,
-    falsePositives: /^(VRV|Multiple Subtitle|1080p|720p|480p)$/i,
-    seasonEpisodePatterns: /^(Season \d+|Episode \d+)$/i,
-    sourcePatterns: /^(BluRay|WEBRip|WEB-DL|HDTV)$/i,
-    releaseGroupPatterns: /^(x264|x265|HEVC|AVC|EMBER|SubsPlease|HorribleSubs|Erai-raws|Judas|GKIDS|AMZN)$/i,
-    urlPatterns: /www\.|\.com/
-};
+
 
 // Meaningful variant patterns for variant detection
 const MEANINGFUL_VARIANT_PATTERNS = [
@@ -297,53 +290,6 @@ function extractQualityDisplay(name, fallbackInfo = null) {
     return '❓ Unknown';
 }
 
-function createLanguageMap() {
-    const map = {};
-    LANGUAGE_PATTERNS.forEach(pattern => {
-        // Extract the pattern content between parentheses
-        const patternStr = pattern.pattern.source;
-        const match = patternStr.match(/\(([^)]+)\)/);
-        if (match) {
-            const variants = match[1].split('|').filter(v => v.length > 0);
-            variants.forEach(variant => {
-                map[variant] = `${pattern.emoji} ${pattern.displayName}`;
-            });
-        }
-    });
-    return map;
-}
-
-function createCodecMap() {
-    const map = {};
-    
-    // Add codec patterns
-    CODEC_PATTERNS.forEach(pattern => {
-        const patternStr = pattern.pattern.source;
-        const match = patternStr.match(/\(([^)]+)\)/);
-        if (match) {
-            const variants = match[1].split('|').filter(v => v.length > 0);
-            variants.forEach(variant => {
-                // Clean up regex special characters
-                const cleanVariant = variant.replace(/\\\./g, '.').replace(/\?/g, '');
-                map[cleanVariant] = `${pattern.emoji} ${pattern.displayName}`;
-            });
-        }
-    });
-    
-    // Add audio patterns
-    AUDIO_PATTERNS.forEach(pattern => {
-        const patternStr = pattern.pattern.source;
-        const match = patternStr.match(/\(([^)]+)\)/);
-        if (match) {
-            const variants = match[1].split('|').filter(v => v.length > 0);
-            variants.forEach(variant => {
-                map[variant] = `${pattern.emoji} ${pattern.displayName}`;
-            });
-        }
-    });
-    
-    return map;
-}
 
 function detectContentType(filename) {
     for (const pattern of CONTENT_TYPE_PATTERNS.series) {
@@ -358,7 +304,7 @@ function detectContentType(filename) {
         }
     }
 
-    return 'series'; // Default fallback
+    return 'series';
 }
 
 function extractLanguageFromFilename(filename) {
@@ -436,17 +382,13 @@ export {
     COMPREHENSIVE_TECH_PATTERNS,
     CONTENT_TYPE_PATTERNS,
     CLEANUP_PATTERNS,
-    EPISODE_NAME_FILTERS,
     MEANINGFUL_VARIANT_PATTERNS,
     EPISODE_SEASON_PATTERNS,
     FILE_EXTENSIONS,
     extractQualityInfo,
     extractQualityDisplay,
-    createLanguageMap,
-    createCodecMap,
     detectContentType,
     extractLanguageFromFilename,
-    generateTechnicalPattern,
     isTechnicalTerm,
     isMeaningfulVariant,
     isEpisodeSeasonPattern

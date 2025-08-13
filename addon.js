@@ -18,7 +18,7 @@ builder.defineCatalogHandler((args) => {
 
         // Request to Debrid Search
         if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
-            if (!((args.config?.DebridProvider && args.config?.DebridApiKey) || args.config?.DebridLinkApiKey)) {
+            if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
                 reject(new Error('Invalid Debrid configuration: Missing configs'))
             }
 

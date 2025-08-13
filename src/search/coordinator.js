@@ -11,7 +11,7 @@ import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-s
 import { performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
 import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
-
+import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
 
 /**
@@ -40,7 +40,6 @@ export function getSearchStrategy(type, season, episode, alternativeTitles) {
 /**
  * Perform advanced search using TMDb/Trakt APIs when available.
  * Uses a two-phase approach: fast title matching, then deep content analysis.
- * THIS IS THE EXACT WORKING FUNCTION FROM THE WORKING ADDON - NOW MODULARIZED
  */
 export async function coordinateSearch(params) {
     const {
@@ -52,16 +51,10 @@ export async function coordinateSearch(params) {
     // Implement fallback to environment variables for API keys when not provided by user
     let { tmdbApiKey, traktApiKey } = params;
     
-    // Fallback to .env variables if API keys are not provided
-    if (!tmdbApiKey && process.env.TMDB_API_KEY) {
-        tmdbApiKey = process.env.TMDB_API_KEY;
-        logger.info('[coordinator] Using TMDb API key from environment variables');
-    }
-    
-    if (!traktApiKey && process.env.TRAKT_API_KEY) {
-        traktApiKey = process.env.TRAKT_API_KEY;
-        logger.info('[coordinator] Using Trakt API key from environment variables');
-    }
+    // Use centralized configuration manager for API key fallbacks
+    const apiConfig = configManager.getApiConfig();
+    tmdbApiKey = apiConfig.tmdbApiKey;
+    traktApiKey = apiConfig.traktApiKey;
     
     logger.info('[coordinator] Starting two-phase search for:', searchKey);
 
@@ -78,7 +71,7 @@ export async function coordinateSearch(params) {
         throw new Error(`Invalid provider: ${provider}`);
     }
 
-    // OPTIMIZATION: Get ALL torrents once instead of multiple searches
+    // Get ALL torrents once
     let allTorrents = [];
     try {
         allTorrents = await fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold);
@@ -92,7 +85,7 @@ export async function coordinateSearch(params) {
         return [];
     }
 
-    // OPTIMIZATION: Pre-filter torrents by keyword inclusion before expensive Fuse.js
+    // Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
     logger.debug(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
     const relevantTorrents = await preFilterTorrentsByKeywords(allTorrents, keywords);
@@ -164,7 +157,7 @@ export async function coordinateSearch(params) {
         logger.info('[coordinator] Phase 3: Trying anime season mapping as final fallback');
         
         try {
-            // Import anime functions - moved to jikan.js for better organization
+            // Import anime functions from jikan.js
             const { fetchAnimeSeasonInfo, mapAnimeEpisode, selectTitleVariationsForAnime } = await import('../api/jikan.js');
             
             // Use country-aware title selection for anime searches
@@ -263,8 +256,6 @@ export async function coordinateSearch(params) {
 
 /**
  * Apply absolute episode post-processing to search results
- * This is the new centralized approach that processes absolute episodes
- * AFTER all standard parsing is complete
  */
 function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) {
     if (!absoluteEpisodeData || !Array.isArray(searchResults)) {

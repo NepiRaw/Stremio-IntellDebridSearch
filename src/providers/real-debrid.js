@@ -1,168 +1,203 @@
 import RealDebridClient from 'real-debrid-api';
 import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js';
+import BaseProvider from './BaseProvider.js';
 import PTT from '../utils/parse-torrent-title.js';
 import { encode } from 'urlencode';
-import { BadTokenError } from '../utils/error-handler.js';
-import { logger } from '../utils/logger.js';
 
-    async function searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-        return searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
+class RealDebridProvider extends BaseProvider {
+    constructor() {
+        super('RealDebrid');
     }
 
-    async function searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
-        return searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
+    async searchFiles(fileType, apiKey, searchKey, threshold = 0.3) {
+        this.log('debug', `Search ${fileType.description} with searchKey: ${searchKey}`);
+
+        const files = await this.listFilesParrallel(fileType, apiKey);
+        let results = [];
+        
+        if (fileType === FILE_TYPES.TORRENTS) {
+            results = files.map(result => this.toTorrent(result));
+        } else if (fileType === FILE_TYPES.DOWNLOADS) {
+            results = files.map(result => this.toDownload(result));
+        }
+
+        return this.performFuzzySearch(results, searchKey, threshold);
     }
 
-    async function getTorrentDetails(apiKey, id) {
-        const RD = new RealDebridClient(apiKey)
-        return await RD.torrents.info(id)
-            .then(resp => toTorrentDetails(apiKey, resp.data))
-            .catch(err => handleError(err))
+    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
+        return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold);
     }
 
-    async function toTorrentDetails(apiKey, item) {
+
+    async searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
+        return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold);
+    }
+
+    async getTorrentDetails(apiKey, id) {
+        return this.makeApiCall(async () => {
+            const RD = new RealDebridClient(apiKey);
+            const response = await RD.torrents.info(id);
+            return this.toTorrentDetails(apiKey, response.data);
+        }, 3, `getTorrentDetails(${id})`);
+    }
+
+    async toTorrentDetails(apiKey, item) {
         const videos = item.files
             .filter(file => file.selected)
             .filter(file => isVideo(file.path))
             .map((file, index) => {
-                const hostUrl = item.links.at(index)
-                const url = `${process.env.ADDON_URL}/resolve/RealDebrid/${apiKey}/${item.id}/${encode(hostUrl)}`
+                const hostUrl = item.links.at(index);
+                const url = `${process.env.ADDON_URL}/resolve/RealDebrid/${apiKey}/${item.id}/${encode(hostUrl)}`;
                 return {
                     id: `${item.id}:${file.id}`,
                     name: file.path,
                     url: url,
                     size: file.bytes,
-                    created: new Date(item.added),
-                    info: PTT.parse(file.path)
-                }
-            })
-        return {
-            source: 'realdebrid',
-            id: item.id,
+                    created: this.parseDate(item.added),
+                    info: this.parseTitle(file.path)
+                };
+            });
+
+        return this.normalizeTorrentDetails(item, videos, {
             name: item.filename,
-            type: 'other',
             hash: item.hash,
-            info: PTT.parse(item.filename),
             size: item.bytes,
-            created: new Date(item.added),
-            videos: videos || []
-        }
+            created: this.parseDate(item.added)
+        });
     }
 
-    async function unrestrictUrl(apiKey, hostUrl, clientIp) {
-        const options = getDefaultOptions(clientIp);
-        const RD = new RealDebridClient(apiKey, options)
-        return RD.unrestrict.link(hostUrl)
-            .then(resp => resp.data.download)
-            .catch(err => handleError(err))
+    async unrestrictUrl(apiKey, hostUrl, clientIp) {
+        return this.makeApiCall(async () => {
+            const options = this.getDefaultOptions(clientIp);
+            const RD = new RealDebridClient(apiKey, options);
+            const response = await RD.unrestrict.link(hostUrl);
+            return response.data.download;
+        }, 3, `unrestrictUrl(${hostUrl})`);
     }
 
-    function toTorrent(item) {
-        return {
-            source: 'realdebrid',
-            id: item.id,
+    toTorrent(item) {
+        return this.normalizeTorrent(item, {
             name: item.filename,
-            type: 'other',
-            info: PTT.parse(item.filename),
             size: item.bytes,
-            created: new Date(item.added),
-        }
+            created: this.parseDate(item.added)
+        });
     }
 
-    function toDownload(item) {
+    toDownload(item) {
         return {
             source: 'realdebrid',
             id: item.id,
             url: item.download,
             name: item.filename,
             type: 'other',
-            info: PTT.parse(item.filename),
+            info: this.parseTitle(item.filename),
             size: item.filesize,
-            created: new Date(item.generated),
+            created: this.parseDate(item.generated)
+        };
+    }
+
+    async listTorrents(apiKey, skip = 0) {
+        const nextPage = Math.floor(skip / 50) + 1;
+        const torrents = await this.listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage);
+        return torrents.map(torrent => this.extractCatalogMeta({
+            id: torrent.id,
+            name: torrent.filename
+        }));
+    }
+
+    async listFilesParrallel(fileType, apiKey, page = 1, pageSize = 50) {
+        return this.makeApiCall(async () => {
+            const RD = new RealDebridClient(apiKey, {
+                params: { page: 1, limit: pageSize }
+            });
+
+            if (fileType === FILE_TYPES.TORRENTS) {
+                return this.fetchTorrentsParallel(RD, pageSize);
+            } else if (fileType === FILE_TYPES.DOWNLOADS) {
+                return this.fetchDownloadsParallel(RD, pageSize);
+            }
+        }, 3, `listFilesParrallel(${fileType.description})`);
+    }
+
+    async fetchTorrentsParallel(RD, pageSize) {
+        const firstResp = await RD.torrents.get(0, 1, pageSize);
+        const firstPage = firstResp.data;
+        const total = firstResp.meta?.total || firstPage.length;
+        const totalPages = Math.ceil(total / pageSize);
+        
+        if (totalPages <= 1) return firstPage;
+
+        const pagePromises = [];
+        for (let p = 2; p <= totalPages; p++) {
+            pagePromises.push(
+                RD.torrents.get(0, p, pageSize).then(resp => resp.data)
+            );
         }
+        
+        const otherPages = await Promise.all(pagePromises);
+        return firstPage.concat(...otherPages);
     }
 
-    async function listTorrents(apiKey, skip = 0) {
-        let nextPage = Math.floor(skip / 50) + 1
-        let torrents = await listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage)
-        const metas = torrents.map(torrent => ({
-            id: 'realdebrid:' + torrent.id,
-            name: torrent.filename,
-            type: 'other',
-        }))
-        return metas || []
-    }
-
-    async function listFilesParrallel(fileType, apiKey, page = 1, pageSize = 50) {
-        const RD = new RealDebridClient(apiKey, {
-            params: {
-                page: 1,
-                limit: pageSize
-            }
-        })
-        if (fileType == FILE_TYPES.TORRENTS) {
-            const firstResp = await RD.torrents.get(0, 1, pageSize).catch(err => handleError(err))
-            const firstPage = firstResp.data
-            const total = firstResp.meta?.total || firstPage.length
-            const totalPages = Math.ceil(total / pageSize)
-            if (totalPages <= 1) return firstPage
-            const pagePromises = []
-            for (let p = 2; p <= totalPages; p++) {
-                pagePromises.push(
-                    RD.torrents.get(0, p, pageSize).then(resp => resp.data).catch(err => handleError(err))
-                )
-            }
-            const otherPages = await Promise.all(pagePromises)
-            return firstPage.concat(...otherPages)
-        } else if (fileType == FILE_TYPES.DOWNLOADS) {
-            const firstResp = await RD.downloads.get(0, 1, pageSize).catch(err => handleError(err))
-            const firstPage = firstResp.data
-            const total = firstResp.meta?.total || firstPage.length
-            const totalPages = Math.ceil(total / pageSize)
-            if (totalPages <= 1) return firstPage.filter(f => f.host != 'real-debrid.com')
-            const pagePromises = []
-            for (let p = 2; p <= totalPages; p++) {
-                pagePromises.push(
-                    RD.downloads.get(0, p, pageSize).then(resp => resp.data).catch(err => handleError(err))
-                )
-            }
-            const otherPages = await Promise.all(pagePromises)
-            const allFiles = firstPage.concat(...otherPages)
-            return allFiles.filter(f => f.host != 'real-debrid.com')
+    async fetchDownloadsParallel(RD, pageSize) {
+        const firstResp = await RD.downloads.get(0, 1, pageSize);
+        const firstPage = firstResp.data;
+        const total = firstResp.meta?.total || firstPage.length;
+        const totalPages = Math.ceil(total / pageSize);
+        
+        if (totalPages <= 1) {
+            return firstPage.filter(f => f.host !== 'real-debrid.com');
         }
+
+        const pagePromises = [];
+        for (let p = 2; p <= totalPages; p++) {
+            pagePromises.push(
+                RD.downloads.get(0, p, pageSize).then(resp => resp.data)
+            );
+        }
+        
+        const otherPages = await Promise.all(pagePromises);
+        const allFiles = firstPage.concat(...otherPages);
+        return allFiles.filter(f => f.host !== 'real-debrid.com');
     }
 
-    async function bulkGetTorrentDetails(apiKey, ids) {
-        const RD = new RealDebridClient(apiKey)
-        const detailPromises = ids.map(id =>
-            RD.torrents.info(id)
-                .then(resp => toTorrentDetails(apiKey, resp.data))
-                .catch(err => handleError(err))
-        )
-        return Promise.all(detailPromises)
+    async bulkGetTorrentDetails(apiKey, ids) {
+        const detailPromises = ids.map(id => this.getTorrentDetails(apiKey, id));
+        return Promise.all(detailPromises);
     }
 
-    function handleError(err) {
-        logger.debug(`[realdebrid] Error details:`, err)
-        const errData = err.response?.data
+    handleError(error, context = 'unknown') {
+        this.log('debug', `Error in ${context}:`, error);
+        
+        const errData = error.response?.data;
+        
         if (errData && errData.error_code === 8) {
-            return Promise.reject(BadTokenError)
+            return super.handleError(new Error('Invalid API token'), context);
         }
-        if (errData && accessDeniedError(errData)) {
+        
+        if (errData && this.accessDeniedError(errData)) {
             const accessError = new Error('Access denied by provider');
             accessError.name = 'AccessDeniedError';
             accessError.code = 'ACCESS_DENIED';
-            return Promise.reject(accessError)
+            return super.handleError(accessError, context);
         }
-        return Promise.reject(err)
+        
+        return super.handleError(error, context);
     }
 
-    function accessDeniedError(errData) {
-        return [9, 20].includes(errData && errData.error_code)
+    accessDeniedError(errData) {
+        return [9, 20].includes(errData && errData.error_code);
     }
 
-    function getDefaultOptions(ip) {
+    getDefaultOptions(ip) {
         return { ip };
     }
 
-    export default { listTorrents, searchTorrents, getTorrentDetails, unrestrictUrl, searchDownloads, listFilesParrallel, bulkGetTorrentDetails };
+    parseTitle(filename) {
+        return PTT.parse(filename);
+    }
+}
+
+const realDebridProvider = new RealDebridProvider();
+
+export default realDebridProvider;
+export { RealDebridProvider };

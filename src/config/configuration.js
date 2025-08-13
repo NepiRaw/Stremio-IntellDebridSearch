@@ -1,8 +1,189 @@
-import { logger } from '../utils/logger.js';
-
 /**
  * Configuration utilities - handles addon configuration parsing and validation
  */
+
+import { logger } from '../utils/logger.js';
+import parseTorrentTitle from '../utils/parse-torrent-title.js';
+import { FILE_TYPES } from '../stream/metadata-extractor.js';
+
+/**
+ * Centralized Configuration Manager
+ * Consolidates all configuration-related functionality into a single class
+ */
+class ConfigurationManager {
+    constructor() {
+        this.providerConfigs = this.initializeProviderConfigs();
+        this._apiConfigCache = null;
+        this._hasLoggedApiConfig = false;
+    }
+
+    getEnvVar(key, defaultValue = null) {
+        const value = process.env[key];
+        return (value && value.trim() !== '') ? value.trim() : defaultValue;
+    }
+
+    getApiConfig() {
+        if (this._apiConfigCache) {
+            return this._apiConfigCache;
+        }
+
+        const tmdbApiKey = this.getEnvVar('TMDB_API_KEY');
+        const traktApiKey = this.getEnvVar('TRAKT_API_KEY');
+        
+        if (!this._hasLoggedApiConfig) {
+            if (tmdbApiKey) {
+                logger.info('[configuration] Using TMDb API key from environment variables');
+            }
+            
+            if (traktApiKey) {
+                logger.info('[configuration] Using Trakt API key from environment variables');
+            }
+            this._hasLoggedApiConfig = true;
+        }
+
+        this._apiConfigCache = {
+            tmdbApiKey,
+            traktApiKey,
+            hasApiKeys: !!(tmdbApiKey || traktApiKey)
+        };
+
+        return this._apiConfigCache;
+    }
+
+    initializeProviderConfigs() {
+        return {
+            AllDebrid: {
+                bulkMethod: 'listTorrentsParallel',
+                dataMapper: (item) => ({
+                    source: 'alldebrid',
+                    id: item.id,
+                    name: item.filename,
+                    type: 'other',
+                    info: parseTorrentTitle.parse(item.filename),
+                    size: item.size,
+                    created: new Date(item.completionDate)
+                })
+            },
+            DebridLink: {
+                bulkMethod: 'listTorrentsParallel',
+                dataMapper: (item) => ({
+                    source: 'debridlink',
+                    id: item.id.split('-')[0],
+                    name: item.name,
+                    type: 'other',
+                    info: parseTorrentTitle.parse(item.name),
+                    size: item.size,
+                    created: new Date(item.created * 1000)
+                })
+            },
+            RealDebrid: {
+                bulkMethod: 'listFilesParrallel',
+                methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
+                dataMapper: (item) => ({
+                    source: 'realdebrid',
+                    id: item.id,
+                    name: item.filename,
+                    type: 'other',
+                    info: parseTorrentTitle.parse(item.filename),
+                    size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
+                    created: new Date(item.added) // RealDebrid uses 'added' field
+                })
+            },
+            TorBox: {
+                bulkMethod: 'listFilesParallel',
+                methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
+                dataMapper: (item) => ({
+                    source: 'torbox',
+                    id: item.id,
+                    name: item.name,
+                    type: 'other',
+                    info: parseTorrentTitle.parse(item.name),
+                    size: item.size,
+                    created: new Date(item.created_at)
+                })
+            },
+            Premiumize: {
+                bulkMethod: 'listFiles',
+                dataMapper: (item) => ({
+                    source: 'premiumize',
+                    id: item.id,
+                    name: item.name,
+                    type: 'other',
+                    info: parseTorrentTitle.parse(item.name),
+                    size: item.size,
+                    created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
+                })
+            }
+        };
+    }
+
+    getProviderConfig(provider) {
+        return this.providerConfigs[provider] || null;
+    }
+
+    getAllProviderConfigs() {
+        return this.providerConfigs;
+    }
+
+    getIsTmdbEnabled() {
+        const { tmdbApiKey, traktApiKey } = this.getApiConfig();
+        
+        if (tmdbApiKey && traktApiKey) {
+            return true; // Scenario 1: Both APIs
+        }
+        
+        if (tmdbApiKey && !traktApiKey) {
+            return true; // Scenario 2: TMDb only
+        }
+        
+        return false;
+    }
+
+    getIsTraktEnabled() {
+        const { tmdbApiKey, traktApiKey } = this.getApiConfig();
+        
+        if (tmdbApiKey && traktApiKey) {
+            return true; // Scenario 1: Both APIs
+        }
+        
+        return false;
+    }
+
+    determineSearchCapabilities() {
+        const { tmdbApiKey, traktApiKey } = this.getApiConfig();
+        
+        if (tmdbApiKey && traktApiKey) {
+            return true;
+        }
+        
+        if (tmdbApiKey && !traktApiKey) {
+            return true;
+        }
+        
+        if (!tmdbApiKey && traktApiKey) {
+            logger.warn('[configuration] Only Trakt API key available. TMDb API key is required for advanced search. Falling back to basic search.');
+            return false;
+        }
+
+        return false;
+    }
+
+    getSearchCapabilities() {
+        const isTmdbEnabled = this.getIsTmdbEnabled();
+        const isTraktEnabled = this.getIsTraktEnabled();
+        
+        return {
+            alternativeTitles: isTmdbEnabled,
+            episodeMapping: isTraktEnabled,
+            enhancedMatching: isTmdbEnabled,
+            absoluteEpisodes: isTraktEnabled,
+            internationalTitles: isTmdbEnabled,
+            animeSupport: isTraktEnabled
+        };
+    }
+}
+
+export const configManager = new ConfigurationManager();
 
 export function parseConfiguration(configuration = '{}') {
     if (!configuration || typeof configuration !== 'string') {
@@ -99,9 +280,8 @@ export function validateConfiguration(config) {
     }
 
     const hasDebridProvider = config.DebridProvider && config.DebridApiKey;
-    const hasDebridLink = config.DebridLinkApiKey;
     
-    if (!hasDebridProvider && !hasDebridLink) {
+    if (!hasDebridProvider) {
         validation.isValid = false;
         validation.errors.push('No valid debrid provider configuration found');
     }
@@ -111,13 +291,7 @@ export function validateConfiguration(config) {
 export function getProviderConfig(config) {
     if (!config) return null;
 
-    if (config.DebridLinkApiKey) {
-        return {
-            provider: 'DebridLink',
-            apiKey: config.DebridLinkApiKey
-        };
-    }
-
+    // All providers use the standard pattern: DebridProvider + DebridApiKey
     if (config.DebridProvider && config.DebridApiKey) {
         return {
             provider: config.DebridProvider,
@@ -129,98 +303,40 @@ export function getProviderConfig(config) {
 }
 
 export function getApiConfig(config) {
-    if (!config) config = {};
-
-    const tmdbApiKey = process.env.TMDB_API_KEY;
-    const traktApiKey = process.env.TRAKT_API_KEY;
-    
-    const hasAdvancedSearch = determineSearchCapabilities(tmdbApiKey, traktApiKey);
-    
-    const isTmdbEnabled = getIsTmdbEnabled(tmdbApiKey, traktApiKey);
-    const isTraktEnabled = getIsTraktEnabled(tmdbApiKey, traktApiKey);
-    
-    return {
-        tmdbApiKey,
-        traktApiKey,
-        isTmdbEnabled,
-        isTraktEnabled,
-        hasAdvancedSearch,
-        searchCapabilities: getSearchCapabilities(tmdbApiKey, traktApiKey)
-    };
+    return configManager.getApiConfig();
 }
 
 function getIsTmdbEnabled(tmdbApiKey, traktApiKey) {
-    // TMDb is enabled if:
-    // 1. TMDb key exists AND (both keys exist OR only TMDb exists)
-    // 2. NOT when only Trakt key exists (Scenario 3 fallback)
-    if (tmdbApiKey && traktApiKey) {
-        return true; // Scenario 1: Both APIs
-    }
-    
-    if (tmdbApiKey && !traktApiKey) {
-        return true; // Scenario 2: TMDb only
-    }
-    
-    // Scenario 3: Trakt only - TMDb should be disabled
-    // Scenario 4: Neither key - TMDb should be disabled
-    return false;
+    return configManager.getIsTmdbEnabled(tmdbApiKey, traktApiKey);
 }
 
 function getIsTraktEnabled(tmdbApiKey, traktApiKey) {
-    if (tmdbApiKey && traktApiKey) {
-        return true; // Scenario 1: Both APIs
-    }
-    
-    return false;
+    return configManager.getIsTraktEnabled(tmdbApiKey, traktApiKey);
 }
 
 function determineSearchCapabilities(tmdbApiKey, traktApiKey) {
-    if (tmdbApiKey && traktApiKey) { // Scenario 1: Both APIs available - full advanced search
-        return true;
-    }
-    
-    if (tmdbApiKey && !traktApiKey) { // Scenario 2: Only TMDb available - advanced search without Trakt features
-        return true;
-    }
-    
-    if (!tmdbApiKey && traktApiKey) { // Scenario 3: Only Trakt available - fallback to basic search
-        logger.warn('[configuration] Only Trakt API key available. TMDb API key is required for advanced search. Falling back to basic search.');
-        return false;
-    }
-
-    if (!tmdbApiKey && !traktApiKey) { // Scenario 4: Neither API available - basic search only
-        return false;
-    }
-    
-    return false;
+    return configManager.determineSearchCapabilities(tmdbApiKey, traktApiKey);
 }
 
 function getSearchCapabilities(tmdbApiKey, traktApiKey) {
-    const isTmdbEnabled = getIsTmdbEnabled(tmdbApiKey, traktApiKey);
-    const isTraktEnabled = getIsTraktEnabled(tmdbApiKey, traktApiKey);
-    
-    return {
-        alternativeTitles: isTmdbEnabled,
-        episodeMapping: isTraktEnabled,
-        enhancedMatching: isTmdbEnabled,
-        absoluteEpisodes: isTraktEnabled,
-        internationalTitles: isTmdbEnabled,
-        animeSupport: isTraktEnabled
-    };
+    return configManager.getSearchCapabilities(tmdbApiKey, traktApiKey);
 }
 
-export function logApiStartupStatus(config = {}) {
-    const apiConfig = getApiConfig(config);
+export function logApiStartupStatus() {
+    const apiConfig = configManager.getApiConfig();
+    const capabilities = configManager.getSearchCapabilities();
+    const isTmdbEnabled = configManager.getIsTmdbEnabled();
+    const isTraktEnabled = configManager.getIsTraktEnabled();
+    const hasAdvancedSearch = configManager.determineSearchCapabilities();
     
     logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
-    logger.info(`[configuration] TMDb API: ${apiConfig.isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] Trakt API: ${apiConfig.isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] ⚡ Advanced search: ${apiConfig.hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
+    logger.info(`[configuration] TMDb API: ${isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
+    logger.info(`[configuration] Trakt API: ${isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
+    logger.info(`[configuration] ⚡ Advanced search: ${hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
     
-    const caps = apiConfig.searchCapabilities;
     logger.info('[configuration] Search capabilities:');
-    logger.info(`  • Alternative titles: ${caps.alternativeTitles ? '✅' : '❌'}`);
-    logger.info(`  • Anime/absolute episodes: ${caps.animeSupport ? '✅' : '❌'}`);
+    logger.info(`  • Alternative titles: ${capabilities.alternativeTitles ? '✅' : '❌'}`);
+    logger.info(`  • Anime/absolute episodes: ${capabilities.animeSupport ? '✅' : '❌'}`);
 }
 
 export function mergeWithDefaults(config, defaults = {}) {

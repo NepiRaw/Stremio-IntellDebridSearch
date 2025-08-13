@@ -9,11 +9,23 @@ import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
 import Cinemeta from './api/cinemeta.js';
-import AllDebrid from './providers/all-debrid.js';
-import RealDebrid from './providers/real-debrid.js';
+import { AllDebridProvider } from './providers/all-debrid.js';
+import { RealDebridProvider } from './providers/real-debrid.js';
+// TODO: Migrate to class imports when these providers are confirmed working with API keys
 import DebridLink from './providers/debrid-link.js';
 import Premiumize from './providers/premiumize.js';
 import TorBox from './providers/torbox.js';
+
+// Create provider instances once to avoid duplicate initialization logging
+const sharedProviders = { 
+    // Migrated to clean class architecture (tested with API keys)
+    AllDebrid: new AllDebridProvider(), 
+    RealDebrid: new RealDebridProvider(), 
+    // TODO: Migrate these to class instances when API testing is available
+    DebridLink: DebridLink,  // Using legacy export pattern
+    Premiumize: Premiumize,  // Using legacy export pattern
+    TorBox: TorBox           // Using legacy export pattern
+};
 
 class StreamProvider {
     
@@ -42,7 +54,7 @@ class StreamProvider {
                 return [];
             }
 
-            const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
+            const providers = sharedProviders;
             
             const apiConfig = getApiConfig(config);
             
@@ -175,7 +187,7 @@ class StreamProvider {
                 return [];
             }
 
-            const providers = { AllDebrid, RealDebrid, DebridLink, Premiumize, TorBox };
+            const providers = sharedProviders;
 
             const apiConfig = getApiConfig(config);
 
@@ -227,7 +239,7 @@ class StreamProvider {
             logger.debug(`[stream-provider] Starting controlled concurrent stream processing for ${deduplicatedResults.length} series results`);
             const streamProcessingStart = Date.now();
             
-            // OPTIMIZATION: Use controlled concurrency to prevent debrid API overwhelm
+            // Use controlled concurrency to prevent debrid API overwhelm
             // Limit concurrent debrid API calls to prevent rate limiting issues
             const { executeWithControlledConcurrency } = await import('./utils/debrid-processor.js');
             
@@ -237,7 +249,6 @@ class StreamProvider {
                 return [];
             }
 
-            // Create tasks for controlled execution
             const streamTasks = deduplicatedResults.map(result => async () => {
                 try {
                     const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id);
@@ -247,14 +258,12 @@ class StreamProvider {
                         return null;
                     }
 
-                    // Quick episode filtering
                     const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);
                     if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                         logger.debug(`[stream-provider] No matching episodes found in torrent ${result.id} for S${filterSeason}E${targetEpisode}${searchResponse.animeMapping ? ` (mapped from S${season}E${episode})` : ''}`);
                         return null;
                     }
 
-                    // Build stream with context information
                     const knownSeasonEpisode = {
                         season,
                         episode,
@@ -273,7 +282,6 @@ class StreamProvider {
                         animeMapping: searchResponse.animeMapping
                     };
 
-                    // Format the stream immediately
                     const { formatSingleStreamData } = await import('./stream/performance-optimizer.js');
                     const stream = await formatSingleStreamData(streamData);
                     
@@ -291,10 +299,8 @@ class StreamProvider {
                 }
             });
 
-            // Execute with controlled concurrency (empirically optimized limit)
-            // Testing shows: concurrency=6 provides optimal balance (5.08 streams/sec vs 4.24 at old value of 3)
-            // All values 1-10 tested successfully with AllDebrid, concurrency=6 provides 20% speed improvement
-            const concurrencyLimit = config.ConcurrencyLimit || 6; // Empirically optimized for best performance
+            // Execute with controlled concurrency
+            const concurrencyLimit = config.ConcurrencyLimit || 6;
             logger.info(`[stream-provider] Processing ${streamTasks.length} streams with max ${concurrencyLimit} concurrent debrid API calls`);
             
             const streamResults = await executeWithControlledConcurrency(streamTasks, concurrencyLimit);

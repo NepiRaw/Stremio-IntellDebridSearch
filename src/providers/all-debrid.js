@@ -1,146 +1,106 @@
-// Ensure ADDON_URL is defined
-if (!process.env.ADDON_URL) {
-    process.env.ADDON_URL = 'http://127.0.0.1:55771';
-}
-
 import AllDebridClient from 'all-debrid-api'
-import Fuse from 'fuse.js'
-import { isVideo } from '../stream/metadata-extractor.js'
-import PTT from '../utils/parse-torrent-title.js'
-import { BadTokenError } from '../utils/error-handler.js'
+import BaseProvider from './BaseProvider.js'
 import { processTorrentDetails } from '../utils/debrid-processor.js'
 import { encode } from 'urlencode'
-import { logger } from '../utils/logger.js'
 
-// AllDebrid-specific URL builder
-function buildStreamUrl(apiKey, torrentId, file) {
-    const hostUrl = file.link || file.download;
-    return `${process.env.ADDON_URL}/resolve/AllDebrid/${apiKey}/${torrentId}/${encode(hostUrl)}`;
-}
-
-async function searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-    logger.debug(`[alldebrid] Search torrents with searchKey: ${searchKey}`)
-
-    const torrentsResults = await listTorrentsParallel(apiKey, 1, 1000)
-    let torrents = torrentsResults.map(torrentsResult => {
-        return toTorrent(torrentsResult)
-    })
-    // logger.debug("[alldebrid] torrents: " + JSON.stringify(torrents))
-    const fuse = new Fuse(torrents, {
-        keys: ['info.title'],
-        threshold: threshold,
-        minMatchCharLength: 2
-    })
-
-    const searchResults = fuse.search(searchKey)
-    if (searchResults && searchResults.length) {
-        return searchResults.map(searchResult => searchResult.item)
-    } else {
-        return []
+class AllDebridProvider extends BaseProvider {
+    constructor() {
+        super('AllDebrid');
     }
-}
 
-async function getTorrentDetails(apiKey, id) {
-    try {
-        const AD = new AllDebridClient(apiKey);
-        const response = await AD.magnet.status(id);
-
-        if (!response?.data?.magnets) {
-            logger.error(`[alldebrid] No magnets found for ID ${id}`);
-            return null;
-        }
-
-        // Use the common processor with AllDebrid-specific data structure
-        return processTorrentDetails({
-            apiKey,
-            rawResponse: response.data,
-            item: response.data.magnets,
-            source: 'alldebrid',
-            urlBuilder: buildStreamUrl
-        });
-    } catch (err) {
-        logger.error(`[alldebrid] Failed to fetch details for ID ${id}:`, err);
-        return handleError(err);
+    buildStreamUrl(apiKey, torrentId, file) {
+        const hostUrl = file.link || file.download;
+        return `${process.env.ADDON_URL}/resolve/AllDebrid/${apiKey}/${torrentId}/${encode(hostUrl)}`;
     }
-}
 
-async function toTorrentDetails(apiKey, item) {
-    const videos = item.links
-        .filter(file => isVideo(file.filename))
-        .map((file, index) => {
-            const url = buildStreamUrl(apiKey, item.id, file)
+    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
+        this.log('debug', `Search torrents with searchKey: ${searchKey}`);
 
-            return {
-                id: `${item.id}:${index}`,
-                name: file.filename,
-                url: url,
-                size: file.size,
-                created: new Date(item.completionDate),
-                info: PTT.parse(file.filename)
+        const torrentsResults = await this.listTorrentsParallel(apiKey, 1, 1000);
+        const torrents = torrentsResults.map(item => this.normalizeTorrent(item, {
+            name: item.filename // AllDebrid uses 'filename' field
+        }));
+
+        return this.performFuzzySearch(torrents, searchKey, threshold);
+    }
+
+    async getTorrentDetails(apiKey, id) {
+        return this.makeApiCall(async () => {
+            const AD = new AllDebridClient(apiKey);
+            const response = await AD.magnet.status(id);
+
+            this.validateApiResponse(response, ['data']);
+
+            if (!response?.data?.magnets) {
+                this.log('error', `No magnets found for ID ${id}`);
+                return null;
             }
-        })
 
-    return {
-        source: 'alldebrid',
-        id: item.id,
-        name: item.filename,
-        type: 'other',        hash: item.hash,
-        info: PTT.parse(item.filename),
-        size: item.size,
-        created: new Date(item.completionDate),
-        videos: videos || []
+            return processTorrentDetails({
+                apiKey,
+                rawResponse: response.data,
+                item: response.data.magnets,
+                source: 'alldebrid',
+                urlBuilder: (key, torrentId, file) => this.buildStreamUrl(key, torrentId, file)
+            });
+        }, 3, `getTorrentDetails(${id})`);
     }
-}
 
-async function unrestrictUrl(apiKey, hostUrl) {
-    const AD = new AllDebridClient(apiKey)
+    async toTorrentDetails(apiKey, item) {
+        const videos = this.extractVideoFiles(item, apiKey, (key, torrentId, file, index) => {
+            return this.buildStreamUrl(key, torrentId, file);
+        });
 
-    return AD.link.unlock(hostUrl)
-        .then(res => res.data.link)
-        .catch(err => handleError(err))
-}
-
-function toTorrent(item) {
-    return {
-        source: 'alldebrid',
-        id: item.id,
-        name: item.filename,        type: 'other',
-        info: PTT.parse(item.filename),
-        size: item.size,
-        created: new Date(item.completionDate),
+        return this.normalizeTorrentDetails(item, videos, {
+            name: item.filename, // AllDebrid uses 'filename'
+            hash: item.hash,
+            created: this.parseDate(item.completionDate)
+        });
     }
-}
 
-async function listTorrents(apiKey) {
-    let torrents = await listTorrentsParallel(apiKey)
-    const metas = torrents.map(torrent => {
-        return {
-            id: 'alldebrid:' + torrent.id,
-            name: torrent.filename,
-            type: 'other',
+    async unrestrictUrl(apiKey, hostUrl) {
+        return this.makeApiCall(async () => {
+            const AD = new AllDebridClient(apiKey);
+            const response = await AD.link.unlock(hostUrl);
+            return response.data.link;
+        }, 3, `unrestrictUrl(${hostUrl})`);
+    }
+
+    async listTorrents(apiKey) {
+        const torrents = await this.listTorrentsParallel(apiKey);
+        return torrents.map(torrent => this.extractCatalogMeta({
+            id: torrent.id,
+            name: torrent.filename
+        }));
+    }
+
+    async listTorrentsParallel(apiKey) {
+        return this.makeApiCall(async () => {
+            const AD = new AllDebridClient(apiKey);
+            const response = await AD.magnet.status();
+            
+            this.validateApiResponse(response, ['data']);
+            
+            const torrents = response.data.magnets
+                .filter(item => item.statusCode === 4); // Only completed torrents
+                
+            this.log('debug', `Retrieved ${torrents.length} completed torrents`);
+            return torrents || [];
+        }, 3, 'listTorrentsParallel');
+    }
+
+    handleError(error, context = 'unknown') {
+        this.log('debug', `Error in ${context}:`, error);
+        
+        if (error && error.code === 'AUTH_BAD_APIKEY') {
+            return super.handleError(new Error('Invalid API key'), context);
         }
-    })
-    return metas || []
-}
-
-async function listTorrentsParallel(apiKey) {
-    const AD = new AllDebridClient(apiKey);
-
-    const torrents = await AD.magnet.status()
-        .then(res => res.data.magnets
-            .filter(item => item.statusCode === 4)
-        )
-        .catch(err => handleError(err))
-
-    return torrents || []
-}
-
-function handleError(err) {
-    logger.debug(`[alldebrid] Error details:`, err)
-    if (err && err.code === 'AUTH_BAD_APIKEY') {
-        return Promise.reject(BadTokenError)
+        
+        return super.handleError(error, context);
     }
-    return Promise.reject(err)
 }
 
-export default { listTorrents, searchTorrents, getTorrentDetails, unrestrictUrl, listTorrentsParallel }
+const allDebridProvider = new AllDebridProvider();
+
+export default allDebridProvider;
+export { AllDebridProvider };

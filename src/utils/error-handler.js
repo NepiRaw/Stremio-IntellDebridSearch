@@ -1,7 +1,119 @@
 /**
- * Error handling /**
- * Custom error class for authentication issues
+ * Enhanced Error handling with ErrorManager for standardized error handling
  */
+
+import { logger } from './logger.js';
+
+/**
+ * Enhanced Error Manager for standardized error handling across all modules
+ * Provides unified error handling patterns and reduces boilerplate code
+ */
+class ErrorManager {
+    
+    static handle(operation, context = 'unknown') {
+        return async (...args) => {
+            try {
+                return await operation(...args);
+            } catch (error) {
+                return this.processError(error, context, args);
+            }
+        };
+    }
+
+    static handleProviderError(providerName) {
+        return (operation) => this.handle(operation, `provider:${providerName}`);
+    }
+    
+    static handleApiError(apiName) {
+        return (operation) => this.handle(operation, `api:${apiName}`);
+    }
+    
+    static handleSearchError(searchType) {
+        return (operation) => this.handle(operation, `search:${searchType}`);
+    }
+    
+    static processError(error, context, operationArgs = []) {
+        const errorInfo = this.createErrorInfo(error, context, operationArgs);
+        this.logError(errorInfo, error);
+        return this.createErrorResponse(errorInfo, error);
+    }
+    
+    static createErrorInfo(error, context, operationArgs) {
+        return {
+            context,
+            timestamp: new Date().toISOString(),
+            message: error.message,
+            name: error.name,
+            type: this.classifyError(error),
+            provider: error.provider || null,
+            statusCode: error.statusCode || null,
+            apiName: error.apiName || null,
+            searchType: error.searchType || null,
+            field: error.field || null,
+            operationArgsCount: operationArgs.length
+        };
+    }
+    
+    static classifyError(error) {
+        if (error instanceof ProviderError) return 'provider_error';
+        if (error instanceof ApiError) return 'api_error';
+        if (error instanceof SearchError) return 'search_error';
+        if (error instanceof ValidationError) return 'validation_error';
+        if (error instanceof BadTokenError) return 'authentication_error';
+        if (error instanceof AccessDeniedError) return 'authorization_error';
+        return 'general_error';
+    }
+    
+    static logError(errorInfo, originalError) {
+        const logMessage = `[error-manager] ${errorInfo.context}:`;
+        
+        if (errorInfo.type === 'validation_error') {
+            logger.warn(logMessage, errorInfo);
+        } else if (errorInfo.type === 'authentication_error' || errorInfo.type === 'authorization_error') {
+            logger.error(logMessage, errorInfo);
+        } else {
+            logger.error(logMessage, errorInfo);
+        }
+        
+        if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
+            logger.error(`[error-manager] Stack trace:`, originalError.stack);
+        }
+    }
+    
+    static createErrorResponse(errorInfo, originalError) {
+        if (errorInfo.type === 'provider_error' || errorInfo.type === 'api_error') {
+            return null;
+        }
+        
+        if (errorInfo.type === 'validation_error') {
+            throw originalError;
+        }
+        
+        if (errorInfo.type === 'authentication_error' || errorInfo.type === 'authorization_error') {
+            throw originalError;
+        }
+        
+        return null;
+    }
+    
+    static wrapProviderMethods(provider, providerName) {
+        const wrappedProvider = {};
+        const errorHandler = this.handleProviderError(providerName);
+        
+        for (const [methodName, method] of Object.entries(provider)) {
+            if (typeof method === 'function') {
+                wrappedProvider[methodName] = errorHandler(method.bind(provider));
+            } else {
+                wrappedProvider[methodName] = method;
+            }
+        }
+        
+        return wrappedProvider;
+    }
+}
+
+export const errorManager = ErrorManager;
+
 export class BadTokenError extends Error {
     constructor(message = 'Invalid or expired API token', provider = null, originalError = null) {
         super(message);
@@ -83,62 +195,18 @@ export class ValidationError extends Error {
 }
 
 export function handleError(err, context = 'unknown', metadata = {}) {
-    const errorInfo = {
-        context,
-        timestamp: new Date().toISOString(),
-        message: err.message,
-        name: err.name,
-        ...metadata
-    };
-
-    if (err instanceof ProviderError) {
-        errorInfo.provider = err.provider;
-        errorInfo.statusCode = err.statusCode;
-        errorInfo.type = 'provider_error';
-    } else if (err instanceof ApiError) {
-        errorInfo.apiName = err.apiName;
-        errorInfo.statusCode = err.statusCode;
-        errorInfo.type = 'api_error';
-    } else if (err instanceof SearchError) {
-        errorInfo.searchType = err.searchType;
-        errorInfo.type = 'search_error';
-    } else if (err instanceof ValidationError) {
-        errorInfo.field = err.field;
-        errorInfo.value = err.value;
-        errorInfo.type = 'validation_error';
-    } else {
-        errorInfo.type = 'general_error';
-    }
-
-    if (errorInfo.type === 'validation_error' || err.name === 'ValidationError') {
-        logger.warn(`[error-handler] ${context}:`, errorInfo);
-    } else {
-        logger.error(`[error-handler] ${context}:`, errorInfo);
-    }
-
-    if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
-        logger.error(`[error-handler] Stack trace:`, err.stack);
-    }
-
-    return errorInfo;
+    return errorManager.processError(err, context, [metadata]);
 }
 
 export function withErrorHandling(fn, context) {
-    return async (...args) => {
-        try {
-            return await fn(...args);
-        } catch (err) {
-            const errorInfo = handleError(err, context, { args: args.length });
-            throw err; // Re-throw the original error
-        }
-    };
+    return errorManager.handle(fn, context);
 }
 
 export async function safeExecute(fn, context = 'safe_execute', defaultValue = null) {
     try {
         return await fn();
     } catch (err) {
-        handleError(err, context);
+        errorManager.processError(err, context);
         return defaultValue;
     }
 }
