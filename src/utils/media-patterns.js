@@ -262,28 +262,22 @@ function extractQualityInfo(name) {
 }
 
 function extractQualityDisplay(name, fallbackInfo = null) {
-    const combinedName = name + (fallbackInfo?.resolution || '');
-    
+    // Primary: Check for resolution patterns in filename
     for (const pattern of QUALITY_PATTERNS) {
-        if (pattern.pattern.test(combinedName)) {
+        if (pattern.pattern.test(name)) {
             return `${pattern.emoji} ${pattern.displayName}`;
         }
     }
     
-    for (const pattern of SOURCE_PATTERNS) {
-        if (pattern.pattern.test(combinedName)) {
-            return `${pattern.emoji} ${pattern.displayName}`;
-        }
-    }
-    
+    // Secondary: Check for structured resolution from PTT parsing
     const fallbackResolution = fallbackInfo?.resolution;
     if (fallbackResolution && fallbackResolution !== 'Unknown') {
-        if (fallbackResolution.includes('2160') || fallbackResolution.includes('4K')) return '💎 ' + fallbackResolution;
-        if (fallbackResolution.includes('1440')) return '💍 ' + fallbackResolution;
-        if (fallbackResolution.includes('1080')) return '⭐ ' + fallbackResolution;
-        if (fallbackResolution.includes('720')) return '✨ ' + fallbackResolution;
-        if (fallbackResolution.includes('576')) return '🔘 ' + fallbackResolution;
-        if (fallbackResolution.includes('480')) return '⚫ ' + fallbackResolution;
+        if (fallbackResolution.includes('2160') || fallbackResolution.includes('4K')) return '💎 4K UHD';
+        if (fallbackResolution.includes('1440')) return '💍 1440p';
+        if (fallbackResolution.includes('1080')) return '⭐ 1080p';
+        if (fallbackResolution.includes('720')) return '✨ 720p';
+        if (fallbackResolution.includes('576')) return '🔘 576p';
+        if (fallbackResolution.includes('480')) return '⚫ 480p';
         return '📺 ' + fallbackResolution;
     }
     
