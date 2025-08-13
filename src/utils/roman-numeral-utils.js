@@ -1,8 +1,19 @@
 import { logger } from './logger.js';
 
-const ROMAN_NUMERAL_MAP = {
-    'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000
-};
+// ============ UNIFIED ROMAN NUMERAL DEFINITIONS ============
+/**
+ * Single source of truth for Roman numeral values
+ * Eliminates redundant ROMAN_NUMERAL_MAP and romanMap definitions
+ */
+const ROMAN_VALUES = [
+    {symbol: 'M', value: 1000}, {symbol: 'CM', value: 900},
+    {symbol: 'D', value: 500},  {symbol: 'CD', value: 400},
+    {symbol: 'C', value: 100},  {symbol: 'XC', value: 90},
+    {symbol: 'L', value: 50},   {symbol: 'XL', value: 40},
+    {symbol: 'X', value: 10},   {symbol: 'IX', value: 9},
+    {symbol: 'V', value: 5},    {symbol: 'IV', value: 4},
+    {symbol: 'I', value: 1}
+];
 
 const ROMAN_SEASON_PATTERNS = [
     // Simple pattern: Look for Roman numerals in titles followed by episode indicators
@@ -11,61 +22,113 @@ const ROMAN_SEASON_PATTERNS = [
     /\b([IVX]{1,4})\s+episode\s*(\d{1,3})/i  // "III Episode 4", "V Episode 1", etc.
 ];
 
-export function isRomanNumeral(text) {
+// ============ UNIFIED VALIDATION ============
+/**
+ * Consolidated validation for Roman numerals
+ * @param {string} text - Text to validate
+ * @returns {boolean} True if valid Roman numeral
+ */
+export function isValidRomanNumeral(text) {
     if (!text || typeof text !== 'string') return false;
-    const upperText = text.toUpperCase().trim();
-    return /^[IVXLCDM]+$/.test(upperText) && romanToNumber(upperText) !== null;
+    
+    const normalized = text.toUpperCase().trim();
+    if (!normalized) return false;
+    
+    // Check if contains only valid Roman numeral characters
+    if (!/^[IVXLCDM]+$/.test(normalized)) return false;
+    
+    // Additional validation: proper Roman numeral pattern
+    const validPattern = /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;
+    return validPattern.test(normalized);
 }
 
-export const ROMAN_NUMERAL_PATTERN = /\b([IVXLCDM]+)\b/i;
-
-export const JOIN_ROMAN_NUMERALS_PATTERN = /\b([IVXLCDM]+)\s([IVXLCDM]+)\b/g;
-
-export function romanToNumber(roman) {
-    if (!roman || typeof roman !== 'string') return null;
+// ============ UNIFIED ROMAN NUMERAL CONVERSION ============
+/**
+ * Convert Roman numeral to number using dynamic algorithm
+ * Replaces both romanToNumber() and parseRomanNumeral() approaches
+ * @param {string} roman - Roman numeral to convert
+ * @returns {number|null} Converted number or null if invalid
+ */
+export function convertRomanToNumber(roman) {
+    if (!isValidRomanNumeral(roman)) return null;
     
     const upperRoman = roman.toUpperCase().trim();
-    if (!upperRoman) return null;
-    
-    if (!/^[IVXLCDM]+$/.test(upperRoman)) return null;
-    
     let result = 0;
-    let prevValue = 0;
+    let i = 0;
     
-    for (let i = upperRoman.length - 1; i >= 0; i--) {
-        const currentValue = ROMAN_NUMERAL_MAP[upperRoman[i]];
-        
-        if (!currentValue) return null; 
-        
-        if (currentValue < prevValue) {
-            result -= currentValue;
-        } else {
-            result += currentValue;
+    // Process from largest to smallest values
+    for (const {symbol, value} of ROMAN_VALUES) {
+        while (upperRoman.substring(i, i + symbol.length) === symbol) {
+            result += value;
+            i += symbol.length;
         }
-        
-        prevValue = currentValue;
     }
     
-    if (result < 1 || result > 50) return null;
+    // Ensure we processed the entire string
+    if (i !== upperRoman.length) return null;
     
     return result;
 }
 
 /**
- * Convert number to Roman numeral
- * @param {number} num - Number to convert
- * @returns {string} Roman numeral string
+ * Convert number to Roman numeral using dynamic algorithm
+ * @param {number} num - Number to convert (1-3999)
+ * @returns {string} Roman numeral string or empty string if invalid
  */
-export function parseRomanNumeral(num) {
-    const romanMap = {
-        1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V',
-        6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X',
-        11: 'XI', 12: 'XII', 13: 'XIII', 14: 'XIV', 15: 'XV',
-        16: 'XVI', 17: 'XVII', 18: 'XVIII', 19: 'XIX', 20: 'XX'
-    };
-    return romanMap[num] || '';
+export function convertNumberToRoman(num) {
+    if (!Number.isInteger(num) || num < 1 || num > 3999) return '';
+    
+    let result = '';
+    let remaining = num;
+    
+    // Process from largest to smallest values
+    for (const {symbol, value} of ROMAN_VALUES) {
+        const count = Math.floor(remaining / value);
+        if (count > 0) {
+            result += symbol.repeat(count);
+            remaining -= value * count;
+        }
+    }
+    
+    return result;
 }
 
+// ============ PATTERN CONSTANTS ============
+export const ROMAN_NUMERAL_PATTERN = /\b([IVXLCDM]+)\b/i;
+export const JOIN_ROMAN_NUMERALS_PATTERN = /\b([IVXLCDM]+)\s([IVXLCDM]+)\b/g;
+
+// ============ BACKWARD COMPATIBILITY EXPORTS ============
+/**
+ * Legacy function name - now uses unified validation
+ * @param {string} text - Text to validate
+ * @returns {boolean} True if valid Roman numeral
+ */
+export function isRomanNumeral(text) {
+    return isValidRomanNumeral(text);
+}
+
+/**
+ * Legacy function name - now uses unified conversion with season-specific range
+ * @param {string} roman - Roman numeral to convert
+ * @returns {number|null} Converted number (1-50 for season compatibility) or null if invalid
+ */
+export function romanToNumber(roman) {
+    const result = convertRomanToNumber(roman);
+    // Maintain original season range limitation for compatibility
+    if (result !== null && (result < 1 || result > 50)) return null;
+    return result;
+}
+
+/**
+ * Legacy function name - now uses unified number to roman conversion
+ * @param {number} num - Number to convert
+ * @returns {string} Roman numeral string or empty string if invalid
+ */
+export function parseRomanNumeral(num) {
+    return convertNumberToRoman(num);
+}
+
+// ============ ROMAN SEASON PARSING ============
 export function parseRomanSeasons(title) {
     if (!title || typeof title !== 'string') return null;
     
