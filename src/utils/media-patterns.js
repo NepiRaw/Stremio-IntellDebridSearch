@@ -1,12 +1,5 @@
 /**
- * Centralized patteconst CODEC_PATTERNS = [
-    { pattern: /\b(AV1)\b/i, codec: 'AV1', displayName: 'AV1', score: 12, emoji: '🎥' },
-    { pattern: /\b(x265)\b/i, codec: 'x265', displayName: 'x265', score: 11, emoji: '🎥' },
-    { pattern: /\b(HEVC|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '🎥' },
-    { pattern: /\b(AVC)\b/i, codec: 'AVC', displayName: 'AVC', score: 9, emoji: '🎥' },
-    { pattern: /\b(H\.?264)\b/i, codec: 'H.264', displayName: 'H.264', score: 8, emoji: '🎥' },
-    { pattern: /\b(x264|h264)\b/i, codec: 'x264', displayName: 'x264', score: 7, emoji: '🎥' }
-];r quality, codecs, sources, languages, etc.
+ * Centralized patterns for quality, codecs, sources, languages, etc.
  */
 
 const QUALITY_PATTERNS = [
@@ -185,6 +178,53 @@ const EPISODE_NAME_FILTERS = {
     urlPatterns: /www\.|\.com/
 };
 
+// Meaningful variant patterns for variant detection
+const MEANINGFUL_VARIANT_PATTERNS = [
+    /directors?\s*cut/i,
+    /director\s*cut/i,
+    /extended/i,
+    /uncut/i,
+    /unrated/i,
+    /remastered/i,
+    /special\s*edition/i,
+    /special/i,
+    /theatrical/i,
+    /ultimate/i,
+    /definitive/i,
+    /extra/i,
+    /bonus/i,
+    /ova/i,
+    /oav/i,
+    /nced/i,
+    /ncop/i,
+    /collectors?\s*edition/i,
+    /limited\s*edition/i,
+    /anniversary\s*edition/i,
+    /criterion\s*collection/i,
+    /fan\s*edit/i,
+    /alternate\s*ending/i,
+    /final\s*cut/i,
+    /ona/i,
+    /oad/i,
+    /tv\s*special/i,
+    /recap/i,
+    /complete\s*series/i,
+    /miniseries/i,
+    /webisode/i
+];
+
+// Episode and season detection patterns
+const EPISODE_SEASON_PATTERNS = [
+    /^s\d{1,2}$/i,              // S1, S01
+    /^season\s*\d{1,2}$/i,      // Season 1, Season 01
+    /^e\d{1,3}$/i,              // E1, E01, E001
+    /^episode\s*\d{1,3}$/i,     // Episode 1, Episode 01
+    /^s\d+e\d+$/i,              // S01E01, S1E1
+    /^\d+x\d+$/i,               // 1x01, 01x01
+    /^\d{1,3}$/,                // Just numbers: 1, 01, 001
+    /^[ivx]{1,5}$/i             // Roman numerals: I, II, III, IV, V
+];
+
 const FILE_EXTENSIONS = {
     video: ["3g2", "3gp", "avi", "flv", "mkv", "mk3d", "mov", "mp2", "mp4", "m4v", "mpe", "mpeg", "mpg", "mpv", "webm", "wmv", "ogm", "ts", "m2ts"],
     subtitle: ["aqt", "gsub", "jss", "sub", "ttxt", "pjs", "psb", "rt", "smi", "slt", "ssf", "srt", "ssa", "ass", "usf", "idx", "vtt"],
@@ -333,6 +373,59 @@ function extractLanguageFromFilename(filename) {
     return null;
 }
 
+function generateTechnicalPattern() {
+    const patterns = [];
+    
+    // Extract patterns from quality patterns
+    QUALITY_PATTERNS.forEach(p => {
+        const match = p.pattern.source.match(/\(([^)]+)\)/);
+        if (match) patterns.push(match[1]);
+    });
+    
+    // Extract patterns from source patterns  
+    SOURCE_PATTERNS.forEach(p => {
+        const match = p.pattern.source.match(/\(([^)]+)\)/);
+        if (match) patterns.push(match[1]);
+    });
+    
+    // Extract patterns from codec patterns
+    CODEC_PATTERNS.forEach(p => {
+        const match = p.pattern.source.match(/\(([^)]+)\)/);
+        if (match) patterns.push(match[1]);
+    });
+    
+    // Extract patterns from audio patterns
+    AUDIO_PATTERNS.forEach(p => {
+        const match = p.pattern.source.match(/\(([^)]+)\)/);
+        if (match) patterns.push(match[1]);
+    });
+    
+    // Add file extensions
+    Object.values(FILE_EXTENSIONS).flat().forEach(ext => {
+        patterns.push(ext);
+    });
+    
+    // Combine all patterns
+    const combinedPattern = patterns.join('|');
+    return new RegExp(`\\b(${combinedPattern})\\b`, 'gi');
+}
+
+function isTechnicalTerm(text) {
+    if (!text) return false;
+    const technicalPattern = generateTechnicalPattern();
+    return technicalPattern.test(text);
+}
+
+function isMeaningfulVariant(text) {
+    if (!text) return false;
+    return MEANINGFUL_VARIANT_PATTERNS.some(pattern => pattern.test(text));
+}
+
+function isEpisodeSeasonPattern(text) {
+    if (!text) return false;
+    return EPISODE_SEASON_PATTERNS.some(pattern => pattern.test(text.trim()));
+}
+
 export {
     QUALITY_PATTERNS,
     SOURCE_PATTERNS,
@@ -344,11 +437,17 @@ export {
     CONTENT_TYPE_PATTERNS,
     CLEANUP_PATTERNS,
     EPISODE_NAME_FILTERS,
+    MEANINGFUL_VARIANT_PATTERNS,
+    EPISODE_SEASON_PATTERNS,
     FILE_EXTENSIONS,
     extractQualityInfo,
     extractQualityDisplay,
     createLanguageMap,
     createCodecMap,
     detectContentType,
-    extractLanguageFromFilename
+    extractLanguageFromFilename,
+    generateTechnicalPattern,
+    isTechnicalTerm,
+    isMeaningfulVariant,
+    isEpisodeSeasonPattern
 };

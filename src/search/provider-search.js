@@ -267,11 +267,6 @@ function preFilterTorrentsParallel(allTorrents, keywords, startTime) {
     });
 }
 
-/**
- * Get provider configuration for debugging/logging
- * @param {string} provider - Provider name
- * @returns {Object} Provider configuration
- */
 export function getProviderConfig(provider) {
     return PROVIDER_CONFIGS[provider] || null;
 }

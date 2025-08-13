@@ -1,11 +1,25 @@
 /**
- * Variant Detection System - EXACT Working Implementation
- * Extracted from working addon without modifications
+ * Variant Detection System
+ * Can be disabled from environment variable
  */
 
-import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
+import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, isTechnicalTerm, isMeaningfulVariant, isEpisodeSeasonPattern } from './media-patterns.js';
 import { romanToNumber } from './roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
+
+function calculateSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    
+    const words1 = str1.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const words2 = str2.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    
+    if (words1.length === 0 || words2.length === 0) return 0;
+    
+    const commonWords = words1.filter(word => words2.includes(word));
+    const totalWords = Math.max(words1.length, words2.length);
+    
+    return commonWords.length / totalWords;
+}
 
 /**
  * Simple variant detection based on title comparison
@@ -31,12 +45,10 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
     const normalizedExtracted = normalizeTitle(extractedTitle);
     const normalizedSearch = normalizeTitle(searchTitle);
     
-    // If the extracted title is exactly the same as search title, it's not a variant
     if (normalizedExtracted === normalizedSearch) {
         return { isVariant: false, variantName: null };
     }
     
-    // Check if extracted title matches any alternative title exactly
     const allTitles = [normalizedSearch, ...alternativeTitles.map(alt => normalizeTitle(alt.title || alt.normalizedTitle || alt))];
     
     for (const altTitle of allTitles) {
@@ -45,36 +57,58 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
         }
     }
     
-    // Check if the extracted title contains the search title as a base
-    // Sort all base titles by length (longest first) to prefer more specific matches
+    const extractedWithoutEpisode = normalizedExtracted.replace(/\s+\d{1,3}$/, '').trim(); // Remove trailing episode numbers
+    
+    for (const altTitle of allTitles) {
+        if (extractedWithoutEpisode === altTitle) {
+            logger.debug(`[detectSimpleVariant] Extracted title (minus episode) "${extractedWithoutEpisode}" exactly matches alternative title "${altTitle}", not a variant`);
+            return { isVariant: false, variantName: null };
+        }
+        
+        const similarity = calculateSimilarity(extractedWithoutEpisode, altTitle);
+        if (similarity > 0.85) { // 85% similarity threshold
+            logger.debug(`[detectSimpleVariant] Extracted title "${extractedWithoutEpisode}" is ${Math.round(similarity * 100)}% similar to alternative title "${altTitle}", not a variant`);
+            return { isVariant: false, variantName: null };
+        }
+    }
+    
     const allBaseTitles = [normalizedSearch, ...alternativeTitles.map(alt => normalizeTitle(alt.title || alt.normalizedTitle || alt))]
-        .sort((a, b) => b.length - a.length); // Longest first
+        .sort((a, b) => b.length - a.length);
     
     for (const baseTitle of allBaseTitles) {
         if (normalizedExtracted.includes(baseTitle)) {
-            // Extract the variant part (what comes after the base title)
             let variantPart = normalizedExtracted
                 .replace(baseTitle, '')
                 .trim()
                 .replace(/^[-:\s]+/, '') // Remove leading separators
                 .replace(/[-:\s]+$/, ''); // Remove trailing separators
             
-            if (variantPart && variantPart.length > 2) {
-                if (episodeTitle) { // Check if the variant part matches a detected episode title (exclude episode names from being variants)
-                    const normalizedEpisodeTitle = normalizeTitle(episodeTitle);
+                if (variantPart && variantPart.length > 2) {
                     const normalizedVariantPart = normalizeTitle(variantPart);
+                    logger.debug(`[detectSimpleVariant] Checking variant part "${normalizedVariantPart}" against ${alternativeTitles.length} alternative titles`);
                     
-                    if (normalizedVariantPart === normalizedEpisodeTitle || 
-                        normalizedVariantPart.includes(normalizedEpisodeTitle) ||
-                        normalizedEpisodeTitle.includes(normalizedVariantPart)) {
-                        return { isVariant: false, variantName: null };
+                    for (const altTitle of alternativeTitles) {
+                        const normalizedAltTitle = normalizeTitle(altTitle.title || altTitle.normalizedTitle || altTitle);
+                        logger.debug(`[detectSimpleVariant] Comparing variant "${normalizedVariantPart}" with alt title "${normalizedAltTitle}"`);
+                        
+                        if (normalizedAltTitle.includes(normalizedVariantPart) || normalizedVariantPart.includes(normalizedAltTitle)) {
+                            logger.debug(`[detectSimpleVariant] Variant part "${variantPart}" found in alternative title "${normalizedAltTitle}", not a variant`);
+                            return { isVariant: false, variantName: null };
+                        }
                     }
-                }
-                
-                // Clean up variant part using media patterns to remove technical terms
+                    
+                    if (episodeTitle) {
+                        const normalizedEpisodeTitle = normalizeTitle(episodeTitle);
+                        const normalizedVariantPartForEpisode = normalizeTitle(variantPart);
+                        
+                        if (normalizedVariantPartForEpisode === normalizedEpisodeTitle || 
+                            normalizedVariantPartForEpisode.includes(normalizedEpisodeTitle) ||
+                            normalizedEpisodeTitle.includes(normalizedVariantPartForEpisode)) {
+                            return { isVariant: false, variantName: null };
+                        }
+                    }
                 variantPart = cleanupVariantName(variantPart);
                 
-                // Check if variant part is meaningful after cleanup
                 const trimmedVariant = variantPart.trim();
                 if (trimmedVariant && trimmedVariant.length > 1 && !/^\s*$/.test(trimmedVariant)) {
                     logger.debug(`[detectSimpleVariant] Found variant: "${extractedTitle}" -> base: "${baseTitle}" -> variant part: "${variantPart}"`);
@@ -94,76 +128,45 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
     return { isVariant: false, variantName: null };
 }
 
-/**
- * Clean up variant name by removing technical terms using media patterns only
- * BUT preserve meaningful variant descriptors like "Directors Cut", "Extended", "Uncut", etc.
- * AND exclude episode/season indicators that should not be treated as variants
- * @param {string} variantPart - The variant part to clean up
- * @returns {string} - Cleaned variant name
- */
 export function cleanupVariantName(variantPart) {
     let cleaned = variantPart;
     
-    // First, check if this is an episode/season indicator that should NOT be a variant
     const lowerVariant = cleaned.toLowerCase().trim();
     
-    // Episode number patterns (absolute episodes like 029, 001, etc.)
     if (/^\d{1,3}$/.test(lowerVariant)) {
         logger.debug(`[cleanupVariantName] Detected episode number: "${variantPart}", ignoring as variant`);
-        return ''; // Return empty to exclude from variant detection
+        return ''; 
     }
     
-    // Roman numeral season indicators (I, II, III, IV, V, etc.)
     if (/^[ivx]{1,5}$/.test(lowerVariant)) {
         const romanValue = romanToNumber(lowerVariant.toUpperCase());
         if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
-            return ''; // Return empty to exclude from variant detection
+            return '';
         }
     }
     
-    // Standard season patterns (S01, S1, Season 1, etc.)
-    if (/^s\d{1,2}$/.test(lowerVariant) || /^season\s*\d{1,2}$/.test(lowerVariant)) {
-        return ''; // Return empty to exclude from variant detection
-    }
-    
-    // Episode patterns (E01, E1, Episode 1, etc.)
-    if (/^e\d{1,3}$/.test(lowerVariant) || /^episode\s*\d{1,3}$/.test(lowerVariant)) {
-        return ''; // Return empty to exclude from variant detection
-    }
-    
-    // Combined season/episode patterns (S01E01, 1x01, etc.)
-    if (/^s\d+e\d+$/.test(lowerVariant) || /^\d+x\d+$/.test(lowerVariant)) {
-        return ''; // Return empty to exclude from variant detection
+    // Use centralized episode/season pattern detection
+    if (isEpisodeSeasonPattern(lowerVariant)) {
+        return '';
     }
     
     // Now proceed with normal variant cleanup for legitimate variants
-    // First, preserve meaningful variant terms that we DON'T want to remove
-    const meaningfulVariants = [
-        'directors cut', 'director cut', 'extended', 'uncut', 'unrated',
-        'remastered', 'special', 'ova', 'oav', 'special edition',
-        'theatrical','ultimate', 'definitive', 'extra', 'bonus', 'NCED', 'NCOP'
-    ];
-    
-    // Check if the variant contains any meaningful descriptors
-    const hasMeaningfulContent = meaningfulVariants.some(term => 
-        lowerVariant.includes(term)
-    );
+    // Check if the variant contains any meaningful descriptors using centralized patterns
+    const hasMeaningfulContent = isMeaningfulVariant(lowerVariant);
     
     // If it contains meaningful variant content, do minimal cleanup
     if (hasMeaningfulContent) {
-        // Only remove clearly technical/file-related terms, preserve variant descriptors
-        cleaned = cleaned
-            .replace(/\b(mkv|mp4|avi|flac|aac|x264|x265|hevc|1080p|720p|480p)\b/gi, '')
-            .replace(/\b(webrip|web-dl|bdrip|bluray|hdtv|dvdrip)\b/gi, '')
-            .replace(/\b\d{4}x\d{4}\b/g, '') // Remove resolution patterns
+        // Use centralized technical term detection instead of hardcoded patterns
+        const words = cleaned.split(/\s+/);
+        const cleanedWords = words.filter(word => !isTechnicalTerm(word));
+        cleaned = cleanedWords.join(' ')
             .replace(/\[[^\]]*\]/g, '') // Remove brackets content
             .replace(/\([^)]*\)/g, '') // Remove parentheses content
             .replace(/[\._\-]+/g, ' ') // Replace separators with spaces
             .replace(/\s+/g, ' ') // Multiple spaces to single space
             .trim();
     } else {
-        // For non-meaningful content, apply full cleanup
-        // Apply all technical patterns to remove technical terms
+        // For non-meaningful content, apply comprehensive cleanup using centralized patterns
         for (const pattern of TECHNICAL_PATTERNS) {
             cleaned = cleaned.replace(pattern, '');
         }
@@ -173,7 +176,7 @@ export function cleanupVariantName(variantPart) {
             cleaned = cleaned.replace(techPattern.pattern, '');
         }
         
-        // Remove file extensions
+        // Remove file extensions using centralized patterns
         for (const ext of Object.values(FILE_EXTENSIONS).flat()) {
             const extPattern = new RegExp(`\\b${ext}\\b`, 'gi');
             cleaned = cleaned.replace(extPattern, '');
@@ -193,7 +196,7 @@ export function cleanupVariantName(variantPart) {
             .replace(CLEANUP_PATTERNS.trailingDash, '') // Remove trailing dashes
             .trim(); // Remove leading/trailing whitespace
             
-        // ADDITIONAL CLEANUP for variant detection
+        // SIMPLIFIED cleanup for variant detection (keeping essential partial term removal)
         cleaned = cleaned
             .replace(/\b\d{3,4}x\d{3,4}\b/g, '') // Remove resolution patterns like "1920x1080"
             .replace(/\b\d{1,2}\b/g, '') // Remove episode numbers like "02", "1", "12"
