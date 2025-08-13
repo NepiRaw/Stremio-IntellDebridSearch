@@ -1,6 +1,6 @@
 ﻿import { TorboxApi } from '@torbox/torbox-api'
 import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
-import PTT from '../utils/parse-torrent-title.js'
+import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { logger } from '../utils/logger.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { BaseProvider } from './BaseProvider.js'
@@ -95,7 +95,7 @@ class TorBoxProvider extends BaseProvider {
                     url: url,
                     size: file.size,
                     created: new Date(item.created_at),
-                    info: PTT.parse(file.short_name)
+                    info: parseUnified(file.short_name)
                 }
         })
 
@@ -106,7 +106,7 @@ class TorBoxProvider extends BaseProvider {
             type: 'other',
             fileType: FILE_TYPES.TORRENTS,
             hash: item.hash,
-            info: PTT.parse(item.name),
+            info: parseUnified(item.name),
             size: item.size,
             created: new Date(item.created_at),
             videos: videos || []
@@ -121,7 +121,7 @@ class TorBoxProvider extends BaseProvider {
             name: item.filename,
             type: 'other',
             fileType: FILE_TYPES.DOWNLOADS,
-            info: PTT.parse(item.name),
+            info: parseUnified(item.name),
             size: item.size,
             created: new Date(item.created_at),
         }

@@ -1,7 +1,7 @@
 import RealDebridClient from 'real-debrid-api';
 import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js';
 import BaseProvider from './BaseProvider.js';
-import PTT from '../utils/parse-torrent-title.js';
+import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { encode } from 'urlencode';
 
 class RealDebridProvider extends BaseProvider {
@@ -193,7 +193,7 @@ class RealDebridProvider extends BaseProvider {
     }
 
     parseTitle(filename) {
-        return PTT.parse(filename);
+        return parseUnified(filename);
     }
 }
 

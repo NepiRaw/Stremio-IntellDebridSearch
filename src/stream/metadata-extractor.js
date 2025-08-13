@@ -1,9 +1,8 @@
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
-import PTT from '../utils/parse-torrent-title.js';
+import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { logger } from '../utils/logger.js';
 import { FILE_EXTENSIONS, detectContentType as detectContentTypeUtil, extractLanguageFromFilename } from '../utils/media-patterns.js';
 import { extractEpisodeTitleFromFilename } from '../utils/episode-patterns.js';
-import { parseUnified } from '../utils/unified-torrent-parser.js';
 
 /**
  * Metadata extractor module - extracts metadata (title, season, quality) from filenames
@@ -59,7 +58,7 @@ export function parseVideoInfoEnhanced(filename) {
         };
     }
     
-    const basicInfo = PTT.parse(filename);
+    const basicInfo = parseUnified(filename);
     
     if ((basicInfo.season === null || basicInfo.season === undefined) && basicInfo.episode) {
         basicInfo.season = 1;

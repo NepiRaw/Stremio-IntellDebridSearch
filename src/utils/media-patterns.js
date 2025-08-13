@@ -366,6 +366,29 @@ function isEpisodeSeasonPattern(text) {
     return EPISODE_SEASON_PATTERNS.some(pattern => pattern.test(text.trim()));
 }
 
+/**
+ * Check if filename has obvious episode indicators
+ * @param {string} filename - Filename to check
+ * @returns {boolean} True if obvious episode patterns found
+ */
+function hasObviousEpisodeIndicators(filename) {
+    if (!filename) return false;
+    
+    // Check for explicit episode patterns
+    for (const pattern of CONTENT_TYPE_PATTERNS.series) {
+        if (pattern.test(filename)) {
+            return true;
+        }
+    }
+    
+    // Check for number followed by release info (like "028 MULTI")
+    if (/\d{2,4}\s*(?:multi|bluray)/i.test(filename)) {
+        return true;
+    }
+    
+    return false;
+}
+
 export {
     QUALITY_PATTERNS,
     SOURCE_PATTERNS,
@@ -385,5 +408,6 @@ export {
     extractLanguageFromFilename,
     isTechnicalTerm,
     isMeaningfulVariant,
-    isEpisodeSeasonPattern
+    isEpisodeSeasonPattern,
+    hasObviousEpisodeIndicators
 };

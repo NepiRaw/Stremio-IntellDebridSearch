@@ -1,6 +1,6 @@
 import DebridLinkClient from 'debrid-link-api'
 import { isVideo } from '../stream/metadata-extractor.js'
-import PTT from '../utils/parse-torrent-title.js'
+import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { encode } from 'urlencode'
 import { logger } from '../utils/logger.js'
@@ -98,7 +98,7 @@ class DebridLinkProvider extends BaseProvider {
             id: item.id.split('-')[0],
             name: item.name,
             type: 'other',
-            info: PTT.parse(item.name),
+            info: parseUnified(item.name),
             size: item.size,
             created: new Date(item.created * 1000),
         }
@@ -115,7 +115,7 @@ class DebridLinkProvider extends BaseProvider {
                     url: url,
                     size: file.size,
                     created: new Date(item.created * 1000),
-                    info: PTT.parse(file.name)
+                    info: parseUnified(file.name)
                 }
             })
 

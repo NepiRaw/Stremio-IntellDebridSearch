@@ -1,17 +1,20 @@
 /**
  * Unified Torrent Parser
  * Combines PTT (parse-torrent-title) with regex fallback for maximum accuracy.
+ * Centralized parsing engine for all torrent/video filename parsing needs.
  */
 
 import PTT from 'parse-torrent-title';
 import { logger } from './logger.js';
-import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS } from './media-patterns.js';
+import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, hasObviousEpisodeIndicators } from './media-patterns.js';
 import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
 import { parseRomanSeasons } from './roman-numeral-utils.js';
 
-// Cache to avoid re-parsing the same torrent names
+// ============ CACHE MANAGEMENT ============
 const parseCache = new Map();
 const CACHE_MAX_SIZE = 1000;
+
+// ============ CORE PARSING ENGINE ============
 
 /**
  * Unified torrent parsing function that combines PTT with regex fallback
@@ -20,58 +23,65 @@ const CACHE_MAX_SIZE = 1000;
  * @returns {Object} Comprehensive parsing result
  */
 export function parseUnified(filename, options = {}) {
-    // Handle null/undefined inputs
     if (!filename || typeof filename !== 'string') {
         logger.debug('[unified-parser] Invalid filename provided:', filename);
-        return {
-            title: null,
-            season: null,
-            episode: null,
-            absoluteEpisode: null,
-            resolution: null,
-            source: null,
-            codec: null,
-            audio: null,
-            language: null,
-            group: null,
-            year: null,
-            extension: null,
-            container: null,
-            technicalDetails: {},
-            variantHints: [],
-            qualityScore: 0
-        };
+        return createEmptyParseResult();
     }
     
     const cacheKey = `${filename}-${JSON.stringify(options)}`;
     
-    // Check cache first
     if (parseCache.has(cacheKey)) {
         return parseCache.get(cacheKey);
     }
     
-    // Clean the filename first (remove domain prefixes, etc.)
     const cleanedFilename = cleanFilename(filename);
     
-    // Primary parsing with PTT
     const pttResult = PTT.parse(cleanedFilename);
     
-    // Apply regex fallbacks for known edge cases
     const enhancedResult = applyRegexFallbacks(cleanedFilename, pttResult);
     
-    // Add additional metadata extraction
     const comprehensiveResult = extractAdditionalMetadata(cleanedFilename, enhancedResult);
     
-    // Cache the result
-    if (parseCache.size >= CACHE_MAX_SIZE) {
-        // FIFO cache cleanup
-        const firstKey = parseCache.keys().next().value;
-        parseCache.delete(firstKey);
-    }
+    maintainCache();
     parseCache.set(cacheKey, comprehensiveResult);
     
     return comprehensiveResult;
 }
+
+/**
+ * Create empty parse result structure
+ * @returns {Object} Empty parsing result
+ */
+function createEmptyParseResult() {
+    return {
+        title: null,
+        season: null,
+        episode: null,
+        absoluteEpisode: null,
+        resolution: null,
+        source: null,
+        codec: null,
+        audio: null,
+        language: null,
+        group: null,
+        year: null,
+        extension: null,
+        container: null,
+        technicalDetails: {}
+    };
+}
+
+/**
+ * Maintain cache size within limits
+ */
+function maintainCache() {
+    if (parseCache.size >= CACHE_MAX_SIZE) {
+        const firstKey = parseCache.keys().next().value;
+        parseCache.delete(firstKey);
+    }
+}
+
+// ============ FILENAME CLEANING & PREPROCESSING ============
 
 /**
  * Clean filename by removing domain prefixes and source tags
@@ -88,6 +98,8 @@ function cleanFilename(filename) {
     return cleaned;
 }
 
+// ============ REGEX FALLBACK HANDLERS ============
+
 /**
  * Apply regex fallbacks for cases where PTT fails or gives incorrect results
  * @param {string} filename - Cleaned filename
@@ -95,7 +107,7 @@ function cleanFilename(filename) {
  * @returns {Object} Enhanced result with fallback corrections
  */
 function applyRegexFallbacks(filename, pttResult) {
-    const result = { ...pttResult };
+    let result = { ...pttResult };
     
     // Extract absolute episode FIRST to determine if this is absolute episode content
     result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
@@ -118,6 +130,35 @@ function applyRegexFallbacks(filename, pttResult) {
         result.episode = episodeInfo;
     }
     
+    // Handle absolute episode vs season/episode priority
+    result = handleAbsoluteEpisodePriority(result, episodeInfo, filename);
+    
+    // Only extract season if we don't have an absolute episode
+    if (!result.absoluteEpisode && !result.season) {
+        result.season = extractSeasonWithFallback(filename, pttResult);
+    }
+    
+    // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
+    result = applyRomanNumeralFallback(result, filename);
+    
+    // Ensure season is explicitly null when not set (for consistency)
+    if (result.season === undefined) {
+        result.season = null;
+    }
+    
+    result.title = cleanTitle(filename, pttResult);
+    
+    return result;
+}
+
+/**
+ * Handle priority between absolute episode and season/episode patterns
+ * @param {Object} result - Current parsing result
+ * @param {Object|number} episodeInfo - Episode info from episode parsing
+ * @param {string} filename - Original filename
+ * @returns {Object} Updated result
+ */
+function handleAbsoluteEpisodePriority(result, episodeInfo, filename) {
     // If we have an absolute episode, use it ONLY if we don't have clear season/episode patterns
     // When we have explicit season/episode patterns (like S01E01, S00E33), we should NEVER override them with absolute episode numbers as this leads to false matches
     if (result.absoluteEpisode && result.episode !== result.absoluteEpisode) {
@@ -135,12 +176,16 @@ function applyRegexFallbacks(filename, pttResult) {
         }
     }
     
-    // Only extract season if we don't have an absolute episode
-    // Absolute episodes are season-independent and should not default to season=1
-    if (!result.absoluteEpisode && !result.season) {
-        result.season = extractSeasonWithFallback(filename, pttResult);
-    }
-    
+    return result;
+}
+
+/**
+ * Apply Roman numeral season parsing as fallback
+ * @param {Object} result - Current parsing result
+ * @param {string} filename - Original filename
+ * @returns {Object} Updated result
+ */
+function applyRomanNumeralFallback(result, filename) {
     // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
     // This handles anime titles like "DanMachi III - 04.mkv" where III=season 3, 04=episode 4
     const romanSeasonInfo = parseRomanSeasons(filename);
@@ -163,20 +208,13 @@ function applyRegexFallbacks(filename, pttResult) {
                 result.episode = romanSeasonInfo.episode;
             }
             
-            // When we use Roman numeral parsing, this is NOT an absolute episode
+            // When we use Roman numeral parsing, this can't be an absolute episode
             // It's season-based numbering with Roman season indicators
             result.absoluteEpisode = null;
         } else {
             logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanSeasonInfo.season},${romanSeasonInfo.episode}), absoluteEpisode=${result.absoluteEpisode}`);
         }
     }
-    
-    // Ensure season is explicitly null when not set (for consistency)
-    if (result.season === undefined) {
-        result.season = null;
-    }
-    
-    result.title = cleanTitle(filename, pttResult);
     
     return result;
 }
@@ -194,6 +232,8 @@ function cleanTitle(filename, pttResult) {
     
     return title;
 }
+
+// ============ EPISODE & SEASON EXTRACTION ============
 
 /**
  * Extract episode number with comprehensive fallback patterns
@@ -213,38 +253,7 @@ function extractEpisodeWithFallback(filename, pttResult) {
         return pttResult.episode;
     }
     
-    // Return PTT result as final fallback
     return pttResult.episode || null;
-}
-
-/**
- * Check if a number is likely a year rather than an episode
- * @param {number} num - Number to check
- * @returns {boolean} True if likely a year
- */
-function isLikelyYear(num) {
-    return num >= 1900 && num <= 2030;
-}
-
-/**
- * Check if PTT episode result seems suspicious
- * @param {string} filename - Original filename
- * @param {number} episode - PTT episode result
- * @returns {boolean} True if suspicious
- */
-function isEpisodeSuspicious(filename, episode) {
-    // Check for specific known problematic patterns
-    if (filename.includes('- 06') && episode !== 6) return true;
-    if (filename.includes('- 030') && episode !== 30) return true;
-    
-    // Check if episode seems too low for obvious high episode numbers
-    const obviousEpisodeMatch = filename.match(/- (\d{2,3})\s/);
-    if (obviousEpisodeMatch) {
-        const obviousEpisode = parseInt(obviousEpisodeMatch[1]);
-        if (obviousEpisode > 50 && episode < 10) return true;
-    }
-    
-    return false;
 }
 
 /**
@@ -260,7 +269,6 @@ function extractSeasonWithFallback(filename, pttResult) {
         return season;
     }
     
-    // PTT is generally good at season detection
     if (pttResult.season) {
         return pttResult.season;
     }
@@ -275,8 +283,6 @@ function extractSeasonWithFallback(filename, pttResult) {
  * @returns {number|null} Absolute episode number
  */
 function extractAbsoluteEpisode(filename, pttResult) {
-    // Check if there's Roman numeral season context first
-    // If there are Roman numerals, this is likely season-based, not absolute
     const romanSeasonInfo = parseRomanSeasons(filename);
     if (romanSeasonInfo) {
         logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanSeasonInfo.roman}`);
@@ -289,10 +295,8 @@ function extractAbsoluteEpisode(filename, pttResult) {
     // Skip absolute episode detection for movies (if year is present AND no clear episode patterns)
     if (pttResult.year && filename.includes(pttResult.year.toString())) {
         // Check if there are obvious episode indicators that suggest this is NOT a movie
-        const hasObviousEpisodePatterns = (
-            /(?:episode|ep|s\d+e\d+)/i.test(filename) ||  // Explicit episode patterns
-            /\d{2,4}\s*(?:multi|bluray)/i.test(filename)  // Number followed by release info (like "028 MULTI")
-        );
+        // Use centralized episode detection from media-patterns.js
+        const hasObviousEpisodePatterns = hasObviousEpisodeIndicators(filename);
         
         // If no obvious episode patterns AND we have a year, likely a movie
         if (!hasObviousEpisodePatterns) {
@@ -309,6 +313,25 @@ function extractAbsoluteEpisode(filename, pttResult) {
 }
 
 /**
+ * Check if PTT episode result seems suspicious
+ * @param {string} filename - Original filename
+ * @param {number} episode - PTT episode result
+ * @returns {boolean} True if suspicious
+ */
+function isEpisodeSuspicious(filename, episode) {    
+    // Check if episode seems too low for obvious high episode numbers
+    const obviousEpisodeMatch = filename.match(/- (\d{2,3})\s/);
+    if (obviousEpisodeMatch) {
+        const obviousEpisode = parseInt(obviousEpisodeMatch[1]);
+        if (obviousEpisode > 50 && episode < 10) return true;
+    }
+    
+    return false;
+}
+
+// ============ METADATA EXTRACTION ============
+
+/**
  * Extract additional metadata not provided by PTT
  * @param {string} filename - Filename to parse
  * @param {Object} baseResult - Base parsing result
@@ -323,11 +346,7 @@ function extractAdditionalMetadata(filename, baseResult) {
     // Enhanced language detection
     result.languages = extractLanguageInfo(filename, baseResult);
     
-    // Variant detection hints
-    result.variantHints = extractVariantHints(filename, baseResult);
-    
-    // Quality scoring
-    result.qualityScore = calculateQualityScore(result);
+    return result;
     
     return result;
 }
@@ -372,8 +391,18 @@ function extractTechnicalDetails(filename, baseResult) {
  * @returns {string|null} Bit depth
  */
 function extractBitDepth(filename) {
-    const bitDepthMatch = filename.match(/(\d+)bit/i);
-    return bitDepthMatch ? `${bitDepthMatch[1]}bit` : null;
+    // Use centralized bit depth patterns from media-patterns.js
+    const bitDepthPatterns = COMPREHENSIVE_TECH_PATTERNS.filter(pattern => 
+        pattern.display.includes('bit')
+    );
+    
+    for (const pattern of bitDepthPatterns) {
+        if (pattern.pattern.test(filename)) {
+            // Extract just the bit depth from display (remove emoji)
+            return pattern.display.replace(/^[^\w]*\s*/, '');
+        }
+    }
+    return null;
 }
 
 /**
@@ -382,10 +411,15 @@ function extractBitDepth(filename) {
  * @returns {string|null} HDR type
  */
 function extractHDRInfo(filename) {
-    const hdrPatterns = ['HDR10', 'HDR', 'DolbyVision', 'DV'];
-    for (const pattern of hdrPatterns) {
-        if (filename.toLowerCase().includes(pattern.toLowerCase())) {
-            return pattern;
+    // Use centralized HDR patterns from media-patterns.js
+    const hdrTechPatterns = COMPREHENSIVE_TECH_PATTERNS.filter(pattern => 
+        pattern.display.includes('HDR') || pattern.display.includes('Dolby Vision')
+    );
+    
+    for (const techPattern of hdrTechPatterns) {
+        if (techPattern.pattern.test(filename)) {
+            // Extract just the HDR type from display (remove emoji)
+            return techPattern.display.replace(/^[^\w]*\s*/, '');
         }
     }
     return null;
@@ -397,6 +431,18 @@ function extractHDRInfo(filename) {
  * @returns {string|null} Audio channels
  */
 function extractAudioChannels(filename) {
+    // First try to extract specific channel configurations from centralized patterns
+    const channelPatterns = AUDIO_PATTERNS.filter(pattern => 
+        pattern.audio && (pattern.audio.includes('.') || pattern.audio === '5.1' || pattern.audio === '7.1' || pattern.audio === '2.0')
+    );
+    
+    for (const pattern of channelPatterns) {
+        if (pattern.pattern.test(filename)) {
+            return pattern.audio;
+        }
+    }
+    
+    // Fallback to regex for DDP/DD channel detection
     const audioMatch = filename.match(/DDP?(\d\.\d)|(\d\.\d)/);
     return audioMatch ? (audioMatch[1] || audioMatch[2]) : null;
 }
@@ -407,8 +453,18 @@ function extractAudioChannels(filename) {
  * @returns {string|null} Frame rate
  */
 function extractFrameRate(filename) {
-    const fpsMatch = filename.match(/(\d+)fps/i);
-    return fpsMatch ? `${fpsMatch[1]}fps` : null;
+    // Use centralized frame rate patterns from media-patterns.js
+    const fpsPatterns = COMPREHENSIVE_TECH_PATTERNS.filter(pattern => 
+        pattern.display.includes('fps')
+    );
+    
+    for (const pattern of fpsPatterns) {
+        if (pattern.pattern.test(filename)) {
+            // Extract just the fps from display (remove emoji)
+            return pattern.display.replace(/^[^\w]*\s*/, '');
+        }
+    }
+    return null;
 }
 
 /**
@@ -420,232 +476,77 @@ function extractFrameRate(filename) {
 function extractLanguageInfo(filename, baseResult) {
     const languages = baseResult.languages || [];
     
-    // Additional language patterns
-    const langPatterns = [
-        { pattern: /MULTI/i, lang: 'multi audio' },
-        { pattern: /FRENCH/i, lang: 'french' },
-        { pattern: /SUBFRENCH/i, lang: 'french subs' },
-        { pattern: /JAP/i, lang: 'japanese' },
-        { pattern: /ENG/i, lang: 'english' },
-    ];
-    
-    for (const { pattern, lang } of langPatterns) {
-        if (pattern.test(filename) && !languages.includes(lang)) {
-            languages.push(lang);
+    // Use centralized language patterns from media-patterns.js
+    for (const langPattern of LANGUAGE_PATTERNS) {
+        if (langPattern.pattern.test(filename)) {
+            const langName = langPattern.displayName.toLowerCase();
+            if (!languages.includes(langName)) {
+                languages.push(langName);
+            }
         }
     }
     
     return languages;
 }
 
-/**
- * Extract variant detection hints
- * @param {string} filename - Filename
- * @param {Object} baseResult - Base parsing result
- * @returns {Array} Variant hints
- */
-function extractVariantHints(filename, baseResult) {
-    const hints = [];
-    
-    // Release group as variant hint
-    if (baseResult.group) {
-        hints.push({ type: 'group', value: baseResult.group });
-    }
-    
-    // Source quality as variant hint
-    if (baseResult.source) {
-        hints.push({ type: 'source', value: baseResult.source });
-    }
-    
-    // Special editions
-    const editionPatterns = [
-        'Directors Cut', 'Extended', 'Uncut', 'Special', 'OVA', 'Movie', 'OAV','extra'
-    ];
-    
-    for (const edition of editionPatterns) {
-        if (filename.toLowerCase().includes(edition.toLowerCase())) {
-            hints.push({ type: 'edition', value: edition });
-        }
-    }
-    
-    return hints;
-}
+// ============ SIMPLIFIED TECHNICAL DETAILS ============
 
 /**
- * Calculate quality score based on technical details
- * @param {Object} result - Parsing result
- * @returns {number} Quality score (0-100)
+ * Simplified technical details extraction using centralized patterns
+ * This replaces the complex extractTechnicalDetailsLegacy function with a cleaner approach
+ * @param {string} filename - Filename to extract from
+ * @returns {string} Technical details string
  */
-function calculateQualityScore(result) {
-    let score = 0;
-    
-    // Resolution scoring
-    if (result.resolution) {
-        if (result.resolution.includes('2160p') || result.resolution.includes('4K')) score += 40;
-        else if (result.resolution.includes('1080p')) score += 30;
-        else if (result.resolution.includes('720p')) score += 20;
-        else score += 10;
-    }
-    
-    // Source scoring
-    if (result.source) {
-        if (result.source.includes('BluRay')) score += 25;
-        else if (result.source.includes('WEB-DL')) score += 20;
-        else if (result.source.includes('WEBRip')) score += 15;
-        else score += 10;
-    }
-    
-    // Codec scoring
-    if (result.codec) {
-        if (result.codec.includes('hevc') || result.codec.includes('h265')) score += 15;
-        else if (result.codec.includes('h264')) score += 10;
-        else score += 5;
-    }
-    
-    // Technical enhancements
-    if (result.technicalDetails?.hdr) score += 10;
-    if (result.technicalDetails?.bitDepth === '10bit') score += 5;
-    
-    return Math.min(score, 100);
-}
-
-/**
- * Get parser statistics
- * @returns {Object} Parser statistics
- */
-export function getParserStats() {
-    return {
-        cacheSize: parseCache.size,
-        cacheMaxSize: CACHE_MAX_SIZE,
-        cacheHitRate: parseCache.size > 0 ? '~calculated on usage' : 'No cache hits yet'
-    };
-}
-
-/**
- * Clear parser cache
- */
-export function clearParserCache() {
-    parseCache.clear();
-    logger.debug('[unified-parser] Cache cleared');
-}
-
-/**
- * Legacy compatibility exports - these replace the redundant functions
- */
-
-// Replace extractTechnicalDetails from stream-builder.js
 export function extractTechnicalDetailsLegacy(filename) {
     if (!filename) return '';
     
-    // Use the original extraction logic that was working
-    const languageDetails = [];
-    const sourceDetails = [];
-    const codecDetails = [];
-    const audioDetails = [];
-    const resolutionDetails = [];
-    const techDetails = [];
+    const details = [];
     
-    // 1. Extract Languages using centralized patterns
+    // Use centralized pattern matching from media-patterns.js
+    // 1. Languages
     for (const pattern of LANGUAGE_PATTERNS) {
-        if (pattern.pattern.test(filename) && !languageDetails.some(detail => detail.includes(pattern.displayName))) {
-            languageDetails.push(`${pattern.emoji} ${pattern.displayName}`);
+        if (pattern.pattern.test(filename)) {
+            details.push(`${pattern.emoji} ${pattern.displayName}`);
         }
     }
     
-    // 2. Extract Source (BluRay, WEB-DL, etc.) using centralized patterns
+    // 2. Source (BluRay, WEB-DL, etc.)
     for (const pattern of SOURCE_PATTERNS) {
         if (pattern.pattern.test(filename)) {
-            sourceDetails.push(`${pattern.emoji} ${pattern.displayName}`);
+            details.push(`${pattern.emoji} ${pattern.displayName}`);
             break; // Only match first source
         }
     }
     
-    // 3. Extract Video Codecs using smart pattern matching
+    // 3. Video Codecs
     for (const pattern of CODEC_PATTERNS) {
         if (pattern.pattern.test(filename)) {
-            // Try to identify which specific term was matched
-            const match = filename.match(pattern.pattern);
-            if (match && match[1]) {
-                const matchedTerm = match[1].toUpperCase();
-                
-                // Use specific display name based on matched term
-                let displayName = pattern.displayName;
-                if (matchedTerm === 'AVC') displayName = 'AVC';
-                else if (matchedTerm.includes('H.264') || matchedTerm.includes('H264')) displayName = 'H.264';
-                else if (matchedTerm === 'X264' || matchedTerm === 'H264') displayName = 'x264';
-                else if (matchedTerm === 'X265') displayName = 'x265';
-                else if (matchedTerm === 'HEVC' || matchedTerm.includes('265')) displayName = 'HEVC';
-                else if (matchedTerm === 'AV1') displayName = 'AV1';
-                
-                codecDetails.push(`🎥 ${displayName}`);
-            } else {
-                codecDetails.push(`🎥 ${pattern.displayName}`);
-            }
+            details.push(`🎥 ${pattern.displayName}`);
             break; // Only match first codec
         }
     }
     
-    // 4. Skip Resolution/Quality - it's already in the name field
-    // Resolution is handled separately and should NOT be in technical details
-    
-    // 5. Extract Audio information with channels
+    // 4. Audio
     const foundAudio = new Set();
-    const audioMatches = [];
-    
-    // First pass: collect all matching audio patterns
     for (const pattern of AUDIO_PATTERNS) {
-        if (pattern.pattern.test(filename)) {
-            audioMatches.push(pattern);
-        }
-    }
-    
-    // Second pass: filter out generic patterns if specific ones exist
-    for (const pattern of audioMatches) {
-        const isGeneric = audioMatches.some(otherPattern => {
-            if (otherPattern === pattern) return false;
-            
-            const currentAudio = pattern.audio.toLowerCase().replace(/[^\w]/g, '');
-            const otherAudio = otherPattern.audio.toLowerCase().replace(/[^\w]/g, '');
-            
-            return otherAudio.includes(currentAudio) && currentAudio.length < otherAudio.length;
-        });
-        
-        if (!isGeneric && !foundAudio.has(pattern.audio)) {
-            audioDetails.push(`${pattern.emoji} ${pattern.audio}`);
+        if (pattern.pattern.test(filename) && !foundAudio.has(pattern.audio)) {
+            details.push(`${pattern.emoji} ${pattern.audio}`);
             foundAudio.add(pattern.audio);
         }
     }
     
-    // 6. Extract comprehensive technical terms
+    // 5. Technical terms
     for (const tech of COMPREHENSIVE_TECH_PATTERNS) {
-        if (tech.pattern.test(filename) && !techDetails.some(detail => detail.includes(tech.display))) {
-            techDetails.push(tech.display);
+        if (tech.pattern.test(filename)) {
+            details.push(tech.display);
         }
     }
     
-    // Combine all details in a logical order (excluding resolution/quality)
-    const detectedDetails = [
-        ...languageDetails,
-        ...sourceDetails, 
-        ...codecDetails,
-        ...audioDetails,
-        ...techDetails
-    ];
-    
-    // Remove duplicates while preserving order
-    const uniqueDetails = [];
-    const seenDetails = new Set();
-    
-    for (const detail of detectedDetails) {
-        const normalized = detail.toLowerCase().replace(/[^\w]/g, '');
-        if (!seenDetails.has(normalized)) {
-            seenDetails.add(normalized);
-            uniqueDetails.push(detail);
-        }
-    }
-    
-    return uniqueDetails.join(' • ');
+    // Remove duplicates and return
+    return [...new Set(details)].join(' • ');
 }
+
+// ============ COMPATIBILITY EXPORTS ============
 
 // Replace extractAbsoluteEpisode from torrent-analyzer.js and episode-mapper.js
 export function extractAbsoluteEpisodeLegacy(filename) {
@@ -653,16 +554,7 @@ export function extractAbsoluteEpisodeLegacy(filename) {
     return result.absoluteEpisode;
 }
 
-// Replace various parsing calls across the codebase
+// Main parsing interface
 export function parseTitle(filename) {
     return parseUnified(filename);
 }
-
-export default {
-    parseUnified,
-    getParserStats,
-    clearParserCache,
-    extractTechnicalDetailsLegacy,
-    extractAbsoluteEpisodeLegacy,
-    parseTitle
-};

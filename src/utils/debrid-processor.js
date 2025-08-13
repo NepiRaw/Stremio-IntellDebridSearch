@@ -1,11 +1,11 @@
 ﻿import { isVideo } from '../stream/metadata-extractor.js';
-import PTT from './parse-torrent-title.js';
+import { parseUnified } from './unified-torrent-parser.js';
 import { parseRomanSeasons } from './roman-numeral-utils.js';
 import { parseEpisodeFromTitle } from './episode-patterns.js';
 import { logger } from './logger.js';
 
 function parseVideoInfo(filename) {
-    const basicInfo = PTT.parse(filename);
+    const basicInfo = parseUnified(filename);
     if (!basicInfo.season) {
         const romanSeason = parseRomanSeasons(filename);
         if (romanSeason) {
@@ -94,7 +94,7 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
         name: item.filename || item.name,
         type: 'other',
         hash: item.hash,
-        info: PTT.parse(item.filename || item.name),
+        info: parseUnified(item.filename || item.name),
         size: item.size,
         created: new Date(item.completionDate || item.created || Date.now()),
         videos: videos,
@@ -120,11 +120,8 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
  * PARAMETER EXPLANATIONS:
  * 
  * concurrency = 6 (OPTIMIZED)
- * - **TESTED RANGE**: Values 1-10 all worked successfully with AllDebrid
- * - **OPTIMAL PERFORMANCE**: concurrency=6 provides 5.08 streams/sec (20% faster than 3)
- * - **FASTEST TESTED**: concurrency=10 provides 5.22 streams/sec but may be too aggressive for some providers
  * - **BALANCED CHOICE**: concurrency=6 offers excellent speed with conservative safety margin
- * - **UNIVERSAL COMPATIBILITY**: Expected to work well with Real-Debrid, DebridLink, etc.
+ * - **UNIVERSAL COMPATIBILITY**: Expected to work well with all debrid providers.
  * 
  * batchSize = 5 (OPTIMAL FOR LARGE DATASETS) 
  * - Number of tasks processed in each sequential batch
@@ -136,11 +133,6 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
  * - Concurrency limit within each batch (should match main concurrency)
  * - Ensures consistent behavior across batch and non-batch processing
  * - Prevents batch processing from accidentally becoming slower than direct processing
- * 
- * USAGE SCENARIOS:
- * - Small datasets (< 20 items): Use executeWithControlledConcurrency(tasks, 3)
- * - Large datasets (> 100 items): Use executeInBatches(tasks, 5, 3)
- * - Memory-constrained: Use smaller batchSize (3) with same concurrency (3)
  */
 
 /**

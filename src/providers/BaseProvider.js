@@ -5,7 +5,7 @@
 
 import Fuse from 'fuse.js';
 import { isVideo } from '../stream/metadata-extractor.js';
-import PTT from '../utils/parse-torrent-title.js';
+import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { encode } from 'urlencode';
 import { logger } from '../utils/logger.js';
 import { configManager } from '../config/configuration.js';
@@ -100,7 +100,7 @@ export class BaseProvider {
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: PTT.parse(item.name || item.filename),
+            info: parseUnified(item.name || item.filename),
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields
@@ -120,7 +120,7 @@ export class BaseProvider {
             name: item.name || item.filename,
             type: 'other',
             hash: item.hash,
-            info: PTT.parse(item.name || item.filename),
+            info: parseUnified(item.name || item.filename),
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             videos: videos || [],
@@ -154,7 +154,7 @@ export class BaseProvider {
                     url: url,
                     size: file.size || file.bytes,
                     created: this.parseDate(item.created || item.added || item.completionDate),
-                    info: PTT.parse(filename)
+                    info: parseUnified(filename)
                 };
             });
     }

@@ -1,5 +1,6 @@
 ﻿import PremiumizeClient from 'premiumize-api'
 import BaseProvider from './BaseProvider.js'
+import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { encode } from 'urlencode'
 
 class PremiumizeProvider extends BaseProvider {
@@ -126,8 +127,7 @@ class PremiumizeProvider extends BaseProvider {
      * Helper for title parsing
      */
     parseTitle(filename) {
-        const PTT = require('../utils/parse-torrent-title.js').default;
-        return PTT.parse(filename);
+        return parseUnified(filename);
     }
 }
 

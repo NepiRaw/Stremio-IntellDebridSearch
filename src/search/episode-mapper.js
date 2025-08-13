@@ -4,12 +4,12 @@
  */
 
 import { getEpisodeMapping as traktGetEpisodeMapping } from '../api/trakt.js';
-import { logger } from '../utils/logger.js';
-import parseTorrentTitleModule from '../utils/parse-torrent-title.js';
+import { parseUnified } from '../utils/unified-torrent-parser.js';
+import { parseSeasonFromTitle } from '../utils/episode-patterns.js';
 import { extractAbsoluteEpisodeLegacy } from '../utils/unified-torrent-parser.js';
 
-// Extract functions from the module
-const { parse: parseTorrentTitle, parseSeason, parseRomanNumeral, romanToNumber } = parseTorrentTitleModule;
+// Extract functions for compatibility
+const parseSeason = parseSeasonFromTitle;
 
 /**
  * Get absolute episode mapping using the dedicated Trakt API module
