@@ -1,6 +1,7 @@
 /**
- * Stream builder module - constructs stream objects with detailed titles and quality info
+ * Stream Builder Module - Constructs stream objects with detailed titles and quality information.
  */
+
 import { FILE_TYPES } from './metadata-extractor.js';
 import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
@@ -10,128 +11,146 @@ import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { AVOID_EPISODE_PATTERNS } from '../utils/episode-patterns.js';
 import { logger } from '../utils/logger.js';
+import cache from '../utils/cache-manager.js';
 
 const STREAM_NAME_MAP = {
     debridlink: "[DL+] DebridSearch",
-    realdebrid: "[RD+] DebridSearch",
+    realdebrid: "[RD⚡] DebridSearch",
     alldebrid: "[AD⚡] DebridSearch",
     premiumize: "[PM+] DebridSearch",
     torbox: "[TB+] DebridSearch"
 };
 
+// ================================================================================================
+// UTILITY FUNCTIONS
+// ================================================================================================
+
 /**
- * Create multiple stream objects from torrent details when it contains multiple valid videos
- * This function ensures all valid videos in a torrent container are returned as separate streams
+ * Parses the overloaded parsedMetadataOrKnownSeasonEpisode parameter
  */
+function parseMetadataParams(parsedMetadataOrKnownSeasonEpisode) {
+    if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
+        (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
+        return { parsedMetadata: parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode: null };
+    }
+    return { parsedMetadata: null, knownSeasonEpisode: parsedMetadataOrKnownSeasonEpisode };
+}
+
+// ================================================================================================
+// MAIN STREAM CREATION ENTRY POINTS  
+// ================================================================================================
+
+/** Main entry point with intelligent routing for optimal performance */
+export function optimizedStreamCreation(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+    if (!details) return [];
+    
+    logger.debug(`[optimizedStreamCreation] Processing ${type} content with ${details.videos?.length || 1} video(s)`);
+    
+    // Single video scenarios
+    if (details.fileType === FILE_TYPES.DOWNLOADS || !details.videos?.length || details.videos.length === 1) {
+        const singleStream = toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
+        return singleStream ? [singleStream] : [];
+    }
+    
+    // Multi-video scenarios - use standard processing
+    return toStreams(details, type, parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
+}
+
+// ================================================================================================
+// OPTIMIZED PATH FUNCTIONS
+// ================================================================================================
+
+/** Optimized single video stream creation */
+export function toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+    if (!details) return null;
+
+    const { parsedMetadata, knownSeasonEpisode: resolvedKnownSeasonEpisode } = parseMetadataParams(parsedMetadataOrKnownSeasonEpisode);
+    const finalKnownSeasonEpisode = knownSeasonEpisode || resolvedKnownSeasonEpisode;
+
+    let video, icon;
+    if (details.fileType === FILE_TYPES.DOWNLOADS) {
+        icon = '⬇️';
+        video = details;
+    } else {
+        icon = '💾';
+        video = details.videos?.[0];
+        if (!video) {
+            logger.debug(`[toStreamSingle] No video found in torrent details`);
+            return null;
+        }
+    }
+
+    return createSingleStreamFast(details, video, type, icon, parsedMetadata, finalKnownSeasonEpisode, variantInfo, searchContext);
+}
+
+/** Optimized single stream creation */
+function createSingleStreamFast(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
+    if (!video) return null;
+    
+    if (!video.name || !video.url) {
+        return null;
+    }
+
+    const quality = extractQuality(video, details);
+    const sourceName = STREAM_NAME_MAP[details.source] || 'Unknown';
+    
+    const title = formatStreamTitle(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+
+    return {
+        name: sourceName + '\n' + quality,
+        title,
+        url: video.url,
+        behaviorHints: {
+            bingeGroup: details.source + '|' + details.id
+        }
+    };
+}
+
+// ================================================================================================
+// STANDARD PATH FUNCTIONS
+// ================================================================================================
+
+/** Multi-video stream creation for torrent containers */
 export function toStreams(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return [];
 
-    let parsedMetadata = null;
-    if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
-        (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
-        parsedMetadata = parsedMetadataOrKnownSeasonEpisode;
-    } else {
-        knownSeasonEpisode = parsedMetadataOrKnownSeasonEpisode;
-    }
-
-    logger.debug(`[toStreams] Processing ${type} with details.name="${details.name}"`);
-    logger.debug(`[toStreams] knownSeasonEpisode:`, JSON.stringify(knownSeasonEpisode, null, 2));
-    logger.debug(`[toStreams] details.videos length:`, details.videos?.length || 0);
-    logger.debug(`[toStreams] parsedMetadata provided:`, !!parsedMetadata);
+    const { parsedMetadata, knownSeasonEpisode: resolvedKnownSeasonEpisode } = parseMetadataParams(parsedMetadataOrKnownSeasonEpisode);
+    const finalKnownSeasonEpisode = knownSeasonEpisode || resolvedKnownSeasonEpisode;
+    
+    logger.debug(`[toStreams] Processing ${details.videos?.length || 0} videos for ${type} content`);
 
     const streams = [];
     const icon = details.fileType == FILE_TYPES.DOWNLOADS ? '⬇️' : '💾';
 
     if (details.fileType == FILE_TYPES.DOWNLOADS) {
         // Direct download - create single stream
-        const stream = createSingleStream(details, details, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+        const stream = createSingleStream(details, details, type, icon, parsedMetadata, finalKnownSeasonEpisode, variantInfo, searchContext);
         if (stream) streams.push(stream);
     } else {
         // Torrent container - create stream for each valid video
         if (!details.videos?.length) return [];
         
-        logger.debug(`[toStreams] Creating streams for ${details.videos.length} videos`);
-        
         for (const video of details.videos) {
-            logger.debug(`[toStreams] Processing video: "${video.name}" (S${video.info?.season}E${video.info?.episode})`);
+            if (!video) continue;
             
-            const stream = createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
-            if (stream) {
-                streams.push(stream);
-                logger.debug(`[toStreams] ✅ Created stream for: "${video.name}"`);
-            } else {
-                logger.debug(`[toStreams] ❌ Failed to create stream for: "${video.name}"`);
-            }
+            const stream = createSingleStream(details, video, type, icon, parsedMetadata, finalKnownSeasonEpisode, variantInfo, searchContext);
+            if (stream) streams.push(stream);
         }
     }
 
-    logger.debug(`[toStreams] Generated ${streams.length} streams from ${details.videos?.length || 1} videos`);
     return streams;
 }
 
 /**
- * Create stream object from torrent details and video file
- * Updated to accept pre-parsed metadata for performance optimization
- * 
- * DEPRECATED: Use toStreams() instead for Issue 1 compliance
- * This function is kept for backwards compatibility only
- */
-export function toStream(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
-    if (!details) return null;
-
-    let parsedMetadata = null;
-    if (parsedMetadataOrKnownSeasonEpisode && typeof parsedMetadataOrKnownSeasonEpisode === 'object' && 
-        (parsedMetadataOrKnownSeasonEpisode.seriesInfo || parsedMetadataOrKnownSeasonEpisode.movieInfo || parsedMetadataOrKnownSeasonEpisode.technicalDetails)) {
-        parsedMetadata = parsedMetadataOrKnownSeasonEpisode;
-    } else {
-        knownSeasonEpisode = parsedMetadataOrKnownSeasonEpisode;
-    }
-
-    logger.debug(`[toStream] Processing ${type} with details.name="${details.name}"`);
-    logger.debug(`[toStream] knownSeasonEpisode:`, JSON.stringify(knownSeasonEpisode, null, 2));
-    logger.debug(`[toStream] details.videos length:`, details.videos?.length || 0);
-    logger.debug(`[toStream] parsedMetadata provided:`, !!parsedMetadata);
-
-    let video, icon
-    if (details.fileType == FILE_TYPES.DOWNLOADS) {
-        icon = '⬇️'
-        video = details
-    } else {
-        icon = '💾'
-        if (!details.videos?.length) return null;
-        
-        video = details.videos[0];
-        
-        logger.debug(`[toStream] Selected video: "${video.name}" (S${video.info?.season}E${video.info?.episode})`);
-        
-        // Only sort by size if there are multiple videos of the same episode
-        if (details.videos.length > 1) {
-            const firstEpisodeId = `${details.videos[0].info?.season}x${details.videos[0].info?.episode}`;
-            const allSameEpisode = details.videos.every(v => 
-                `${v.info?.season}x${v.info?.episode}` === firstEpisodeId
-            );
-            
-            logger.debug(`[toStream] Multiple videos (${details.videos.length}), all same episode: ${allSameEpisode}`);
-            
-            if (allSameEpisode) { // All videos are same episode, pick largest
-                details.videos.sort((a, b) => b.size - a.size);
-                video = details.videos[0];
-                logger.debug(`[toStream] After size sorting, selected: "${video.name}"`);
-            }
-        }
-    }
-
-    if (!video) return null;
-
-    return createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
-}
-
-/**
- * Helper function to create a single stream from container details and video
- * Extracted from original toStream to avoid code duplication
+ * Helper function to create a single stream from container details and video.
  */
 function createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
     if (!video) return null;
+    
+    // Validate essential video properties
+    if (!video.name || !video.url) {
+        return null;
+    }
 
     const quality = extractQuality(video, details);
     
@@ -152,157 +171,293 @@ function createSingleStream(details, video, type, icon, parsedMetadata, knownSea
     }
 }
 
+// ================================================================================================
+// UTILITY FUNCTIONS
+// ================================================================================================
+
+/** Format file size for display */
 function formatSize(size) {
-    if (!size) {
-        return undefined
-    }
-
-    const i = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024))
-    return Number((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
+    if (!size) return undefined;
+    const i = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024));
+    return Number((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
 }
 
-/**
- * This function creates the multi-line stream title format
- * Updated to use pre-parsed metadata for performance optimization
- */
-function formatStreamTitle(details, video, type, icon, parsedMetadata = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
-    const containerName = details.containerName || details.name || 'Unknown';
-    const videoName = video.name || '';
-    const size = formatSize(video?.size || 0);
-    
-    if (type === 'series') {
-        const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
-        const releaseGroup = extractReleaseGroup(videoName || containerName);
-        
-        let detectedVariant = null;
-        const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false'; // Default to true unless explicitly disabled
-        
-        if (variantSystemEnabled && searchContext && searchContext.searchTitle && searchContext.alternativeTitles) {
-            // Use existing seriesInfo instead of extracting again, and pass episode title info to exclude from variant detection
-            const episodeTitle = seriesInfo.episodeName || seriesInfo.episodeTitle || parsedMetadata?.episodeTitle;
-            logger.debug(`[formatStreamTitle] Variant detection: videoSeriesInfo.title="${seriesInfo.title}", searchContext.searchTitle="${searchContext.searchTitle}", alternativeTitles=${searchContext.alternativeTitles.length}, episodeTitle="${episodeTitle}"`);
-            detectedVariant = detectSimpleVariant(seriesInfo.title, searchContext.searchTitle, searchContext.alternativeTitles, episodeTitle);
-            logger.debug(`[formatStreamTitle] Variant result: ${JSON.stringify(detectedVariant)}`);
-        } else if (!variantSystemEnabled) {
-            logger.debug(`[formatStreamTitle] Variant detection disabled via VARIANT_SYSTEM_ENABLED=false`);
-        } else {
-            logger.debug(`[formatStreamTitle] Variant detection skipped: searchContext=${!!searchContext}, searchTitle=${searchContext?.searchTitle}, alternativeTitles=${searchContext?.alternativeTitles?.length}`);
-        }
-        
-        let seasonEpisode = seriesInfo.seasonEpisode;
-        if (knownSeasonEpisode && knownSeasonEpisode.season && knownSeasonEpisode.episode) {
-            const season = String(knownSeasonEpisode.season).padStart(2, '0');
-            const episode = String(knownSeasonEpisode.episode).padStart(2, '0');
-            const knownSeasonEpisodeStr = `S${season}E${episode}`;
-            
-            const shouldOverride = 
-                seriesInfo.seasonEpisode === 'Unknown Episode';
-                // Note: Removed S00E override - Season 0 episodes (specials) should not be
-                // relabeled as regular season episodes as they are legitimate separate content
-            
-            if (shouldOverride) {
-                seasonEpisode = knownSeasonEpisodeStr;
-                logger.debug(`[formatStreamTitle] Using advanced search season/episode: ${knownSeasonEpisodeStr} (filename had: ${seriesInfo.seasonEpisode})`);
-            } else {
-                logger.debug(`[formatStreamTitle] Keeping filename season/episode: ${seriesInfo.seasonEpisode} (advanced search: ${knownSeasonEpisodeStr})`);
-            }
-        }
-        
-        const lines = [];
-        
-        // Line 1: Original video torrent name as it comes from debrid provider
-        lines.push(`📁 ${videoName || containerName}`);
-        
-        // Line 2: Clean series title with season/episode
-        let displayTitle = seriesInfo.title;
-        
-        // Use the matched term from search phase if available (this is the actual title that matched the torrent)
-        if (details && details.matchedTerm) {
-            displayTitle = details.matchedTerm;
-            logger.debug(`[formatStreamTitle] Using matched search term: "${details.matchedTerm}"`);
-        } else if (searchContext && searchContext.searchTitle) {
-            displayTitle = searchContext.searchTitle;
-            logger.debug(`[formatStreamTitle] Using searchContext.searchTitle: "${searchContext.searchTitle}"`);
-        }
-        
-        const cleanTitle = displayTitle.replace(/[\[\]()]/g, '').trim();
-        lines.push(`${cleanTitle} - ${seasonEpisode}`);
-        
-        // Line 3: Variant information if this is a spin-off or variant
-        if (detectedVariant && detectedVariant.isVariant && detectedVariant.variantName) {
-            lines.push(`🔄 Variant: ${detectedVariant.variantName}`);
-        } else if (variantInfo && variantInfo.isVariant && variantInfo.variantName) {
-            lines.push(`🔄 Variant: ${variantInfo.variantName}`);
-        }
-        
-        // Line 3 or 4: Episode name if found
-        if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
-            const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
-            lines.push(`📺 "${episodeName}"`);
-        }
-        
-        // Line 4 or 5: Enhanced technical details with good emojis for easy reading
-        const techDetails = parsedMetadata?.technicalDetails || extractTechnicalDetailsLegacy(removeExtension(videoName || containerName));
-        if (techDetails && techDetails.length > 0) {
-            lines.push(`⚙️ ${techDetails}`);
-        }
-        
-        // Final line: Season/Episode formatted as "Sxx - Exx" + Size with icon + Release Group
-        const seasonPart = seasonEpisode.substring(0, 3); // S01
-        const episodePart = seasonEpisode.substring(3);   // E04
-        let sizeLine = `${seasonPart} - ${episodePart} • ${icon} ${size}`;
-        if (releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
-            sizeLine += ` • 👥 [${releaseGroup}]`;
-        }
-        lines.push(sizeLine);
-        
-        return lines.join('\n');
-        
-    } else {
-        const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
-        const releaseGroup = extractReleaseGroup(videoName || containerName);
-        
-        const lines = [];
-        
-        // Line 1: Original video torrent name as it comes from debrid provider (with folder emoji)
-        lines.push(`📁 ${videoName || containerName}`);
-        
-        // Line 2: Clean movie title with year
-        lines.push(movieInfo.title);
-        
-        // Line 3: Variant information if this is a spin-off or variant
-        if (variantInfo && variantInfo.isVariant && variantInfo.variantName) {
-            lines.push(`🔄 Variant: ${variantInfo.variantName}`);
-        }
-        
-        // Line 3 or 4: Enhanced technical details with good emojis for easy reading
-        const techDetails = parsedMetadata?.technicalDetails || extractTechnicalDetailsLegacy(removeExtension(videoName || containerName));
-        if (techDetails && techDetails.length > 0) {
-            lines.push(`⚙️ ${techDetails}`);
-        }
-        
-        // Final line: Size with icon + Release Group
-        let sizeLine = `${icon} ${size}`;
-        if (releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
-            sizeLine += ` • 👥 [${releaseGroup}]`;
-        }
-        lines.push(sizeLine);
-        
-        return lines.join('\n');
-    }
-}
-
-/**
- * Remove file extension from filename using centralized patterns
- */
+/** Remove file extension from filename */
 function removeExtension(filename) {
-    if (!filename) return filename;
-    const videoExtensionPattern = new RegExp(`\\.(${FILE_EXTENSIONS.video.join('|')})$`, 'i');
+    if (!filename) return '';
+    const allExtensions = Object.values(FILE_EXTENSIONS).flat();
+    const videoExtensionPattern = new RegExp(`\\.(${allExtensions.join('|')})$`, 'i');
     return filename.replace(videoExtensionPattern, '');
 }
 
+// ================================================================================================
+// TITLE FORMATTING
+// ================================================================================================
+
 /**
- * Filter torrents by year for movies
+ * Extracts basic title information (container name, video name, size)
+ */
+function extractBasicInfo(details, video) {
+    return {
+        containerName: details.containerName || details.name || 'Unknown',
+        videoName: video.name || '',
+        size: formatSize(video?.size || 0)
+    };
+}
+
+// ================================================================================================
+// PERFORMANCE OPTIMIZATION: Technical Details Caching
+// ================================================================================================
+
+/**
+ * Cache key prefix for technical details to avoid conflicts with other cached data
+ */
+const TECH_DETAILS_CACHE_PREFIX = 'tech_details_';
+
+/**
+ * TTL for technical details cache (24 hours - they don't change often)
+ * Longer than API cache since technical details are static for a given filename
+ */
+const TECH_DETAILS_TTL = 24 * 3600; // 24 hours
+
+/**
+ * Gets technical details from metadata, unified cache, or extracts them fresh
+ */
+function getTechnicalDetails(parsedMetadata, videoName) {
+    if (parsedMetadata?.technicalDetails) {
+        return parsedMetadata.technicalDetails;
+    }
+    
+    const cacheKey = TECH_DETAILS_CACHE_PREFIX + removeExtension(videoName);
+    const cachedDetails = cache.get(cacheKey);
+    
+    if (cachedDetails !== null) {
+        logger.debug(`[getTechnicalDetails] Cache hit for: ${videoName}`);
+        return cachedDetails;
+    }
+    
+    const cleanedFilename = removeExtension(videoName);
+    const techDetails = extractTechnicalDetailsLegacy(cleanedFilename);
+    
+    cache.set(cacheKey, techDetails, TECH_DETAILS_TTL, {
+        type: 'technical_details',
+        filename: cleanedFilename,
+        extractedAt: Date.now()
+    });
+    
+    return techDetails;
+}
+
+/** Gets cache statistics for performance monitoring */
+function getCacheStats() {
+    const unifiedStats = cache.getStats();
+    const techDetailsEntries = cache.getByPattern(`^${TECH_DETAILS_CACHE_PREFIX}`);
+    
+    return {
+        hits: unifiedStats.stats.hits,
+        misses: unifiedStats.stats.misses,
+        hitRate: unifiedStats.hitRate * 100,
+        cacheSize: techDetailsEntries.length,
+        totalCacheSize: unifiedStats.size,
+        maxCacheSize: unifiedStats.maxSize,
+        techDetailsCacheContents: techDetailsEntries.reduce((acc, entry) => {
+            acc[entry.key.replace(TECH_DETAILS_CACHE_PREFIX, '')] = entry.value;
+            return acc;
+        }, {})
+    };
+}
+
+/**
+ * Clears technical details from unified cache (useful for testing)
+ */
+function clearTechnicalDetailsCache() {
+    const techDetailsEntries = cache.getByPattern(`^${TECH_DETAILS_CACHE_PREFIX}`);
+    techDetailsEntries.forEach(entry => {
+        cache.delete(entry.key);
+    });
+}
+
+/**
+ * Detects variant information for series content
+ * @param {Object} searchContext - Search context
+ * @param {Object} seriesInfo - Series information
+ * @param {string} containerName - Container name
+ * @returns {Object|null} Detected variant information
+ */
+function detectVariantForSeries(searchContext, seriesInfo, containerName) {
+    const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false';
+    
+    if (!variantSystemEnabled || !searchContext?.searchTitle || !searchContext?.alternativeTitles) {
+        return null;
+    }
+    
+    return detectSimpleVariant(
+        searchContext.searchTitle, 
+        searchContext.alternativeTitles, 
+        containerName, 
+        seriesInfo.episodeTitle || seriesInfo.episodeName
+    );
+}
+
+/**
+ * Formats season/episode identifier
+ * @param {Object} knownSeasonEpisode - Known season/episode info
+ * @param {Object} seriesInfo - Series information
+ * @returns {string} Formatted season/episode (e.g., "S01E04")
+ */
+function formatSeasonEpisode(knownSeasonEpisode, seriesInfo) {
+    if (knownSeasonEpisode) {
+        return `S${String(knownSeasonEpisode.season).padStart(2, '0')}E${String(knownSeasonEpisode.episode).padStart(2, '0')}`;
+    }
+    return `S${String(seriesInfo.season).padStart(2, '0')}E${String(seriesInfo.episode).padStart(2, '0')}`;
+}
+
+/**
+ * Adds variant line if variant is detected
+ * @param {Array} lines - Array of lines to add to
+ * @param {Object} detectedVariant - Detected variant info
+ * @param {Object} variantInfo - Provided variant info
+ */
+function addVariantLine(lines, detectedVariant, variantInfo) {
+    if (detectedVariant?.isVariant && detectedVariant.variantName) {
+        lines.push(`🔄 Variant: ${detectedVariant.variantName}`);
+    } else if (variantInfo?.isVariant && variantInfo.variantName) {
+        lines.push(`🔄 Variant: ${variantInfo.variantName}`);
+    }
+}
+
+/**
+ * Builds size line with icon and release group
+ * @param {string} icon - Quality icon
+ * @param {string} size - Formatted size
+ * @param {string} releaseGroup - Release group name
+ * @param {string} seasonEpisode - Season/episode string (for series only)
+ * @returns {string} Complete size line
+ */
+function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
+    let sizeLine;
+    
+    if (seasonEpisode) {
+        // Series: "S01 - E04 • icon size"
+        const seasonPart = seasonEpisode.substring(0, 3); // S01
+        const episodePart = seasonEpisode.substring(3);   // E04
+        sizeLine = `${seasonPart} - ${episodePart} • ${icon} ${size}`;
+    } else {
+        sizeLine = `${icon} ${size}`;
+    }
+    
+    if (releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
+        sizeLine += ` • 👥 [${releaseGroup}]`;
+    }
+    
+    return sizeLine;
+}
+
+/**
+ * Formats stream title for series content
+ * @param {Object} basicInfo - Basic info { containerName, videoName, size }
+ * @param {string} icon - Quality icon
+ * @param {Object} parsedMetadata - Pre-parsed metadata
+ * @param {Object} knownSeasonEpisode - Known season/episode info
+ * @param {Object} variantInfo - Variant information
+ * @param {Object} searchContext - Search context
+ * @returns {string} Formatted series title
+ */
+function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
+    const { containerName, videoName, size } = basicInfo;
+    const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
+    const releaseGroup = parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName);
+    
+    const detectedVariant = detectVariantForSeries(searchContext, seriesInfo, containerName);
+    const seasonEpisode = formatSeasonEpisode(knownSeasonEpisode, seriesInfo);
+    
+    const lines = [];
+    
+    // Line 1: Original video torrent name
+    lines.push(`📁 ${videoName || containerName}`);
+    
+    // Line 2: Clean series title
+    lines.push(seriesInfo.title);
+    
+    // Line 3: Variant information (if applicable)
+    addVariantLine(lines, detectedVariant, variantInfo);
+    
+    // Line 3 or 4: Episode name (if found)
+    if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
+        const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
+        lines.push(`📺 "${episodeName}"`);
+    }
+    
+    // Line 4 or 5: Technical details
+    const techDetails = getTechnicalDetails(parsedMetadata, videoName || containerName);
+    if (techDetails && techDetails.length > 0) {
+        lines.push(`⚙️ ${techDetails}`);
+    }
+    
+    // Final line: Season/Episode + Size + Release Group
+    lines.push(buildSizeLine(icon, size, releaseGroup, seasonEpisode));
+    
+    return lines.join('\n');
+}
+
+/** Formats stream title for movie content */
+function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
+    const { containerName, videoName, size } = basicInfo;
+    const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
+    const releaseGroup = parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName);
+    
+    const lines = [];
+    
+    // Line 1: Original video torrent name
+    lines.push(`📁 ${videoName || containerName}`);
+    
+    // Line 2: Clean movie title with year
+    lines.push(movieInfo.title);
+    
+    // Line 3: Variant information (if applicable)
+    addVariantLine(lines, null, variantInfo);
+    
+    // Line 3 or 4: Technical details
+    const techDetails = getTechnicalDetails(parsedMetadata, videoName || containerName);
+    if (techDetails && techDetails.length > 0) {
+        lines.push(`⚙️ ${techDetails}`);
+    }
+    
+    // Final line: Size + Release Group
+    lines.push(buildSizeLine(icon, size, releaseGroup));
+    
+    return lines.join('\n');
+}
+
+/**
+ * Creates the multi-line stream title format with enhanced technical details.
+ * 
+ * @param {Object} details - Container details
+ * @param {Object} video - Video file details
+ * @param {string} type - Content type
+ * @param {string} icon - Stream icon
+ * @param {Object} parsedMetadata - Pre-parsed metadata
+ * @param {Object} knownSeasonEpisode - Season/episode information
+ * @param {Object} variantInfo - Variant information
+ * @param {Object} searchContext - Search context
+ * @returns {string} Formatted multi-line title
+ */
+function formatStreamTitle(details, video, type, icon, parsedMetadata = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
+    const basicInfo = extractBasicInfo(details, video);
+    
+    if (type === 'series') {
+        return formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+    } else {
+        return formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo);
+    }
+}
+
+// ================================================================================================
+// FILTERING FUNCTIONS
+// ================================================================================================
+
+/**
+ * Filter torrents by year for movies.
  */
 export function filterYear(torrent, cinemetaDetails) {
     if (!cinemetaDetails?.year) return true; // No year to filter against
@@ -314,9 +469,10 @@ export function filterYear(torrent, cinemetaDetails) {
 }
 
 /**
- * Filter videos for a specific episode
- * Uses pre-processed absolute episode matches from AbsoluteEpisodeProcessor
- * Also applies AVOID_EPISODE_PATTERNS to filter out false positives like (1).mkv files
+ * Filter videos for a specific episode.
+ * 
+ * Uses pre-processed absolute episode matches from AbsoluteEpisodeProcessor.
+ * Also applies AVOID_EPISODE_PATTERNS to filter out false positives like (1).mkv files.
  */
 export function filterEpisode(torrentDetails, season, episode) {
     if (!torrentDetails || !torrentDetails.videos) {
@@ -369,6 +525,10 @@ export function filterEpisode(torrentDetails, season, episode) {
     }
 }
 
+// ================================================================================================
+// DISPLAY UTILITIES
+// ================================================================================================
+
 /**
  * Format an array of stream objects for display - for terminal output only.
  */
@@ -379,11 +539,8 @@ export function formatStreamsForDisplay(streams) {
         const titleLines = (stream.title || '').split('\n').map(line => '\t' + line);
         //const urlLine = 'URL: ' + (stream.url || ''); //Uncomment this line to include URL for debug purpose
         const hintsLine = 'behaviorHints: ' + JSON.stringify(stream.behaviorHints || {});
-        return [
-            ...nameLines,
-            ...titleLines,
-        //    urlLine,  //Uncomment this line to include URL for debug purpose
-            hintsLine
-        ].join('\n');
+        return [nameLines[0], ...titleLines, hintsLine].join('\n');
     }).join('\n\n');
 }
+
+export { getCacheStats, clearTechnicalDetailsCache };

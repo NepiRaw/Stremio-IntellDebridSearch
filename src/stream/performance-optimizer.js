@@ -95,7 +95,7 @@ export async function batchExtractTechnicalDetails(streams) {
 export async function sequentialStreamFormatting(streamData) {
     const formatStartTime = performance.now();
     
-    const { toStreams } = await import('../stream/stream-builder.js');
+    const { optimizedStreamCreation } = await import('../stream/stream-builder.js');
 
     const streamsForOptimization = streamData.map(data => ({
         name: data.details?.name || '',
@@ -114,7 +114,8 @@ export async function sequentialStreamFormatting(streamData) {
                 data.type
             );
             
-            const streams = toStreams(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
+            // PERFORMANCE OPTIMIZATION: Use smart fallback strategy
+            const streams = optimizedStreamCreation(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
             
             if (streamsForOptimization[index] && streamsForOptimization[index].cachedTechnicalDetails) {
                 streams.forEach(stream => {
@@ -202,11 +203,11 @@ export function clearPerformanceCaches() {
  */
 export async function formatSingleStreamData(streamData) {
     try {
-        const { toStream } = await import('./stream-builder.js');
+        const { toStreamSingle } = await import('./stream-builder.js');
         
         const { details, type, knownSeasonEpisode, variantInfo, searchContext } = streamData;
         
-        const stream = toStream(details, type, knownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
+        const stream = toStreamSingle(details, type, knownSeasonEpisode, variantInfo, searchContext);
         
         return stream;
 

@@ -203,7 +203,7 @@ class UnifiedCacheManager {
 
 
 const cache = new UnifiedCacheManager({
-    maxSize: 500,        // Limit cache entries for memory efficiency
+    maxSize: 1000,        // Limit cache entries for memory efficiency
     defaultTTL: 3600,    // 1 hour default TTL
     cleanupInterval: 300 // 5 minute cleanup interval
 });
