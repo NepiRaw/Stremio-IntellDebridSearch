@@ -24,25 +24,32 @@ const SOURCE_PATTERNS = [
 ];
 
 const CODEC_PATTERNS = [
-    { pattern: /\b(AV1)\b/i, codec: 'AV1', displayName: 'AV1', score: 12, emoji: '�' },
+    // === NEXT-GEN CODECS (Highest Efficiency) ===
+    { pattern: /\b(AV1)\b/i, codec: 'AV1', displayName: 'AV1', score: 12, emoji: '🎬' },
+    
+    // === H.265/HEVC FAMILY (High Efficiency) ===
     { pattern: /\b(x265)\b/i, codec: 'x265', displayName: 'x265', score: 11, emoji: '🎥' },
-    { pattern: /\b(HEVC|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '�' },
+    { pattern: /\b(HEVC|H\.?265|h265)\b/i, codec: 'HEVC', displayName: 'HEVC', score: 10, emoji: '📹' },
+    
+    // === H.264/AVC FAMILY (Standard Efficiency) ===
     { pattern: /\b(x264|H\.?264|AVC|h264)\b/i, codec: 'x264', displayName: 'x264', score: 9, emoji: '🎥' }
 ];
 
 const LANGUAGE_PATTERNS = [
-    { pattern: /\b(Multiple Subtitle|Multiple Subtitles|Multi-Sub)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
-    { pattern: /\b(MULTILINGUAL|MULTILANG)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
+    // === MULTILINGUAL & CUSTOM (Highest Priority) ===
+    { pattern: /\b(Multiple Subtitle|Multiple Subtitles|Multi-Sub|MULTILINGUAL|MULTILANG)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
     { pattern: /\b(MULTi3|MULTi2|MULTi|MULTI)\b/i, language: 'MULTI', displayName: 'MULTI', emoji: '🌍' },
     { pattern: /\b(CUSTOM)\b/i, language: 'CUSTOM', displayName: 'CUSTOM', emoji: '🔧' },
     
+    // === FRENCH LANGUAGE FAMILY (Priority Order: Specialized > General) ===
     { pattern: /\bTRUEFRENCH\b/i, language: 'TrueFrench', displayName: 'TrueFrench', emoji: '🇫🇷' },
     { pattern: /\bSUBFRENCH\b/i, language: 'SubFrench', displayName: 'SubFrench', emoji: '🇫🇷' },
     { pattern: /\bVOSTFR\b/i, language: 'VOSTFR', displayName: 'VOSTFR', emoji: '🇫🇷' },
-    { pattern: /\b(FRENCH|FRANCAIS|FRE|FRA|FR)\b/i, language: 'French', displayName: 'French', emoji: '🇫🇷' },
     { pattern: /\bVFF\b/i, language: 'VFF', displayName: 'VFF', emoji: '🇫🇷' },
     { pattern: /\bVF\b/i, language: 'VF', displayName: 'VF', emoji: '🇫🇷' },
+    { pattern: /\b(FRENCH|FRANCAIS|FRE|FRA|FR)\b/i, language: 'French', displayName: 'French', emoji: '🇫🇷' },
     
+    // === OTHER LANGUAGES ===
     { pattern: /\b(ENGLISH|ENG)\b/i, language: 'English', displayName: 'English', emoji: '🇬🇧' },
     { pattern: /\b(JAPANESE|JAP|JP)\b/i, language: 'Japanese', displayName: 'Japanese', emoji: '🇯🇵' },
     { pattern: /\b(SPANISH|SPA)\b/i, language: 'Spanish', displayName: 'Spanish', emoji: '🇪🇸' },
@@ -51,62 +58,55 @@ const LANGUAGE_PATTERNS = [
     { pattern: /\b(KOREAN|KOR)\b/i, language: 'Korean', displayName: 'Korean', emoji: '🇰🇷' },
     { pattern: /\b(CHINESE|CHI|CN)\b/i, language: 'Chinese', displayName: 'Chinese', emoji: '🇨🇳' },
     { pattern: /\b(RUSSIAN|RUS)\b/i, language: 'Russian', displayName: 'Russian', emoji: '🇷🇺' },
-    { pattern: /\b(PORTUGUESE|POR|PT)\b/i, language: 'Portuguese', displayName: 'Portuguese', emoji: '🇵🇹' },
-    //{ pattern: /\b(SWEDISH|SWE|SE)\b/i, language: 'Swedish', displayName: 'Swedish', emoji: '🇸🇪' },
-    //{ pattern: /\b(DANISH|DAN|DK)\b/i, language: 'Danish', displayName: 'Danish', emoji: '🇩🇰' },
-    //{ pattern: /\b(POLISH|POL|PL)\b/i, language: 'Polish', displayName: 'Polish', emoji: '🇵🇱' },
-    //{ pattern: /\b(HINDI|HIN)\b/i, language: 'Hindi', displayName: 'Hindi', emoji: '🇮🇳' },
-    //{ pattern: /\b(THAI|THA|TH)\b/i, language: 'Thai', displayName: 'Thai', emoji: '🇹🇭' }
+    { pattern: /\b(PORTUGUESE|POR|PT)\b/i, language: 'Portuguese', displayName: 'Portuguese', emoji: '🇵🇹' }
 ];
 
 const AUDIO_PATTERNS = [
+    // === ATMOS & IMMERSIVE AUDIO (Highest Priority) ===
     { pattern: /\b(EAC3[\.\-]?5\.1[\.\-]?ATMOS|E\-AC3[\.\-]?5\.1[\.\-]?ATMOS)\b/i, audio: 'EAC3 5.1 Atmos', displayName: 'EAC3 5.1 Atmos', emoji: '🔊' },
     { pattern: /\b(DDP5\.1[\.\-]?ATMOS|DD\+5\.1[\.\-]?ATMOS)\b/i, audio: 'DD+ 5.1 Atmos', displayName: 'DD+ 5.1 Atmos', emoji: '🔊' },
     { pattern: /\b(DOLBY[\s\-\.]?ATMOS|ATMOS)\b/i, audio: 'Atmos', displayName: 'Atmos', emoji: '🔊' },
-    
     { pattern: /\b(DTS[\s\-\:]?X|DTSX)\b/i, audio: 'DTS:X', displayName: 'DTS:X', emoji: '🔊' },
+    
+    // === HIGH-END LOSSLESS AUDIO ===
     { pattern: /\b(DTS[\s\-\:]?HD[\s\-\.]?MA|DTS\-HD\.MA)\b/i, audio: 'DTS-HD MA', displayName: 'DTS-HD MA', emoji: '🔊' },
     { pattern: /\b(DTS[\s\-\:]?HD|DTS\s*HD)\b/i, audio: 'DTS-HD', displayName: 'DTS-HD', emoji: '🔊' },
-    { pattern: /\b(DTS)\b/i, audio: 'DTS', displayName: 'DTS', emoji: '🔊' },
-    
     { pattern: /\b(TRUEHD|TRUE[\s\-\.]?HD|TRUE\s*HD)\b/i, audio: 'TrueHD', displayName: 'TrueHD', emoji: '🔊' },
+    { pattern: /\b(FLAC)\b/i, audio: 'FLAC', displayName: 'FLAC', emoji: '🎵' },
+    { pattern: /\b(LPCM)\b/i, audio: 'LPCM', displayName: 'LPCM', emoji: '🔊' },
     
+    // === ENHANCED AC3/EAC3 FAMILY (Priority: 5.1 > Basic) ===
     { pattern: /\b(EAC3[\.\-]?5\.1|E\-AC3[\.\-]?5\.1|EAC3\.5\.1)\b/i, audio: 'EAC3 5.1', displayName: 'EAC3 5.1', emoji: '🎵' },
-    { pattern: /\b(AC3[\.\-]?5\.1|AC\-3[\.\-]?5\.1)\b/i, audio: 'AC3 5.1', displayName: 'AC3 5.1', emoji: '🎵' },
-    { pattern: /\b(DDP5\.1|DD\+5\.1|DDPLUS5\.1)\b/i, audio: 'DD+ 5.1', displayName: 'DD+ 5.1', emoji: '🎵' },
-    { pattern: /\b(DDP2\.0|DD\+2\.0|DDPLUS2\.0)\b/i, audio: 'DD+ 2.0', displayName: 'DD+ 2.0', emoji: '🎵' },
     { pattern: /\b(EAC3|E\-AC3|EAC\-3)\b/i, audio: 'EAC3', displayName: 'EAC3', emoji: '🎵' },
+    { pattern: /\b(AC3[\.\-]?5\.1|AC\-3[\.\-]?5\.1)\b/i, audio: 'AC3 5.1', displayName: 'AC3 5.1', emoji: '🎵' },
     { pattern: /\b(AC3|AC\-3)\b/i, audio: 'AC3', displayName: 'AC3', emoji: '🎵' },
     
+    // === DOLBY DIGITAL PLUS FAMILY (Priority: 5.1 > 2.0) ===
+    { pattern: /\b(DDP5\.1|DD\+5\.1|DDPLUS5\.1)\b/i, audio: 'DD+ 5.1', displayName: 'DD+ 5.1', emoji: '🎵' },
+    { pattern: /\b(DDP2\.0|DD\+2\.0|DDPLUS2\.0)\b/i, audio: 'DD+ 2.0', displayName: 'DD+ 2.0', emoji: '🎵' },
+    
+    // === AAC FAMILY (Priority: HE-AAC 5.1 > AAC 5.1 > HE-AAC > AAC) ===
     { pattern: /\b(HE\-AAC[\.\-]?5\.1|HEAAC[\.\-]?5\.1)\b/i, audio: 'HE-AAC 5.1', displayName: 'HE-AAC 5.1', emoji: '🎵' },
     { pattern: /\b(AAC[\.\-]?5\.1|AAC\.5\.1)\b/i, audio: 'AAC 5.1', displayName: 'AAC 5.1', emoji: '🎵' },
     { pattern: /\b(HE\-AAC|HEAAC)\b/i, audio: 'HE-AAC', displayName: 'HE-AAC', emoji: '🎵' },
     { pattern: /\b(AAC)\b/i, audio: 'AAC', displayName: 'AAC', emoji: '🎵' },
     
-    { pattern: /\b(FLAC)\b/i, audio: 'FLAC', displayName: 'FLAC', emoji: '🎵' },
-    { pattern: /\b(LPCM)\b/i, audio: 'LPCM', displayName: 'LPCM', emoji: '🔊' },
-    { pattern: /\b(OPUS)\b/i, audio: 'Opus', displayName: 'Opus', emoji: '🎵' },
+    // === DTS BASIC FAMILY ===
+    { pattern: /\b(DTS)\b/i, audio: 'DTS', displayName: 'DTS', emoji: '🔊' },
     
+    // === OTHER CODECS ===
+    { pattern: /\b(OPUS)\b/i, audio: 'Opus', displayName: 'Opus', emoji: '🎵' },
     { pattern: /\b(MP3)\b/i, audio: 'MP3', displayName: 'MP3', emoji: '🎵' },
     { pattern: /\b(OGG)\b/i, audio: 'OGG', displayName: 'OGG', emoji: '🎵' },
     
-    // Standalone channel patterns (for when codec is detected separately)
+    // === CHANNEL CONFIGURATIONS (Standalone) ===
     { pattern: /\b(7\.1)\b/i, audio: '7.1', displayName: '7.1', emoji: '🔊' },
     { pattern: /\b(5\.1)\b/i, audio: '5.1', displayName: '5.1', emoji: '🔊' },
     { pattern: /\b(2\.0)\b/i, audio: '2.0', displayName: '2.0', emoji: '🔊' },
     
+    // === BIT DEPTH ===
     { pattern: /\b(10BITS?|10BIT)\b/i, audio: '10bit', displayName: '10bit', emoji: '🎨' },
     { pattern: /\b(12BITS?|12BIT)\b/i, audio: '12bit', displayName: '12bit', emoji: '🎨' }
-];
-
-const TECHNICAL_PATTERNS = [
-    /\b(2160p|1440p|1080p|720p|576p|480p|4K|UHD)/i,
-    /\b(BLURAY|BLU-RAY|BD|WEBRIP|WEB-RIP|WEBDL|WEB-DL|WEB\.DL|WEB\.RIP|HDTV|BDRIP|BD-RIP|DVDRIP)/i,
-    /\b(x264|x265|H\.?264|H\.?265|HEVC|AVC|h264|h265)/i,
-    /\b(MULTI|MULTi|MULTi\d+|VOSTFR|TRUEFRENCH|FRENCH)/i,
-    /\b(AAC|DTS|AC3|EAC3|E-AC3|ATMOS|TRUEHD|TRUE-HD|LPCM|FLAC|HE-AAC|HEAAC|DDP|DD\+)/i,
-    /\b(HDR10\+|HDR10|HDR|HDLIGHT|HD-LIGHT|DOLBY\s*VISION|DV)/i,
-    /\b(10BITS?|10BIT|12BITS?|12BIT|8BITS?|8BIT)/i
 ];
 
 const CONTENT_TYPE_PATTERNS = {
@@ -206,18 +206,6 @@ const MEANINGFUL_VARIANT_PATTERNS = [
     /webisode/i
 ];
 
-// Episode and season detection patterns
-const EPISODE_SEASON_PATTERNS = [
-    /^s\d{1,2}$/i,              // S1, S01
-    /^season\s*\d{1,2}$/i,      // Season 1, Season 01
-    /^e\d{1,3}$/i,              // E1, E01, E001
-    /^episode\s*\d{1,3}$/i,     // Episode 1, Episode 01
-    /^s\d+e\d+$/i,              // S01E01, S1E1
-    /^\d+x\d+$/i,               // 1x01, 01x01
-    /^\d{1,3}$/,                // Just numbers: 1, 01, 001
-    /^[ivx]{1,5}$/i             // Roman numerals: I, II, III, IV, V
-];
-
 const FILE_EXTENSIONS = {
     video: ["3g2", "3gp", "avi", "flv", "mkv", "mk3d", "mov", "mp2", "mp4", "m4v", "mpe", "mpeg", "mpg", "mpv", "webm", "wmv", "ogm", "ts", "m2ts"],
     subtitle: ["aqt", "gsub", "jss", "sub", "ttxt", "pjs", "psb", "rt", "smi", "slt", "ssf", "srt", "ssa", "ass", "usf", "idx", "vtt"],
@@ -234,6 +222,7 @@ function extractQualityInfo(name) {
         score: 0
     };
     
+    // Patterns are ordered by priority - first match wins
     for (const pattern of QUALITY_PATTERNS) {
         if (pattern.pattern.test(name)) {
             quality.resolution = pattern.quality;
@@ -262,7 +251,7 @@ function extractQualityInfo(name) {
 }
 
 function extractQualityDisplay(name, fallbackInfo = null) {
-    // Primary: Check for resolution patterns in filename
+    // Patterns are ordered by priority - first match wins
     for (const pattern of QUALITY_PATTERNS) {
         if (pattern.pattern.test(name)) {
             return `${pattern.emoji} ${pattern.displayName}`;
@@ -304,6 +293,7 @@ function detectContentType(filename) {
 function extractLanguageFromFilename(filename) {
     if (!filename) return null;
 
+    // Patterns are ordered by priority - first match wins
     for (const { pattern, language } of LANGUAGE_PATTERNS) {
         if (pattern.test(filename)) {
             return language;
@@ -313,47 +303,29 @@ function extractLanguageFromFilename(filename) {
     return null;
 }
 
-function generateTechnicalPattern() {
-    const patterns = [];
+// Dynamic technical pattern generator - automatically builds comprehensive patterns
+// from all existing pattern categories
+function generateComprehensiveTechnicalPatterns() {
+    const allPatterns = new Set();
     
-    // Extract patterns from quality patterns
-    QUALITY_PATTERNS.forEach(p => {
-        const match = p.pattern.source.match(/\(([^)]+)\)/);
-        if (match) patterns.push(match[1]);
-    });
+    QUALITY_PATTERNS.forEach(p => allPatterns.add(p.pattern.source));
+    SOURCE_PATTERNS.forEach(p => allPatterns.add(p.pattern.source));
+    CODEC_PATTERNS.forEach(p => allPatterns.add(p.pattern.source));
+    AUDIO_PATTERNS.forEach(p => allPatterns.add(p.pattern.source));
+    LANGUAGE_PATTERNS.forEach(p => allPatterns.add(p.pattern.source));
+    COMPREHENSIVE_TECH_PATTERNS.forEach(item => allPatterns.add(item.pattern.source));
     
-    // Extract patterns from source patterns  
-    SOURCE_PATTERNS.forEach(p => {
-        const match = p.pattern.source.match(/\(([^)]+)\)/);
-        if (match) patterns.push(match[1]);
-    });
-    
-    // Extract patterns from codec patterns
-    CODEC_PATTERNS.forEach(p => {
-        const match = p.pattern.source.match(/\(([^)]+)\)/);
-        if (match) patterns.push(match[1]);
-    });
-    
-    // Extract patterns from audio patterns
-    AUDIO_PATTERNS.forEach(p => {
-        const match = p.pattern.source.match(/\(([^)]+)\)/);
-        if (match) patterns.push(match[1]);
-    });
-    
-    // Add file extensions
-    Object.values(FILE_EXTENSIONS).flat().forEach(ext => {
-        patterns.push(ext);
-    });
-    
-    // Combine all patterns
-    const combinedPattern = patterns.join('|');
-    return new RegExp(`\\b(${combinedPattern})\\b`, 'gi');
+    return Array.from(allPatterns)
+        .filter(pattern => pattern && pattern.trim() !== '' && pattern !== '(?:)')
+        .map(pattern => new RegExp(pattern, 'i'));
 }
+
+// Auto-generated comprehensive technical patterns
+const AUTO_TECHNICAL_PATTERNS = generateComprehensiveTechnicalPatterns();
 
 function isTechnicalTerm(text) {
     if (!text) return false;
-    const technicalPattern = generateTechnicalPattern();
-    return technicalPattern.test(text);
+    return AUTO_TECHNICAL_PATTERNS.some(pattern => pattern.test(text));
 }
 
 function isMeaningfulVariant(text) {
@@ -361,15 +333,8 @@ function isMeaningfulVariant(text) {
     return MEANINGFUL_VARIANT_PATTERNS.some(pattern => pattern.test(text));
 }
 
-function isEpisodeSeasonPattern(text) {
-    if (!text) return false;
-    return EPISODE_SEASON_PATTERNS.some(pattern => pattern.test(text.trim()));
-}
-
 /**
  * Check if filename has obvious episode indicators
- * @param {string} filename - Filename to check
- * @returns {boolean} True if obvious episode patterns found
  */
 function hasObviousEpisodeIndicators(filename) {
     if (!filename) return false;
@@ -395,12 +360,11 @@ export {
     CODEC_PATTERNS,
     LANGUAGE_PATTERNS,
     AUDIO_PATTERNS,
-    TECHNICAL_PATTERNS,
+    AUTO_TECHNICAL_PATTERNS,
     COMPREHENSIVE_TECH_PATTERNS,
     CONTENT_TYPE_PATTERNS,
     CLEANUP_PATTERNS,
     MEANINGFUL_VARIANT_PATTERNS,
-    EPISODE_SEASON_PATTERNS,
     FILE_EXTENSIONS,
     extractQualityInfo,
     extractQualityDisplay,
@@ -408,6 +372,5 @@ export {
     extractLanguageFromFilename,
     isTechnicalTerm,
     isMeaningfulVariant,
-    isEpisodeSeasonPattern,
     hasObviousEpisodeIndicators
 };

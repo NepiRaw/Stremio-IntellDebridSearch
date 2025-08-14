@@ -71,12 +71,13 @@ export function deduplicateStreams(streams) {
         const titleLines = stream.title.split('\n');
         const videoFileName = titleLines[0] || '';
         
+        const torrentId = stream.behaviorHints?.bingeGroup?.split('|')[1] || '';
         const qualityLine = stream.name.split('\n')[1] || '';
         const sizeLine = titleLines[titleLines.length - 1] || '';
         const sizeMatch = sizeLine.match(/(\d+\.?\d*\s*[KMGT]B)/);
         const size = sizeMatch ? sizeMatch[1] : '';
         
-        const uniqueKey = `${videoFileName}|${qualityLine}|${size}`.toLowerCase();
+        const uniqueKey = `${videoFileName}|${torrentId}|${qualityLine}|${size}`.toLowerCase();
         
         if (!seen.has(uniqueKey)) {
             seen.add(uniqueKey);

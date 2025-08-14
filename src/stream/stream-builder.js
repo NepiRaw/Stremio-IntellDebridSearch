@@ -147,7 +147,6 @@ export function toStreams(details, type, parsedMetadataOrKnownSeasonEpisode = nu
 function createSingleStream(details, video, type, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
     if (!video) return null;
     
-    // Validate essential video properties
     if (!video.name || !video.url) {
         return null;
     }
@@ -201,7 +200,8 @@ function extractBasicInfo(details, video) {
     return {
         containerName: details.containerName || details.name || 'Unknown',
         videoName: video.name || '',
-        size: formatSize(video?.size || 0)
+        size: formatSize(video?.size || 0),
+        matchedTerm: details.matchedTerm || null // Preserve the search term that matched this torrent
     };
 }
 
@@ -213,11 +213,6 @@ function extractBasicInfo(details, video) {
  * Cache key prefix for technical details to avoid conflicts with other cached data
  */
 const TECH_DETAILS_CACHE_PREFIX = 'tech_details_';
-
-/**
- * TTL for technical details cache (24 hours - they don't change often)
- * Longer than API cache since technical details are static for a given filename
- */
 const TECH_DETAILS_TTL = 24 * 3600; // 24 hours
 
 /**
@@ -279,10 +274,6 @@ function clearTechnicalDetailsCache() {
 
 /**
  * Detects variant information for series content
- * @param {Object} searchContext - Search context
- * @param {Object} seriesInfo - Series information
- * @param {string} containerName - Container name
- * @returns {Object|null} Detected variant information
  */
 function detectVariantForSeries(searchContext, seriesInfo, containerName) {
     const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false';
@@ -292,18 +283,15 @@ function detectVariantForSeries(searchContext, seriesInfo, containerName) {
     }
     
     return detectSimpleVariant(
+        seriesInfo.title,
         searchContext.searchTitle, 
         searchContext.alternativeTitles, 
-        containerName, 
         seriesInfo.episodeTitle || seriesInfo.episodeName
     );
 }
 
 /**
  * Formats season/episode identifier
- * @param {Object} knownSeasonEpisode - Known season/episode info
- * @param {Object} seriesInfo - Series information
- * @returns {string} Formatted season/episode (e.g., "S01E04")
  */
 function formatSeasonEpisode(knownSeasonEpisode, seriesInfo) {
     if (knownSeasonEpisode) {
@@ -314,9 +302,6 @@ function formatSeasonEpisode(knownSeasonEpisode, seriesInfo) {
 
 /**
  * Adds variant line if variant is detected
- * @param {Array} lines - Array of lines to add to
- * @param {Object} detectedVariant - Detected variant info
- * @param {Object} variantInfo - Provided variant info
  */
 function addVariantLine(lines, detectedVariant, variantInfo) {
     if (detectedVariant?.isVariant && detectedVariant.variantName) {
@@ -364,7 +349,7 @@ function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
  * @returns {string} Formatted series title
  */
 function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
-    const { containerName, videoName, size } = basicInfo;
+    const { containerName, videoName, size, matchedTerm } = basicInfo;
     const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
     const releaseGroup = parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName);
     
@@ -376,8 +361,9 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     // Line 1: Original video torrent name
     lines.push(`📁 ${videoName || containerName}`);
     
-    // Line 2: Clean series title
-    lines.push(seriesInfo.title);
+    // Line 2: Clean series title - prioritize matchedTerm over PTT-extracted title
+    const displayTitle = (matchedTerm && matchedTerm.trim()) ? matchedTerm : seriesInfo.title;
+    lines.push(displayTitle);
     
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, detectedVariant, variantInfo);
@@ -497,7 +483,7 @@ export function filterEpisode(torrentDetails, season, episode) {
         
         const videoSeason = video.info?.season;
         const videoEpisode = video.info?.episode;
-        
+
         if (season == videoSeason && episode == videoEpisode) {
             logger.debug(`[filterEpisode] ✅ Classic match: S${videoSeason}E${videoEpisode} matches S${season}E${episode}`);
             matches.push(video);

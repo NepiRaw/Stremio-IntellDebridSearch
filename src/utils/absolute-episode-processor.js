@@ -1,25 +1,16 @@
 /**
  * Centralized Absolute Episode Processing
  * Handles all absolute episode logic in one place
- * 
- * Design Philosophy:
- * - Trakt-first approach: Only use absolute episodes from Trakt API
- * - Post-processing: Apply AFTER standard parsing is complete
- * - Non-interfering: Does not affect standard season/episode parsing
- * - Simple matching: Only exact Trakt numbers, no pattern guessing
  */
 
 import { logger } from './logger.js';
+import { parseRomanSeasons } from './roman-numeral-utils.js';
 
 export class AbsoluteEpisodeProcessor {
     
     /**
      * Process absolute episode matching for torrents
      * Called AFTER standard parsing is complete
-     * 
-     * @param {Object} traktData - Absolute episode info from Trakt API
-     * @param {Array} torrentVideos - Array of video files from torrent
-     * @returns {Array} Enhanced video files with absolute episode matches
      */
     static processAbsoluteEpisodes(traktData, torrentVideos) {
         if (!traktData || !traktData.absoluteEpisode) {
@@ -71,17 +62,16 @@ export class AbsoluteEpisodeProcessor {
     
     /**
      * Check if a filename contains the Trakt absolute episode number
-     * Uses simple, reliable patterns for EXACT matching only
-     * Enhanced to be season-aware and avoid false positives
-     * 
-     * @param {string} filename - Video filename
-     * @param {number} absoluteEpisode - Trakt absolute episode number
-     * @returns {boolean} True if match found
      */
     static matchesAbsoluteEpisode(filename, absoluteEpisode) {
         if (!filename || !absoluteEpisode || typeof absoluteEpisode !== 'number') {
             return false;
         }
+        
+        // Check for roman numeral season context first
+        // If this file has roman numerals representing seasons, don't use absolute episode matching
+        const romanSeasonInfo = parseRomanSeasons(filename);
+        if (romanSeasonInfo) {return false;        }
         
         // Convert to string for pattern matching
         const episodeStr = absoluteEpisode.toString();
@@ -93,6 +83,13 @@ export class AbsoluteEpisodeProcessor {
         const seasonEpisodeMatch = filenameLower.match(/s(\d+)(?:e(\d+)|\s*-\s*(\d+))/);
         if (seasonEpisodeMatch) {
             return false; // Never match absolute episodes for files with explicit season/episode patterns
+        }
+        
+        // Check for "Season X" patterns where X would match the absolute episode number
+        // These are season indicators, not episode numbers, so should be excluded
+        const seasonIndicatorMatch = filenameLower.match(/\b(season|s)\s+(\d+)/);
+        if (seasonIndicatorMatch && parseInt(seasonIndicatorMatch[2]) === absoluteEpisode) {
+            return false; // Do not treat "Season 1" as absolute episode 1
         }
         
         // Original patterns for files without clear season/episode structure
@@ -125,10 +122,6 @@ export class AbsoluteEpisodeProcessor {
     /**
      * Validate that absolute episode processing is working correctly
      * Used for testing and debugging
-     * 
-     * @param {Object} traktData - Trakt data to validate
-     * @param {Array} results - Processing results
-     * @returns {Object} Validation report
      */
     static validateProcessing(traktData, results) {
         if (!traktData || !traktData.absoluteEpisode) {
@@ -155,9 +148,6 @@ export class AbsoluteEpisodeProcessor {
     /**
      * Get statistics about absolute episode processing
      * Useful for monitoring and debugging
-     * 
-     * @param {Array} processedVideos - Videos after processing
-     * @returns {Object} Processing statistics
      */
     static getProcessingStats(processedVideos) {
         const totalVideos = processedVideos.length;
@@ -177,10 +167,6 @@ export class AbsoluteEpisodeProcessor {
 /**
  * Utility function for backward compatibility
  * Processes absolute episodes for a single torrent result
- * 
- * @param {Object} torrentResult - Single torrent search result
- * @param {Object} traktData - Trakt absolute episode data
- * @returns {Object} Enhanced torrent result
  */
 export function processAbsoluteEpisodesForTorrent(torrentResult, traktData) {
     if (!torrentResult || !torrentResult.torrentDetails || !torrentResult.torrentDetails.videos) {
@@ -199,11 +185,6 @@ export function processAbsoluteEpisodesForTorrent(torrentResult, traktData) {
 
 /**
  * Utility function to check if a video file matches absolute episode criteria
- * Simplified interface for external use
- * 
- * @param {string} filename - Video filename to check
- * @param {number} absoluteEpisode - Absolute episode number from Trakt
- * @returns {boolean} True if filename matches absolute episode
  */
 export function isAbsoluteEpisodeMatch(filename, absoluteEpisode) {
     return AbsoluteEpisodeProcessor.matchesAbsoluteEpisode(filename, absoluteEpisode);

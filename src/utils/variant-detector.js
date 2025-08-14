@@ -3,9 +3,11 @@
  * Can be disabled from environment variable
  */
 
-import { TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, isTechnicalTerm, isMeaningfulVariant, isEpisodeSeasonPattern } from './media-patterns.js';
+import { AUTO_TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, isTechnicalTerm, isMeaningfulVariant } from './media-patterns.js';
+import { parseSeasonFromTitle, parseEpisodeFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
 import { romanToNumber } from './roman-numeral-utils.js';
 import { logger } from '../utils/logger.js';
+import { isKnownReleaseGroup } from './groups-util.js';
 
 /**
  * TextUtils Class - Consolidated text processing utilities
@@ -32,7 +34,7 @@ class TextUtils {
     }
 
     static normalizeTitle(title) {
-        if (!title) return '';
+        if (!title || typeof title !== 'string') return '';
         
         return title.toLowerCase()
             .replace(/[^\p{L}\p{N}\s]/gu, ' ')
@@ -43,18 +45,23 @@ class TextUtils {
     static containsEpisodePattern(text) {
         const lowerText = text.toLowerCase().trim();
         
-        if (/^\d{1,3}$/.test(lowerText)) {
+        if (/^\d{1,3}$/.test(lowerText)) { // Check for simple numbers (episode numbers)
             return true;
         }
         
-        if (/^[ivx]{1,5}$/.test(lowerText)) {
+        if (/^[ivx]{1,5}$/.test(lowerText)) { // Check for roman numerals
             const romanValue = romanToNumber(lowerText.toUpperCase());
             if (romanValue !== null && romanValue >= 1 && romanValue <= 10) {
                 return true;
             }
         }
         
-        return isEpisodeSeasonPattern(lowerText);
+        // Use episode/season parsing
+        const seasonInfo = parseSeasonFromTitle(lowerText);
+        const episodeInfo = parseEpisodeFromTitle(lowerText);
+        const absoluteEpisode = parseAbsoluteEpisode(lowerText);
+        
+        return seasonInfo !== null || episodeInfo !== null || absoluteEpisode !== null;
     }
 
     static cleanupText(text, options = {}) {
@@ -67,35 +74,41 @@ class TextUtils {
         let cleaned = text;
         const lowerText = cleaned.toLowerCase().trim();
 
-        // Check if the text contains meaningful descriptors
-        if (preserveMeaningfulVariants && isMeaningfulVariant(lowerText)) {
-            // Do minimal cleanup for meaningful variants
+        // Check if the text contains meaningful descriptors, else do cleanups
+        const hasMeaningfulVariant = isMeaningfulVariant(lowerText);
+
+        if (preserveMeaningfulVariants && hasMeaningfulVariant) {
             const words = cleaned.split(/\s+/);
-            const cleanedWords = words.filter(word => !isTechnicalTerm(word));
+            
+            const cleanedWords = words.filter(word => {
+                const isTech = isTechnicalTerm(word);
+                if (isTech) return false;
+                
+                const isReleaseGroup = isKnownReleaseGroup(word);
+                if (isReleaseGroup) return false;
+                
+                return true;
+            });
+            
             cleaned = cleanedWords.join(' ');
         } else {
-            // Apply comprehensive cleanup
             if (removeTechnicalTerms) {
-                // Remove technical patterns
-                for (const pattern of TECHNICAL_PATTERNS) {
+                for (const pattern of AUTO_TECHNICAL_PATTERNS) {
                     cleaned = cleaned.replace(pattern, '');
                 }
                 
-                // Remove comprehensive tech patterns
                 for (const techPattern of COMPREHENSIVE_TECH_PATTERNS) {
                     cleaned = cleaned.replace(techPattern.pattern, '');
                 }
             }
 
             if (removeFileExtensions) {
-                // Remove file extensions
                 for (const ext of Object.values(FILE_EXTENSIONS).flat()) {
                     const extPattern = new RegExp(`\\b${ext}\\b`, 'gi');
                     cleaned = cleaned.replace(extPattern, '');
                 }
             }
 
-            // Apply cleanup patterns
             cleaned = cleaned
                 .replace(CLEANUP_PATTERNS.qualityRemoval, '')
                 .replace(CLEANUP_PATTERNS.sourceRemoval, '')
@@ -110,25 +123,21 @@ class TextUtils {
         }
 
         // Final cleanup
-        return cleaned
+        const finalResult = cleaned
             .replace(/\b\d{3,4}x\d{3,4}\b/g, '') // Remove resolution patterns
             .replace(/\b\d{1,2}\b/g, '') // Remove episode numbers
             .replace(/\b(rip|dl)\b/gi, '') // Remove partial technical terms
             .replace(/\b(bd|web|hd|tv|dvd)\b/gi, '') // Remove source fragments
             .replace(/\s+/g, ' ') // Collapse spaces
             .trim();
+            
+        return finalResult;
     }
 
-    /**
-     * Remove episode suffix from title
-     */
     static removeEpisodeSuffix(title) {
         return title.replace(/\s+\d{1,3}$/, '').trim();
     }
 
-    /**
-     * Capitalize words in a string
-     */
     static capitalizeWords(text) {
         return text.split(' ')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -224,7 +233,6 @@ export function detectSimpleVariant(extractedTitle, searchTitle, alternativeTitl
                 
                 const trimmedVariant = variantPart.trim();
                 if (trimmedVariant && trimmedVariant.length > 1 && !/^\s*$/.test(trimmedVariant)) {
-                    logger.debug(`[detectSimpleVariant] Found variant: "${extractedTitle}" -> base: "${baseTitle}" -> variant part: "${variantPart}"`);
                     return { 
                         isVariant: true, 
                         variantName: TextUtils.capitalizeWords(trimmedVariant)
@@ -242,10 +250,60 @@ export function cleanupVariantName(variantPart) {
     
     const lowerVariant = cleaned.toLowerCase().trim();
     
+    // First, extract potentially meaningful content by preserving words before technical terms
+    let meaningfulParts = [];
+    const words = cleaned.split(/\s+/);
+    
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        const lowerWord = word.toLowerCase();
+        
+        // Check if this word starts a technical sequence (like "S01", "2017", etc.)
+        if (/^s\d+$/i.test(word) || /^\d{4}$/.test(word) || /^\d{1,2}x\d{1,2}$/i.test(word)) {
+            // Stop here - everything after this is likely technical
+            break;
+        }
+        
+        // Check if word is a pure technical term
+        if (isTechnicalTerm(word)) {
+            continue;
+        }
+        
+        // Check if word is a release group
+        if (isKnownReleaseGroup(word)) {
+            continue;
+        }
+        
+        meaningfulParts.push(word);
+    }
+    
+    // If we found meaningful parts, use them
+    if (meaningfulParts.length > 0) {
+        cleaned = meaningfulParts.join(' ');
+        
+        // Apply comprehensive text cleanup but preserve meaningful variants
+        cleaned = TextUtils.cleanupText(cleaned, {
+            preserveMeaningfulVariants: true,
+            removeFileExtensions: true,
+            removeTechnicalTerms: true
+        });
+        
+        // Additional cleanup for remaining technical terms
+        cleaned = cleaned
+            .replace(/\b(s\d+|season\s*\d+)\b/gi, '') // Remove season patterns
+            .replace(/\b\d{4}\b/g, '') // Remove years
+            .replace(/\b\d{1,2}x\d{1,2}\b/gi, '') // Remove episode patterns
+            .replace(/\s+/g, ' ')
+            .trim();
+        return cleaned;
+    }
+    
+    // Fallback: if no meaningful parts found, check if the whole thing is just episode patterns
     if (TextUtils.containsEpisodePattern(lowerVariant)) {
         return ''; 
     }
     
+    // Apply standard cleanup
     cleaned = TextUtils.cleanupText(cleaned, {
         preserveMeaningfulVariants: true,
         removeFileExtensions: true,

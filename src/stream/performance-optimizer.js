@@ -10,7 +10,6 @@ import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 
 //Cache for technical details extraction to avoid repeated pattern matching
 const TECHNICAL_DETAILS_CACHE = new Map();
-//Cache for parsed metadata to avoid repeated parsing operations
 const PARSING_CACHE = new Map();
 const CACHE_MAX_SIZE = 1000; // Limit cache size to prevent memory leaks
 
@@ -206,8 +205,7 @@ export async function formatSingleStreamData(streamData) {
         const { toStreamSingle } = await import('./stream-builder.js');
         
         const { details, type, knownSeasonEpisode, variantInfo, searchContext } = streamData;
-        
-        const stream = toStreamSingle(details, type, knownSeasonEpisode, variantInfo, searchContext);
+        const stream = toStreamSingle(details, type, null, knownSeasonEpisode, variantInfo, searchContext);
         
         return stream;
 

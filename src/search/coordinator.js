@@ -68,7 +68,7 @@ export async function coordinateSearch(params) {
     // ========== OPTIMIZED PROVIDER SEARCH (SINGLE FETCH + PRE-FILTER) ==========
     const providerImpl = providers[provider];
     if (!providerImpl) {
-        throw new Error(`Invalid provider: ${provider}`);
+        throw new Error(`Invalid provider or make sure you encoded the request: ${provider}`);
     }
 
     // Get ALL torrents once

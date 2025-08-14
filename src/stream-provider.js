@@ -3,7 +3,7 @@
  */
 import { coordinateSearch } from './search/coordinator.js';
 import { filterEpisode } from './stream/stream-builder.js';
-import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
+import { sortMovieStreamsByQuality } from './stream/quality-processor.js';
 import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
@@ -77,13 +77,15 @@ class StreamProvider {
 
             logger.debug(`[stream-provider] Search found ${searchResults?.length || 0} results for movie ${imdbId}`);
 
-            const seenTorrentIds = new Set();
+            // Deduplicate by exact name + size (allow multiple files from same torrent)
+            const seenFiles = new Set();
             const deduplicatedResults = searchResults.filter(result => {
-                if (seenTorrentIds.has(result.id)) {
-                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent ID: ${result.id} (${result.name?.substring(0, 50)}...)`);
+                const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
+                if (seenFiles.has(fileKey)) {
+                    logger.debug(`[stream-provider] ⚡ Skipping duplicate file: ${result.name?.substring(0, 50)}... (${result.size} bytes)`);
                     return false;
                 }
-                seenTorrentIds.add(result.id);
+                seenFiles.add(fileKey);
                 return true;
             });
 
@@ -209,14 +211,43 @@ class StreamProvider {
             const searchContext = searchResponse?.searchContext || null;
 
             logger.debug(`[stream-provider] Search found ${searchResults.length} results for series ${imdbId} S${season}E${episode}`);
+            
+            // Check for duplicate torrent IDs in search results
+            const torrentIdCounts = {};
+            searchResults.forEach(result => {
+                const id = result.id;
+                torrentIdCounts[id] = (torrentIdCounts[id] || 0) + 1;
+            });
+            
+            const duplicateIds = Object.entries(torrentIdCounts).filter(([id, count]) => count > 1);
+            if (duplicateIds.length > 0) {
+                logger.warn(`[stream-provider] 🔍 Found duplicate torrents in search results:`);
+                duplicateIds.forEach(([id, count]) => {
+                    logger.warn(`[stream-provider] 🔍 Torrent ${id}: appears ${count} times`);
+                });
+            }
 
-            const seenTorrentIds = new Set();
+            // Deduplicate by torrent ID first, then by name + size (prevent duplicate torrent processing)
+            const seenTorrents = new Set();
+            const seenFiles = new Set();
             const deduplicatedResults = searchResults.filter(result => {
-                if (seenTorrentIds.has(result.id)) {
-                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent ID: ${result.id} (${result.name?.substring(0, 50)}...)`);
+                const torrentId = result.id;
+                const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
+                
+                // First check if we've already processed this exact torrent
+                if (seenTorrents.has(torrentId)) {
+                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent: ${torrentId} (${result.name?.substring(0, 50)}...)`);
                     return false;
                 }
-                seenTorrentIds.add(result.id);
+                
+                // Then check for duplicate files (different torrents with same content)
+                if (seenFiles.has(fileKey)) {
+                    logger.debug(`[stream-provider] ⚡ Skipping duplicate file: ${result.name?.substring(0, 50)}... (${result.size} bytes)`);
+                    return false;
+                }
+                
+                seenTorrents.add(torrentId);
+                seenFiles.add(fileKey);
                 return true;
             });
 
@@ -282,16 +313,20 @@ class StreamProvider {
                         animeMapping: searchResponse.animeMapping
                     };
 
-                    const { formatSingleStreamData } = await import('./stream/performance-optimizer.js');
-                    const stream = await formatSingleStreamData(streamData);
+                    const { optimizedStreamCreation } = await import('./stream/stream-builder.js');
+                    const streams = optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
                     
                     // Add anime mapping annotation if applicable
-                    if (searchResponse.animeMapping && stream && stream.url) {
+                    if (searchResponse.animeMapping && streams && streams.length > 0) {
                         const mapping = searchResponse.animeMapping;
-                        stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
+                        streams.forEach(stream => {
+                            if (stream && stream.url) {
+                                stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
+                            }
+                        });
                     }
 
-                    return stream;
+                    return streams; // Return array of streams instead of single stream
 
                 } catch (error) {
                     logger.warn(`[stream-provider] Failed to build stream for ${result.id}: ${error.message}`);
@@ -299,7 +334,6 @@ class StreamProvider {
                 }
             });
 
-            // Execute with controlled concurrency
             const concurrencyLimit = config.ConcurrencyLimit || 6;
             logger.info(`[stream-provider] Processing ${streamTasks.length} streams with max ${concurrencyLimit} concurrent debrid API calls`);
             
@@ -307,7 +341,8 @@ class StreamProvider {
             
             const streams = streamResults
                 .filter(result => result.status === 'fulfilled' && result.value !== null)
-                .map(result => result.value);
+                .map(result => result.value)
+                .flat();
 
             const failedCount = streamResults.length - streams.length;
             if (failedCount > 0) {
@@ -319,8 +354,7 @@ class StreamProvider {
             const streamProcessingEnd = Date.now();
             logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
-            const deduplicatedStreams = deduplicateStreams(streams);
-            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
+            const sortedStreams = sortMovieStreamsByQuality(streams);
             
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
