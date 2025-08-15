@@ -2,7 +2,7 @@
  * Performance Optimize module for the stream builder 
  * Cache metadata and technical details,allowing faster fetch and build operations.
  */
-    
+
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
 import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
@@ -15,23 +15,37 @@ const TECHNICAL_CACHE_PREFIX = 'tech_details_';
 const PATTERN_CACHE_PREFIX = 'pattern_match_';
 
 // TTL configurations (in seconds)
-const METADATA_TTL = 3600;      // 1 hour for metadata (can be refined)
+const METADATA_TTL = 43200;     // 12 hour for metadata (can be refined)
 const TECHNICAL_TTL = 86400;    // 24 hours for technical details (static data)
 const PATTERN_TTL = 43200;      // 12 hours for pattern matches (static patterns)
 
 /**
- * Get or parse metadata using unified cache
+ * Get or parse metadata using multi-level cache
+ * Level 1: Exact cache (current behavior) 
+ * Level 2: Fuzzy cache (shared across similar episodes)
+ * Level 3: Parse and cache both exact and fuzzy
  */
 export function getOrParseMetadata(containerName, videoName, type = 'series') {
-    const cacheKey = `${METADATA_CACHE_PREFIX}${containerName}|${videoName}|${type}`;
+    // Level 1: Try exact cache
+    const exactKey = `${METADATA_CACHE_PREFIX}${containerName}|${videoName}|${type}`;
+    let cached = cache.get(exactKey);
     
-    const cached = cache.get(cacheKey);
     if (cached !== null) {
-        logger.debug(`[performance] Cache hit for metadata: ${videoName.substring(0, 30)}...`);
+        logger.debug(`[performance] Exact cache hit: ${videoName.substring(0, 30)}...`);
         return cached;
     }
     
-    logger.debug(`[performance] Cache miss - parsing metadata: ${videoName.substring(0, 30)}...`);
+    // Level 2: Try fuzzy cache
+    const fuzzyKey = createFuzzyKey(containerName, videoName, type);
+    cached = cache.get(fuzzyKey);
+    
+    if (cached !== null) {
+        logger.debug(`[performance] Fuzzy cache hit: ${videoName.substring(0, 30)}...`);
+        return adaptCachedMetadata(cached, videoName, containerName, type);
+    }
+    
+    // Level 3: Parse and cache both exact and fuzzy
+    logger.debug(`[performance] Cache miss - parsing: ${videoName.substring(0, 30)}...`);
     
     const metadata = {
         seriesInfo: type === 'series' ? extractSeriesInfo(videoName, containerName) : null,
@@ -40,10 +54,18 @@ export function getOrParseMetadata(containerName, videoName, type = 'series') {
         parsedAt: Date.now()
     };
     
-    cache.set(cacheKey, metadata, METADATA_TTL, {
-        type: 'metadata',
+    // Cache both exact and fuzzy versions
+    cache.set(exactKey, metadata, METADATA_TTL, {
+        type: 'metadata_exact',
         containerName: containerName.substring(0, 50),
         contentType: type
+    });
+    
+    cache.set(fuzzyKey, metadata, METADATA_TTL * 2, { // Longer TTL for shared cache
+        type: 'metadata_fuzzy',
+        containerName: containerName.substring(0, 50),
+        contentType: type,
+        sharedKey: true
     });
     
     return metadata;
@@ -238,26 +260,6 @@ export function clearPerformanceCaches() {
 }
 
 /**
- * Get performance statistics
- */
-export function getPerformanceStats() {
-    const cacheStats = cache.getStats();
-    const metadataEntries = cache.getByPattern(`^${METADATA_CACHE_PREFIX}`);
-    const technicalEntries = cache.getByPattern(`^${TECHNICAL_CACHE_PREFIX}`);
-    const patternEntries = cache.getByPattern(`^${PATTERN_CACHE_PREFIX}`);
-    
-    return {
-        unifiedCache: cacheStats,
-        performanceEntries: {
-            metadata: metadataEntries.length,
-            technical: technicalEntries.length,
-            pattern: patternEntries.length,
-            total: metadataEntries.length + technicalEntries.length + patternEntries.length
-        }
-    };
-}
-
-/**
  * Pre-compile patterns for better performance
  */
 export function preCompilePatterns(patterns) {
@@ -272,6 +274,100 @@ export function preCompilePatterns(patterns) {
     logger.debug(`[performance] Pre-compiled ${patterns.length} patterns in ${(endTime - startTime).toFixed(2)}ms`);
     
     return compiled;
+}
+
+import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from '../utils/episode-patterns.js';
+
+/**
+ * Create fuzzy cache key by removing episode-specific parts
+ */
+function createFuzzyKey(containerName, videoName, type) {
+    const normalized = normalizeFilename(containerName);
+    
+    const episodeInfo = parseEpisodeFromTitle(containerName);
+    const absoluteEpisode = parseAbsoluteEpisode(containerName);
+    
+    let episodeAgnostic = normalized;
+    
+    if (episodeInfo) {
+        const seasonPadded = String(episodeInfo.season).padStart(2, '0');
+        const episodePadded = String(episodeInfo.episode).padStart(2, '0');
+        
+        episodeAgnostic = episodeAgnostic
+            .replace(new RegExp(`s${seasonPadded}e${episodePadded}`, 'gi'), 's00e00')
+            .replace(new RegExp(`s${episodeInfo.season}e${episodeInfo.episode}`, 'gi'), 's00e00')
+            .replace(new RegExp(`${episodeInfo.season}x${episodePadded}`, 'gi'), '0x00')
+            .replace(new RegExp(`${episodeInfo.season}x${episodeInfo.episode}`, 'gi'), '0x00')
+            .replace(new RegExp(`season ${episodeInfo.season} episode ${episodeInfo.episode}`, 'gi'), 'season 0 episode 0');
+    } else if (absoluteEpisode) {
+        const absolutePadded = String(absoluteEpisode).padStart(3, '0');
+        episodeAgnostic = episodeAgnostic
+            .replace(new RegExp(`\\b${absoluteEpisode}\\b`, 'g'), '000')
+            .replace(new RegExp(`\\b${absolutePadded}\\b`, 'g'), '000')
+            .replace(new RegExp(`episode ${absoluteEpisode}`, 'gi'), 'episode 000')
+            .replace(new RegExp(`ep ${absoluteEpisode}`, 'gi'), 'ep 000');
+    } else {
+        episodeAgnostic = episodeAgnostic
+            .replace(/s\d+e\d+/gi, 's00e00')      // S01E01 → S00E00
+            .replace(/\d+x\d+/gi, '0x00')         // 1x01 → 0x00  
+            .replace(/episode?\s*\d+/gi, 'episode0') // Episode 1 → Episode0
+            .replace(/ep\s*\d+/gi, 'ep0')         // Ep 1 → Ep0
+            .replace(/\[\d+\]/gi, '[0]')          // [01] → [0]
+            .replace(/part\s*\d+/gi, 'part0');    // Part 1 → Part0
+    }
+    
+    return `${METADATA_CACHE_PREFIX}fuzzy_${episodeAgnostic}|${type}`;
+}
+
+/**
+ * Adapt cached metadata for current episode
+ */
+function adaptCachedMetadata(cachedMetadata, currentVideoName, currentContainerName, type) {
+    const adapted = JSON.parse(JSON.stringify(cachedMetadata));
+    
+    if (type === 'series' && adapted.seriesInfo) {
+        try {
+            const episodeInfo = parseEpisodeFromTitle(currentContainerName);
+            const absoluteEpisode = parseAbsoluteEpisode(currentContainerName);
+            
+            if (episodeInfo) {
+                adapted.seriesInfo.season = episodeInfo.season;
+                adapted.seriesInfo.episode = episodeInfo.episode;
+                adapted.seriesInfo.episodePattern = episodeInfo.pattern;
+                
+                if (currentVideoName) {
+                    const currentEpisodeInfo = extractSeriesInfo(currentVideoName, currentContainerName);
+                    if (currentEpisodeInfo?.episodeTitle) {
+                        adapted.seriesInfo.episodeTitle = currentEpisodeInfo.episodeTitle;
+                    }
+                }
+            } else if (absoluteEpisode) {
+                adapted.seriesInfo.absoluteEpisode = absoluteEpisode;
+                adapted.seriesInfo.season = adapted.seriesInfo.season || 1; 
+                adapted.seriesInfo.episode = null; 
+            }
+            
+        } catch (error) {
+            logger.debug(`[performance] Failed to adapt episode info using episode-patterns: ${error.message}`);
+            
+            try {
+                const currentEpisodeInfo = extractSeriesInfo(currentVideoName, currentContainerName);
+                if (currentEpisodeInfo) {
+                    adapted.seriesInfo.episode = currentEpisodeInfo.episode;
+                    adapted.seriesInfo.episodeTitle = currentEpisodeInfo.episodeTitle;
+                    adapted.seriesInfo.absoluteEpisode = currentEpisodeInfo.absoluteEpisode;
+                }
+            } catch (fallbackError) {
+                logger.debug(`[performance] Fallback adaptation also failed: ${fallbackError.message}`);
+            }
+        }
+    }
+    
+    adapted.adaptedAt = Date.now();
+    adapted.originalParsedAt = adapted.parsedAt;
+    adapted.cacheSource = 'fuzzy_adapted';
+    
+    return adapted;
 }
 
 /**
