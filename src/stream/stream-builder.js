@@ -92,7 +92,26 @@ export function toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode
         video = details;
     } else {
         icon = '💾';
-        video = details.videos?.[0];
+        
+        // For series content with episode filtering, apply pattern priority sorting
+        if (type === 'series' && finalKnownSeasonEpisode?.season && finalKnownSeasonEpisode?.episode) {
+            const season = finalKnownSeasonEpisode.season;
+            const episode = finalKnownSeasonEpisode.episode;
+            
+            // Apply episode filtering with pattern priority sorting
+            const filteredResult = filterEpisode(details, season, episode);
+            if (filteredResult && details.videos?.length > 0) {
+                video = details.videos[0]; // filterEpisode sorts videos by priority, so take first
+                logger.debug(`[toStreamSingle] Selected video after pattern priority filtering: "${video.name}"`);
+            } else {
+                logger.debug(`[toStreamSingle] No episode matches found, falling back to first video`);
+                video = details.videos?.[0];
+            }
+        } else {
+            // For non-series or when no episode info, use first video
+            video = details.videos?.[0];
+        }
+        
         if (!video) {
             logger.debug(`[toStreamSingle] No video found in torrent details`);
             return null;
@@ -515,13 +534,30 @@ export function filterEpisode(torrentDetails, season, episode) {
     });
     
     if (matches.length > 0) {
-        const absoluteMatches = matches.filter(v => v.isAbsoluteMatch).length;
-        const classicMatches = matches.length - absoluteMatches;
+        // Sort matches by pattern priority: classic patterns before absolute/converted patterns
+        if (matches.length > 1) {
+            matches.sort((a, b) => {
+                const aNative = !a.isAbsoluteMatch && !a.info?.traktMapped;
+                const bNative = !b.isAbsoluteMatch && !b.info?.traktMapped;
+                
+                if (aNative !== bNative) {
+                    return aNative ? -1 : 1; // Native classic patterns first
+                }
+                return (a.isAbsoluteMatch ? 1 : 0) - (b.isAbsoluteMatch ? 1 : 0);
+            });
+            logger.debug(`[filterEpisode] 🔄 Sorted ${matches.length} matches by pattern priority (native classic first, then converted absolute)`);
+        }
         
-        if (absoluteMatches > 0 && classicMatches > 0) {
-            logger.debug(`[filterEpisode] ✅ Combined matches: ${classicMatches} classic + ${absoluteMatches} absolute = ${matches.length} total`);
-        } else if (classicMatches > 0) {
-            logger.debug(`[filterEpisode] ✅ Using ${classicMatches} classic matches only`);
+        const absoluteMatches = matches.filter(v => v.isAbsoluteMatch).length;
+        const traktMappedMatches = matches.filter(v => v.info?.traktMapped).length;
+        const nativeClassicMatches = matches.filter(v => !v.isAbsoluteMatch && !v.info?.traktMapped).length;
+        
+        if (nativeClassicMatches > 0 && (absoluteMatches > 0 || traktMappedMatches > 0)) {
+            logger.debug(`[filterEpisode] ✅ Mixed matches: ${nativeClassicMatches} native classic + ${traktMappedMatches} Trakt converted + ${absoluteMatches} absolute = ${matches.length} total`);
+        } else if (nativeClassicMatches > 0) {
+            logger.debug(`[filterEpisode] ✅ Using ${nativeClassicMatches} native classic matches only`);
+        } else if (traktMappedMatches > 0) {
+            logger.debug(`[filterEpisode] ✅ Using ${traktMappedMatches} Trakt-converted matches only`);
         } else {
             logger.debug(`[filterEpisode] ✅ Using ${absoluteMatches} absolute matches only`);
         }

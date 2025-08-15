@@ -120,44 +120,54 @@ class RealDebridProvider extends BaseProvider {
     }
 
     async fetchTorrentsParallel(RD, pageSize) {
-        const firstResp = await RD.torrents.get(0, 1, pageSize);
-        const firstPage = firstResp.data;
-        const total = firstResp.meta?.total || firstPage.length;
-        const totalPages = Math.ceil(total / pageSize);
-        
-        if (totalPages <= 1) return firstPage;
+        try {
+            const firstResp = await RD.torrents.get(0, 1, pageSize);
+            const firstPage = firstResp.data || [];
+            const total = firstResp.meta?.total || firstPage.length;
+            const totalPages = Math.ceil(total / pageSize);
+            
+            if (totalPages <= 1) return firstPage;
 
-        const pagePromises = [];
-        for (let p = 2; p <= totalPages; p++) {
-            pagePromises.push(
-                RD.torrents.get(0, p, pageSize).then(resp => resp.data)
-            );
+            const pagePromises = [];
+            for (let p = 2; p <= totalPages; p++) {
+                pagePromises.push(
+                    RD.torrents.get(0, p, pageSize).then(resp => resp.data || [])
+                );
+            }
+            
+            const otherPages = await Promise.all(pagePromises);
+            return firstPage.concat(...otherPages);
+        } catch (error) {
+            this.log('warn', 'fetchTorrentsParallel failed:', error);
+            return [];  // Return empty array on failure
         }
-        
-        const otherPages = await Promise.all(pagePromises);
-        return firstPage.concat(...otherPages);
     }
 
     async fetchDownloadsParallel(RD, pageSize) {
-        const firstResp = await RD.downloads.get(0, 1, pageSize);
-        const firstPage = firstResp.data;
-        const total = firstResp.meta?.total || firstPage.length;
-        const totalPages = Math.ceil(total / pageSize);
-        
-        if (totalPages <= 1) {
-            return firstPage.filter(f => f.host !== 'real-debrid.com');
-        }
+        try {
+            const firstResp = await RD.downloads.get(0, 1, pageSize);
+            const firstPage = firstResp.data || [];
+            const total = firstResp.meta?.total || firstPage.length;
+            const totalPages = Math.ceil(total / pageSize);
+            
+            if (totalPages <= 1) {
+                return firstPage.filter(f => f.host !== 'real-debrid.com');
+            }
 
-        const pagePromises = [];
-        for (let p = 2; p <= totalPages; p++) {
-            pagePromises.push(
-                RD.downloads.get(0, p, pageSize).then(resp => resp.data)
-            );
+            const pagePromises = [];
+            for (let p = 2; p <= totalPages; p++) {
+                pagePromises.push(
+                    RD.downloads.get(0, p, pageSize).then(resp => resp.data || [])
+                );
+            }
+            
+            const otherPages = await Promise.all(pagePromises);
+            const allFiles = firstPage.concat(...otherPages);
+            return allFiles.filter(f => f.host !== 'real-debrid.com');
+        } catch (error) {
+            this.log('warn', 'fetchDownloadsParallel failed:', error);
+            return [];  // Return empty array on failure
         }
-        
-        const otherPages = await Promise.all(pagePromises);
-        const allFiles = firstPage.concat(...otherPages);
-        return allFiles.filter(f => f.host !== 'real-debrid.com');
     }
 
     async bulkGetTorrentDetails(apiKey, ids) {

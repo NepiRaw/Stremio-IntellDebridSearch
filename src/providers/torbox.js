@@ -140,24 +140,34 @@ class TorBoxProvider extends BaseProvider {
         });
         let offset = (page - 1) * pageSize
 
-        if (fileType == FILE_TYPES.TORRENTS) {
-            return torboxApi.torrents
-                .getTorrentList(API_VERSION, {
-                    bypassCache: true,
-                    offset,
-                    limit: pageSize
-                })
-                .then(res => res.data)
-                .then(res => {
-                    if (res.success) {
-                        return res.data
-                    }
-                })
-                .then(files => files.filter(f => f.download_finished && f.download_present))
-                .catch(err => this.handleError(err))
-        } else if (fileType == FILE_TYPES.DOWNLOADS) {
-            // Todo: Web hoster downloads functionality
+        try {
+            if (fileType == FILE_TYPES.TORRENTS) {
+                return torboxApi.torrents
+                    .getTorrentList(API_VERSION, {
+                        bypassCache: true,
+                        offset,
+                        limit: pageSize
+                    })
+                    .then(res => res.data)
+                    .then(res => {
+                        if (res.success) {
+                            return res.data || []
+                        }
+                        return []
+                    })
+                    .then(files => files.filter(f => f.download_finished && f.download_present))
+                    .catch(err => {
+                        this.handleError(err)
+                        return []  // Return empty array on error
+                    })
+            } else if (fileType == FILE_TYPES.DOWNLOADS) {
+                // Todo: Web hoster downloads functionality
+                return []
+            }
             return []
+        } catch (error) {
+            logger.warn('TorBox listFilesParallel failed:', error);
+            return [];  // Return empty array on failure
         }
     }
 

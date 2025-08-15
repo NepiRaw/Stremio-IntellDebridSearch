@@ -1,8 +1,22 @@
 import packageInfo from "../../package.json" with { type: "json" };
 
+// Provider name mapping to short codes
+const PROVIDER_SHORT_NAMES = {
+    'AllDebrid': 'AD',
+    'RealDebrid': 'RD', 
+    'Torbox': 'TB',
+    'DebridLink': 'DL',
+    'Premiumize': 'PM'
+};
+
+function getProviderShortName(providerName) {
+    return PROVIDER_SHORT_NAMES[providerName] || providerName;
+}
+
 function getManifest(config = {}) {
     const providerName = config.DebridProvider || '';
-    const dynamicName = providerName ? `Intelligent Debrid Search (${providerName})` : "Intelligent Debrid Search";
+    const shortProviderName = getProviderShortName(providerName);
+    const dynamicName = providerName ? `Intelligent Debrid Search (${shortProviderName})` : "Intelligent Debrid Search";
     const dynamicDescription = providerName 
         ? `A smarter Stremio add-on to search downloads and torrents in your Debrid cloud (${providerName}).`
         : packageInfo.description;

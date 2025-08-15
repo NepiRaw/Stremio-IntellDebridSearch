@@ -4,6 +4,7 @@
 
 import { logger } from '../utils/logger.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
+import { FILE_TYPES } from '../stream/metadata-extractor.js';
 
 /**
  * Centralized Configuration Manager
@@ -49,12 +50,7 @@ class ConfigurationManager {
         return this._apiConfigCache;
     }
 
-    initializeProviderConfigs() {
-        const FILE_TYPES = Object.freeze({
-            TORRENTS: Symbol("torrents"),
-            DOWNLOADS: Symbol("downloads")
-        });
-        
+    initializeProviderConfigs() {        
         return {
             AllDebrid: {
                 bulkMethod: 'listTorrentsParallel',

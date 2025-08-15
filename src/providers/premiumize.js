@@ -34,17 +34,22 @@ class PremiumizeProvider extends BaseProvider {
      */
     async listFiles(apiKey, skip = 0) {
         return this.makeApiCall(async () => {
-            const PM = new PremiumizeClient(apiKey);
-            const response = await PM.item.listAll();
-            
-            this.validateApiResponse(response, ['status']);
-            
-            if (response.status === 'success') {
-                this.log('debug', `Retrieved ${response.files.length} files`);
-                return response.files || [];
+            try {
+                const PM = new PremiumizeClient(apiKey);
+                const response = await PM.item.listAll();
+                
+                this.validateApiResponse(response, ['status']);
+                
+                if (response.status === 'success') {
+                    this.log('debug', `Retrieved ${response.files?.length || 0} files`);
+                    return response.files || [];
+                }
+                
+                return [];
+            } catch (error) {
+                this.log('warn', 'Premiumize listFiles failed:', error);
+                return [];  // Return empty array on failure
             }
-            
-            return [];
         }, 3, 'listFiles');
     }
 

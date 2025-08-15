@@ -39,7 +39,8 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
             result = await bulkMethod.call(providerImpl, apiKey);
         }
         
-        const normalizedTorrents = result.map(config.dataMapper);
+        const safeResult = Array.isArray(result) ? result : [];
+        const normalizedTorrents = safeResult.map(config.dataMapper);
         
         logger.info(`[provider-search] Retrieved ${normalizedTorrents.length} total torrents from ${provider}`);
         return normalizedTorrents;

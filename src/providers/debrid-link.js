@@ -47,40 +47,52 @@ class DebridLinkProvider extends BaseProvider {
     }
 
     async listTorrentsParallel(apiKey) {
-        const DL = new DebridLinkClient(apiKey)
-        const idParent = 'seedbox'
-        let torrents = []
-        let promises = []
+        try {
+            const DL = new DebridLinkClient(apiKey)
+            const idParent = 'seedbox'
+            let torrents = []
+            let promises = []
 
-        let nextPage = 0
-        let totalPages = 0
-        await DL.files.list(idParent)
-            .then(result => {
-                if (result.success) {
-                    torrents = torrents.concat(result.value)
-                    totalPages = Math.min(10, result.pagination.pages)
-                    nextPage = result.pagination.next
-                }
-            })
-            .catch(err => this.handleError(err))
+            let nextPage = 0
+            let totalPages = 0
+            await DL.files.list(idParent)
+                .then(result => {
+                    if (result.success) {
+                        torrents = torrents.concat(result.value || [])
+                        totalPages = Math.min(10, result.pagination.pages)
+                        nextPage = result.pagination.next
+                    }
+                })
+                .catch(err => {
+                    this.handleError(err)
+                    return []
+                })
 
-        while (nextPage != -1 && nextPage < totalPages) {
-            promises.push(
-                DL.files.list(idParent, nextPage)
-                    .then(result => {
-                        if (result.success) {
-                            torrents = torrents.concat(result.value)
-                        }
-                    })
-                    .catch(err => this.handleError(err))
-            )
-            nextPage = nextPage + 1
+            while (nextPage != -1 && nextPage < totalPages) {
+                promises.push(
+                    DL.files.list(idParent, nextPage)
+                        .then(result => {
+                            if (result.success) {
+                                torrents = torrents.concat(result.value || [])
+                            }
+                        })
+                        .catch(err => {
+                            this.handleError(err)
+                        })
+                )
+                nextPage = nextPage + 1
+            }
+
+            await Promise.all(promises)
+                .catch(err => {
+                    this.handleError(err)
+                })
+
+            return torrents || []
+        } catch (error) {
+            logger.warn('DebridLink listTorrentsParallel failed:', error);
+            return [];  // Return empty array on failure
         }
-
-        await Promise.all(promises)
-            .catch(err => this.handleError(err))
-
-        return torrents
     }
 
     async getTorrentDetails(apiKey, ids) {
