@@ -195,7 +195,7 @@ export async function coordinateSearch(params) {
                 if (episodeMapping) {
                     logger.info(`[coordinator] Anime mapping found using "${successfulTitle}": S${season}E${episode} → S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
                     
-                    // OPTIMIZATION: Instead of full recursive search, reuse existing data and only re-analyze
+                    // Instead of full recursive search, reuse existing data and only re-analyze
                     logger.info('[coordinator] Optimized anime retry: Re-analyzing existing torrents with new season/episode');
                     
                     // Re-analyze the same torrents we already found with the new season/episode

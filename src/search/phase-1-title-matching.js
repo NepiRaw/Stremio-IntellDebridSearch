@@ -55,7 +55,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
     const titleMatches = [];
     const seenMatches = new Set(); // Track duplicates by original name
 
-    // PARALLEL OPTIMIZATION: Run all search terms in parallel instead of sequentially
     logger.info(`[phase-1] Starting parallel search for ${uniqueSearchTerms.length} terms`);
     const startTime = Date.now();
     

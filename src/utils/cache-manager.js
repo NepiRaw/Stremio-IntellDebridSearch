@@ -1,6 +1,24 @@
 /**
- * Enhanced Cache Management System
- * Only caches TMDb and Trakt API responses, not debrid provider data
+ * Unified Cache Management System
+ * 
+ * Cached Data Types:
+ * ==================
+ * 
+ * 🎬 API RESPONSES:
+ * - TMDb alternative titles (24h TTL) - Country-specific title variations
+ * - TMDb search results (6h TTL) - Movie/series search lookups  
+ * - Trakt episode mappings (24h TTL) - Season/episode to absolute episode conversion
+ * - Trakt show information (24h TTL) - Series metadata and details
+ * - Jikan anime season data (24h TTL) - Anime season information from MyAnimeList
+ * - Cinemeta metadata (1h TTL) - Basic content metadata from Stremio's catalog
+ * 
+ * 🔧 PERFORMANCE OPTIMIZATION:
+ * - Stream metadata (12h TTL) - Extracted series/movie info for stream building
+ * - Stream metadata fuzzy cache (24h TTL) - Shared metadata across similar episodes
+ * - Technical details (24h TTL) - Video quality, codecs, file specifications
+ * - Pattern matching results (12h TTL) - Regex pattern evaluation outcomes
+ * - Torrent parser results (in-memory) - Parsed torrent name information
+ * 
  */
 
 class UnifiedCacheManager {

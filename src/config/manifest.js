@@ -1,7 +1,6 @@
 import packageInfo from "../../package.json" with { type: "json" };
 
 function getManifest(config = {}) {
-    // Dynamic name and description based on debrid provider
     const providerName = config.DebridProvider || '';
     const dynamicName = providerName ? `Intelligent Debrid Search (${providerName})` : "Intelligent Debrid Search";
     const dynamicDescription = providerName 
@@ -9,7 +8,7 @@ function getManifest(config = {}) {
         : packageInfo.description;
     
     const manifest = {
-        id: "community.stremio.debrid-search",
+        id: "community.stremio.intell-debrid-search",
         version: packageInfo.version,
         name: dynamicName,
         description: dynamicDescription,

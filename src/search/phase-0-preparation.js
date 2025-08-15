@@ -61,7 +61,6 @@ export async function prepareSearchTerms(params) {
         const duration = Date.now() - startTime;
         logger.info(`[phase-0] ⚡ Parallel API calls completed in ${duration}ms`);
         
-        // Log results
         if (absoluteEpisode) {
             if (absoluteEpisode.absoluteEpisode != null) {
                 logger.info(`[phase-0] ✅ Found absolute episode: ${absoluteEpisode.absoluteEpisode} (${absoluteEpisode.title || 'No title'})`);

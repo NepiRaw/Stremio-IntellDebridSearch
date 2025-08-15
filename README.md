@@ -168,6 +168,7 @@ npm start
 | `TMDB_API_KEY`          | ❌ Recommended      | (empty)           | TMDb API key for enhanced title matching (optional, get from themoviedb.org)                  |
 | `VARIANT_SYSTEM_ENABLED`| ❌       | true             | True/False - Enables detection of content variants (Directors Cut, Extended Edition, OVA, title variants, etc.)                 |
 | `ENABLE_MULTI_STREAM_PER_TORRENT`| ❌       | false            | True/False - Controls stream processing mode. When false (default): single stream per torrent (ultra-fast). When true: multiple streams per torrent (comprehensive but slower) |
+| `ENABLE_RELEASE_GROUP`  | ❌       | false            | True/False - Controls release group extraction and display. When true: shows release group info (e.g. "👥 [RARBG]"). When false (default): skips release group processing for better performance |
 | `BASE_URL`              | ❌       | http://localhost  | Base URL for the addon (optional, used for deployment)                                        |
 | `PORT`                  | ❌       | 3001              | Server port (optional)                                                                        |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
@@ -192,15 +193,8 @@ npm start
 - You can find and manually add the torrent/link into your Debrid account and if it matches the movie/series IMDB name, DebridSearch would show it as a stream.
 - You can also use [Debrid Media Manager](https://debridmediamanager.com) on supported Debrid services
 
-**Q3. Getting the error "The add-on providing this item has been removed" when trying to play content from the discover page?**
-- Items in catalog/discover page of DebridSearch need Torrentio catalog option to be enabled to work. Stream links shown in movie/show details page don't need Torrentio
-
----
-
-## 🌟 Future Enhancements
-
-- [ ] Improved performance
-- [ ] Improved caching
+**Q3. Why am I not seeing the correct episode or movie?**
+- The addon has many ways to find the correct movie or episode from your debrid provider, however, it may not always succeed due to variations in torrent naming, metadata, or content availability. Ensure that your Debrid account has the correct content added and a clear naming (title name, clear episode or season, ...).
 
 ---
 

@@ -75,11 +75,8 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
 
 /**
  * Enhanced absolute episode number extraction from filename
- * @param {string} filename - The filename to parse
- * @returns {number|null} - Absolute episode number or null
  */
 export function extractAbsoluteEpisode(filename) {
-    // Use unified parser implementation for consistency
     return extractAbsoluteEpisodeLegacy(filename);
 }
 

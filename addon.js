@@ -2,8 +2,8 @@ import { addonBuilder } from "stremio-addon-sdk"
 import StreamProvider from './src/stream-provider.js'
 import CatalogProvider from './src/catalog-provider.js'
 import { getManifest } from './src/config/manifest.js'
-
 import { logger } from './src/utils/logger.js';
+
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
 const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
 
@@ -16,7 +16,6 @@ builder.defineCatalogHandler((args) => {
             debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
         logger.info("Request for catalog with args: " + JSON.stringify(debugArgs))
 
-        // Request to Debrid Search
         if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
             if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
                 reject(new Error('Invalid Debrid configuration: Missing configs'))

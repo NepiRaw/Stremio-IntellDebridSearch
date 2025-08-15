@@ -203,7 +203,9 @@ const MEANINGFUL_VARIANT_PATTERNS = [
     /recap/i,
     /complete\s*series/i,
     /miniseries/i,
-    /webisode/i
+    /webisode/i,
+    /behind\s*the\s*scenes?/i,
+    /making\s*of/i
 ];
 
 const FILE_EXTENSIONS = {

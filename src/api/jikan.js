@@ -1,49 +1,132 @@
 ﻿/**
- * Jikan API client for anime season information - Rate limited but no API key needed
- * Could be replaced by TVDB if desired
+ * Enhanced Jikan API client with UnifiedCacheManager integration
+ * Rate limited API with enterprise-grade caching and cleanup redundancy
  */
 
 import { logger } from '../utils/logger.js';
-
-// Simple in-memory cache for anime season info to avoid repeated API calls
-const animeSeasonCache = new Map();
-const CACHE_DURATION = 120 * 60 * 1000; // 120 minutes
+import cache from '../utils/cache-manager.js'; // UnifiedCacheManager instance
+import { errorManager } from '../utils/error-handler.js';
 
 /**
- * Fetch anime season information from MyAnimeList via Jikan API
- * @param {string} titleQuery - The anime title to search for
- * @returns {Promise<Array>} - Array of anime seasons with episode counts and season numbers
+ * Rate Limiter for Jikan API (3 requests/second max)
+ */
+class JikanRateLimiter {
+    constructor() {
+        this.lastRequestTime = 0;
+        this.minInterval = 334; // 1000ms / 3 requests = 334ms minimum
+        this.retryDelay = 600; // Retry delay for rate limits (ms)
+    }
+
+    async waitForNextRequest() {
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        
+        if (timeSinceLastRequest < this.minInterval) {
+            const waitTime = this.minInterval - timeSinceLastRequest;
+            logger.debug(`[jikan-rate-limiter] Waiting ${waitTime}ms before next request`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        this.lastRequestTime = Date.now();
+    }
+
+    async handleRateLimit(retryFunction) {
+        logger.warn(`[jikan-rate-limiter] ⚠️ Rate limited (HTTP 429), waiting ${this.retryDelay}ms and retrying...`);
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+        return await retryFunction();
+    }
+
+    getStats() {
+        return {
+            minInterval: this.minInterval,
+            retryDelay: this.retryDelay,
+            lastRequestTime: this.lastRequestTime
+        };
+    }
+}
+
+const rateLimiter = new JikanRateLimiter();
+
+/**
+ * Helper function to parse anime aired dates
+ */
+function parseAnimeAiredDate(anime) {
+    const dateObj = anime.aired?.prop?.from;
+    if (!dateObj?.year || !dateObj?.month || !dateObj?.day) {
+        return null;
+    }
+    
+    const month = dateObj.month.toString().padStart(2, '0');
+    const day = dateObj.day.toString().padStart(2, '0');
+    return `${dateObj.year}-${month}-${day}`;
+}
+
+/**
+ * Fetch wrapper with unified error handling
+ */
+async function fetchJikanData(url, description = 'anime data') {
+    await rateLimiter.waitForNextRequest();
+    
+    try {
+        logger.debug(`[jikan-api] Fetching ${description} from: ${url}`);
+        
+        const response = await fetch(url, {
+            headers: { Accept: 'application/json' }
+        });
+        
+        if (!response.ok) {
+            if (response.status === 429) {
+                // Rate limit retry - delegate to rate limiter
+                return await rateLimiter.handleRateLimit(async () => {
+                    const retryResponse = await fetch(url, {
+                        headers: { Accept: 'application/json' }
+                    });
+                    
+                    if (!retryResponse.ok) {
+                        throw new Error(`Retry failed: HTTP ${retryResponse.status}`);
+                    }
+                    
+                    return await retryResponse.json();
+                });
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        }
+        
+        return await response.json();
+    } catch (error) {
+        logger.warn(`[jikan-api] Failed to fetch ${description}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * Enhanced fetchAnimeSeasonInfo with UnifiedCacheManager integration
+ * 24-hour cache TTL with automatic cleanup
  */
 export async function fetchAnimeSeasonInfo(titleQuery) {
     if (!titleQuery || typeof titleQuery !== 'string') {
         return [];
     }
 
-    // Check cache first
-    const cacheKey = titleQuery.toLowerCase().trim();
-    const cached = animeSeasonCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-        logger.debug(`[anime-search] Using cached data for: ${titleQuery}`);
-        return cached.data;
+    // Use UnifiedCacheManager with 24-hour TTL (86400 seconds)
+    const cacheKey = `jikan:anime_season:${titleQuery.toLowerCase().trim()}`;
+    
+    // Check UnifiedCacheManager first
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        logger.debug(`[jikan-api] 💾 Cache:HIT for anime season: ${titleQuery}`);
+        return cached;
     }
+    
+    logger.debug(`[jikan-api] 🔍 Cache:MISS - fetching anime season info for: ${titleQuery}`);
 
     try {
-        logger.debug(`[anime-search] Fetching anime info for: ${titleQuery}`);
-        
-        // Fetch initial search results
+        // Phase 1: Search for anime
         const searchUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(titleQuery)}&limit=10`;
-        const searchResponse = await fetch(searchUrl, {
-            headers: { Accept: 'application/json' }
-        });
+        const searchData = await fetchJikanData(searchUrl, `anime search for "${titleQuery}"`);
         
-        if (!searchResponse.ok) {
-            logger.warn(`[anime-search] Search failed: ${searchResponse.status}`);
-            return [];
-        }
-        
-        const searchData = await searchResponse.json();
-        
-        // Select relevant entries (TV + Special)
+        // Filter relevant entries (TV + Special)
         const entries = searchData.data?.filter(entry => {
             return ['TV', 'Special'].includes(entry.type) &&
                    entry.titles?.some(title => 
@@ -52,111 +135,39 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         }) || [];
         
         if (entries.length === 0) {
-            logger.debug(`[anime-search] No matching anime found for: ${titleQuery}`);
+            logger.debug(`[jikan-api] No matching anime found for: ${titleQuery}`);
+            
+            // Cache empty result for 24 hours to avoid repeated API calls
+            cache.set(cacheKey, [], 86400, { 
+                type: 'anime_season',
+                query: titleQuery,
+                resultCount: 0 
+            });
             return [];
         }
         
-        // Get unique MAL IDs
+        // Phase 2: Fetch detailed info for each unique MAL ID
         const malIds = [...new Set(entries.map(entry => entry.mal_id))];
-        logger.debug(`[anime-search] Found ${malIds.length} unique anime entries`);
+        logger.debug(`[jikan-api] Found ${malIds.length} unique anime entries`);
         
-        // Fetch detailed info for each MAL ID with proper rate limiting
         const animeList = [];
         let successfulFetches = 0;
-        let lastRequestTime = 0;
-        
-        // Rate limiting: Max 3 requests per second (1000ms / 3 = 334ms minimum between requests)
-        const MIN_REQUEST_INTERVAL = 334; // milliseconds
         
         for (let i = 0; i < malIds.length; i++) {
             const malId = malIds[i];
             
             try {
-                // Ensure proper rate limiting - wait at least 334ms between requests
-                const now = Date.now();
-                const timeSinceLastRequest = now - lastRequestTime;
-                
-                if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-                    const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-                    logger.debug(`[anime-search] Rate limiting: waiting ${waitTime}ms before next request`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                }
-                
-                lastRequestTime = Date.now();
-                logger.debug(`[anime-search] Fetching details for MAL ID ${malId} (${i + 1}/${malIds.length})`);
-                
                 const detailUrl = `https://api.jikan.moe/v4/anime/${malId}`;
-                const detailResponse = await fetch(detailUrl, {
-                    headers: { Accept: 'application/json' }
-                });
+                const detailData = await fetchJikanData(detailUrl, `details for MAL ID ${malId} (${i + 1}/${malIds.length})`);
                 
-                if (!detailResponse.ok) {
-                    if (detailResponse.status === 429) {
-                        logger.warn(`[anime-search] ⚠️  Rate limited (HTTP 429) for MAL ID ${malId}, waiting 1 second and retrying...`);
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        
-                        // Retry once after rate limit
-                        const retryResponse = await fetch(detailUrl, {
-                            headers: { Accept: 'application/json' }
-                        });
-                        
-                        if (!retryResponse.ok) {
-                            logger.warn(`[anime-search] Retry failed for MAL ID ${malId}: HTTP ${retryResponse.status}`);
-                            continue;
-                        }
-                        
-                        const retryData = await retryResponse.json();
-                        const anime = retryData.data;
-                        
-                        if (!anime) {
-                            logger.warn(`[anime-search] No data found for MAL ID ${malId} after retry`);
-                            continue;
-                        }
-                        
-                        // Parse aired date
-                        const dateObj = anime.aired?.prop?.from;
-                        let airedFrom = null;
-                        if (dateObj?.year && dateObj?.month && dateObj?.day) {
-                            const month = dateObj.month.toString().padStart(2, '0');
-                            const day = dateObj.day.toString().padStart(2, '0');
-                            airedFrom = `${dateObj.year}-${month}-${day}`;
-                        }
-                        
-                        animeList.push({
-                            mal_id: malId,
-                            title: anime.title,
-                            type: anime.type,
-                            aired_from: airedFrom,
-                            year: anime.year,
-                            season: anime.season,
-                            episodes: anime.episodes || 0
-                        });
-                        
-                        successfulFetches++;
-                        logger.debug(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId} after retry: ${anime.title} (${anime.episodes} episodes)`);
-                        continue;
-                    } else {
-                        logger.warn(`[anime-search] Failed to fetch details for MAL ID ${malId}: HTTP ${detailResponse.status}`);
-                        continue;
-                    }
-                }
-                
-                const detailData = await detailResponse.json();
                 const anime = detailData.data;
-                
                 if (!anime) {
-                    logger.warn(`[anime-search] No data found for MAL ID ${malId}`);
+                    logger.warn(`[jikan-api] No data found for MAL ID ${malId}`);
                     continue;
                 }
                 
-                // Parse aired date
-                const dateObj = anime.aired?.prop?.from;
-                let airedFrom = null;
-                if (dateObj?.year && dateObj?.month && dateObj?.day) {
-                    const month = dateObj.month.toString().padStart(2, '0');
-                    const day = dateObj.day.toString().padStart(2, '0');
-                    airedFrom = `${dateObj.year}-${month}-${day}`;
-                }
+                // Use helper function to parse aired date (eliminates duplication)
+                const airedFrom = parseAnimeAiredDate(anime);
                 
                 animeList.push({
                     mal_id: malId,
@@ -169,22 +180,31 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                 });
                 
                 successfulFetches++;
-                logger.debug(`[anime-search] ✅ Successfully fetched details for MAL ID ${malId}: ${anime.title} (${anime.episodes} episodes)`);
+                logger.debug(`[jikan-api] ✅ Successfully fetched details for MAL ID ${malId}: ${anime.title} (${anime.episodes} episodes)`);
                 
             } catch (error) {
-                logger.warn(`[anime-search] Error fetching details for MAL ID ${malId}:`, error.message);
+                logger.warn(`[jikan-api] Error fetching details for MAL ID ${malId}:`, error.message);
                 continue;
             }
         }
         
-        logger.debug(`[anime-search] Successfully fetched ${successfulFetches}/${malIds.length} anime details`);
+        logger.debug(`[jikan-api] Successfully fetched ${successfulFetches}/${malIds.length} anime details`);
         
         if (animeList.length === 0) {
-            logger.warn(`[anime-search] No anime details could be fetched for any MAL ID`);
+            logger.warn(`[jikan-api] No anime details could be fetched for any MAL ID`);
+            
+            // Cache empty result to avoid repeated failures
+            cache.set(cacheKey, [], 86400, { 
+                type: 'anime_season',
+                query: titleQuery,
+                resultCount: 0,
+                fetchAttempts: malIds.length,
+                successfulFetches: 0
+            });
             return [];
         }
         
-        // Sort by air date and assign season numbers intelligently
+        // Phase 3: Sort and assign season numbers intelligently
         const sorted = animeList
             .filter(anime => anime.aired_from)
             .sort((a, b) => new Date(a.aired_from) - new Date(b.aired_from));
@@ -216,9 +236,9 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
                      currentTitle.includes(previousTitle.split(' ')[0]))
                 );
 
-                if (isPartContinuation) { // Use the same season number as the previous anime
+                if (isPartContinuation) {
                     actualSeasonNumber = seasonIndex - 1;
-                    logger.debug(`[anime-search] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
+                    logger.debug(`[jikan-api] Detected "${anime.title}" as continuation of previous season, assigning S${actualSeasonNumber.toString().padStart(2, '0')}`);
                 } else {
                     seasonIndex++;
                     actualSeasonNumber = seasonIndex - 1;
@@ -234,26 +254,42 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
             };
         });
         
-        logger.info(`[anime-search] ✅ Found ${result.length} anime seasons for "${titleQuery}":`, 
+        logger.info(`[jikan-api] ✅ Found ${result.length} anime seasons for "${titleQuery}":`, 
             result.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
         
-        animeSeasonCache.set(cacheKey, {
-            data: result,
-            timestamp: Date.now()
+        // Cache successful result with UnifiedCacheManager (24-hour TTL)
+        cache.set(cacheKey, result, 86400, {
+            type: 'anime_season',
+            query: titleQuery,
+            resultCount: result.length,
+            fetchAttempts: malIds.length,
+            successfulFetches: successfulFetches,
+            rateLimiterStats: rateLimiter.getStats()
         });
         
         return result;
         
     } catch (error) {
-        logger.warn('[anime-search] Failed to fetch anime season info:', error);
+        // Use ErrorManager for consistent error handling
+        errorManager.processError(error, 'jikan:fetch_anime_season', [titleQuery]);
         return [];
     }
 }
 
+/**
+ * Enhanced diagnostics function with UnifiedCacheManager integration
+ */
 export function getRateLimiterStatus() {
+    const cacheStats = cache.getStats();
+    const jikanCacheEntries = cache.getByPattern('jikan:.*');
+    
     return {
-        cacheSize: animeSeasonCache.size,
-        cacheKeys: Array.from(animeSeasonCache.keys())
+        rateLimiter: rateLimiter.getStats(),
+        cache: {
+            totalStats: cacheStats,
+            jikanEntries: jikanCacheEntries.length,
+            jikanKeys: jikanCacheEntries.map(entry => entry.key)
+        }
     };
 }
 

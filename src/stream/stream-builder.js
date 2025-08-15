@@ -2,16 +2,16 @@
  * Stream Builder Module - Constructs stream objects with detailed titles and quality information.
  */
 
-import { FILE_TYPES } from './metadata-extractor.js';
+import { extractSeriesInfo, extractMovieInfo, FILE_TYPES } from './metadata-extractor.js';
 import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
 import { extractQuality } from './quality-processor.js';
-import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { AVOID_EPISODE_PATTERNS } from '../utils/episode-patterns.js';
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
+import { configManager } from '../config/configuration.js';
 
 // ================================================================================================
 // CONFIGURATION
@@ -350,7 +350,7 @@ function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
         sizeLine = `${icon} ${size}`;
     }
     
-    if (releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
+    if (configManager.getIsReleaseGroupEnabled() && releaseGroup && releaseGroup.trim().length > 0 && isValidReleaseGroup(releaseGroup)) {
         sizeLine += ` • 👥 [${releaseGroup}]`;
     }
     
@@ -370,15 +370,17 @@ function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
 function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
     const { containerName, videoName, size, matchedTerm } = basicInfo;
     const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
-    const releaseGroup = parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName);
+    const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
+        (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
     
     const detectedVariant = detectVariantForSeries(searchContext, seriesInfo, containerName);
     const seasonEpisode = formatSeasonEpisode(knownSeasonEpisode, seriesInfo);
     
     const lines = [];
     
-    // Line 1: Original video torrent name
-    lines.push(`📁 ${videoName || containerName}`);
+    // Line 1: Original video torrent name (escape commas to prevent Stremio display issues)
+    const safeVideoName = (videoName || containerName).replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character
+    lines.push(`📁 ${safeVideoName}`);
     
     // Line 2: Clean series title - prioritize matchedTerm over PTT-extracted title
     const displayTitle = (matchedTerm && matchedTerm.trim()) ? matchedTerm : seriesInfo.title;
@@ -390,7 +392,8 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     // Line 3 or 4: Episode name (if found)
     if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
         const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
-        lines.push(`📺 "${episodeName}"`);
+        const safeEpisodeName = episodeName.replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character
+        lines.push(`📺 "${safeEpisodeName}"`);
     }
     
     // Line 4 or 5: Technical details
@@ -409,12 +412,14 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
 function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
     const { containerName, videoName, size } = basicInfo;
     const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
-    const releaseGroup = parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName);
+    const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
+        (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
     
     const lines = [];
     
-    // Line 1: Original video torrent name
-    lines.push(`📁 ${videoName || containerName}`);
+    // Line 1: Original video torrent name (escape commas to prevent Stremio display issues)
+    const safeVideoName = (videoName || containerName).replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character
+    lines.push(`📁 ${safeVideoName}`);
     
     // Line 2: Clean movie title with year
     lines.push(movieInfo.title);
@@ -544,7 +549,13 @@ export function formatStreamsForDisplay(streams) {
         const titleLines = (stream.title || '').split('\n').map(line => '\t' + line);
         //const urlLine = 'URL: ' + (stream.url || ''); //Uncomment this line to include URL for debug purpose
         const hintsLine = 'behaviorHints: ' + JSON.stringify(stream.behaviorHints || {});
-        return [nameLines[0], ...titleLines, hintsLine].join('\n');
+        
+        // Display both lines of stream.name: provider tag and quality information
+        const nameDisplay = nameLines.length > 1 ? 
+            nameLines[0] + '\n' + nameLines[1] : // Provider tag + quality with indentation
+            nameLines[0]; // Just provider tag if no quality line
+            
+        return [nameDisplay, ...titleLines, hintsLine].join('\n');
     }).join('\n\n');
 }
 

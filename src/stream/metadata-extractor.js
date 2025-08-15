@@ -1,13 +1,14 @@
+/**
+ * Metadata extractor module - extracts metadata (title, season, quality) from filenames
+ * Provides consistent metadata extraction for stream formatting
+ */
+
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { logger } from '../utils/logger.js';
 import { FILE_EXTENSIONS, detectContentType as detectContentTypeUtil, extractLanguageFromFilename } from '../utils/media-patterns.js';
 import { extractEpisodeTitleFromFilename } from '../utils/episode-patterns.js';
-
-/**
- * Metadata extractor module - extracts metadata (title, season, quality) from filenames
- * Provides consistent metadata extraction for stream formatting
- */
+import { configManager } from '../config/configuration.js';
 
 export const FILE_TYPES = Object.freeze({
     TORRENTS: Symbol("torrents"),
@@ -128,7 +129,7 @@ export function extractSeriesInfo(videoName, containerName = '') {
             codec: videoParseResult.codec || containerParseResult.codec,
             audio: videoParseResult.audio || containerParseResult.audio
         };
-        metadata.releaseGroup = extractReleaseGroup(videoName);
+        metadata.releaseGroup = configManager.getIsReleaseGroupEnabled() ? extractReleaseGroup(videoName) : null;
         metadata.language = extractLanguage(videoName);
         metadata.episodeTitle = extractEpisodeTitle(videoName);
 
@@ -144,7 +145,9 @@ export function extractSeriesInfo(videoName, containerName = '') {
         if (containerName && containerName !== videoName) {
             const containerInfo = enhanceWithContainerInfo(metadata, containerName);
             metadata.title = containerInfo.title || metadata.title;
-            metadata.releaseGroup = containerInfo.releaseGroup || metadata.releaseGroup;
+            if (configManager.getIsReleaseGroupEnabled()) {
+                metadata.releaseGroup = containerInfo.releaseGroup || metadata.releaseGroup;
+            }
         }
 
         logger.debug(`[metadata-extractor] Series extraction result:`, JSON.stringify(metadata, null, 2));
@@ -195,7 +198,7 @@ export function extractMovieInfo(movieName) {
             codec: parseResult.codec,
             audio: parseResult.audio
         };
-        metadata.releaseGroup = extractReleaseGroup(movieName); // Extract release group
+        metadata.releaseGroup = configManager.getIsReleaseGroupEnabled() ? extractReleaseGroup(movieName) : null;
         metadata.language = extractLanguage(movieName);// Extract language information
 
         logger.debug(`[metadata-extractor] Movie extraction result:`, metadata);
@@ -268,7 +271,7 @@ function enhanceWithContainerInfo(videoMetadata, containerName) {
             enhancement.title = containerInfo.title;
         }
 
-        const containerReleaseGroup = extractReleaseGroup(containerName);
+        const containerReleaseGroup = configManager.getIsReleaseGroupEnabled() ? extractReleaseGroup(containerName) : null;
         if (containerReleaseGroup && !videoMetadata.releaseGroup) {
             enhancement.releaseGroup = containerReleaseGroup;
         }

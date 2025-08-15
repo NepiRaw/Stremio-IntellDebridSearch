@@ -110,18 +110,14 @@ export function processTorrentDetails({ apiKey, rawResponse, item, source, urlBu
  * Debrid Provider Controlled Concurrency Utilities
  * Manages parallel execution with configurable concurrency limits
  * Works with any debrid provider to prevent API overwhelm
- * 
- * PERFORMANCE OPTIMIZATION EXPLANATION:
- * 
- * The controlled concurrency system prevents overwhelming debrid provider APIs
- * by limiting the number of simultaneous requests. Too many concurrent batch 
- * will result in the API not returning correct files.
+ * Allow to prevent overwhelming debrid provider APIs
+ * by limiting the number of simultaneous requests.
  * 
  * PARAMETER EXPLANATIONS:
  * 
  * concurrency = 6 (OPTIMIZED)
  * - **BALANCED CHOICE**: concurrency=6 offers excellent speed with conservative safety margin
- * - **UNIVERSAL COMPATIBILITY**: Expected to work well with all debrid providers.
+ * - **UNIVERSAL COMPATIBILITY**: Expected to work well with all debrid providers but could be adjusted if needed.
  * 
  * batchSize = 5 (OPTIMAL FOR LARGE DATASETS) 
  * - Number of tasks processed in each sequential batch

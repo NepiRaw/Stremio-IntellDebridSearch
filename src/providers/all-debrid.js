@@ -31,7 +31,6 @@ class AllDebridProvider extends BaseProvider {
             try {
                 const response = await AD.magnet.status(id);
                 
-                // BaseProvider now handles HTML error detection universally
                 this.validateApiResponse(response, ['data']);
 
                 if (!response?.data?.magnets) {
@@ -47,7 +46,6 @@ class AllDebridProvider extends BaseProvider {
                     urlBuilder: (key, torrentId, file) => this.buildStreamUrl(key, torrentId, file)
                 });
             } catch (error) {
-                // Re-throw with more context if it's a data structure error
                 if (error.message.includes('Cannot use \'in\' operator')) {
                     throw new Error('AllDebrid API returned invalid response format (likely rate limiting HTML response)');
                 }
@@ -75,7 +73,6 @@ class AllDebridProvider extends BaseProvider {
             try {
                 const response = await AD.link.unlock(hostUrl);
                 
-                // Check if we got an HTML error response instead of JSON
                 if (typeof response === 'string' && response.includes('<html>')) {
                     if (response.includes('503 Service Temporarily Unavailable')) {
                         throw new Error('AllDebrid API is temporarily unavailable (503)');
@@ -86,7 +83,6 @@ class AllDebridProvider extends BaseProvider {
                 
                 return response.data.link;
             } catch (error) {
-                // Re-throw with more context if it's an HTML error
                 if (error.message.includes('Cannot use \'in\' operator')) {
                     throw new Error('AllDebrid API returned invalid response format (likely HTML error page)');
                 }
@@ -110,7 +106,6 @@ class AllDebridProvider extends BaseProvider {
             try {
                 const response = await AD.magnet.status();
                 
-                // Check if we got an HTML error response instead of JSON
                 if (typeof response === 'string' && response.includes('<html>')) {
                     if (response.includes('503 Service Temporarily Unavailable')) {
                         throw new Error('AllDebrid API is temporarily unavailable (503)');
@@ -127,7 +122,6 @@ class AllDebridProvider extends BaseProvider {
                 this.log('debug', `Retrieved ${torrents.length} completed torrents`);
                 return torrents || [];
             } catch (error) {
-                // Re-throw with more context if it's an HTML error
                 if (error.message.includes('Cannot use \'in\' operator')) {
                     throw new Error('AllDebrid API returned invalid response format (likely HTML error page)');
                 }

@@ -4,7 +4,6 @@
 
 import { logger } from '../utils/logger.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
-import { FILE_TYPES } from '../stream/metadata-extractor.js';
 
 /**
  * Centralized Configuration Manager
@@ -51,6 +50,11 @@ class ConfigurationManager {
     }
 
     initializeProviderConfigs() {
+        const FILE_TYPES = Object.freeze({
+            TORRENTS: Symbol("torrents"),
+            DOWNLOADS: Symbol("downloads")
+        });
+        
         return {
             AllDebrid: {
                 bulkMethod: 'listTorrentsParallel',
@@ -176,6 +180,14 @@ class ConfigurationManager {
             animeSupport: isTraktEnabled
         };
     }
+
+    /**
+     * Get release group processing configuration - Default: false
+     */
+    getIsReleaseGroupEnabled() {
+        const enableReleaseGroup = this.getEnvVar('ENABLE_RELEASE_GROUP', 'false');
+        return enableReleaseGroup.toLowerCase() === 'true';
+    }
 }
 
 export const configManager = new ConfigurationManager();
@@ -285,11 +297,13 @@ export function logApiStartupStatus() {
     const isTmdbEnabled = configManager.getIsTmdbEnabled();
     const isTraktEnabled = configManager.getIsTraktEnabled();
     const hasAdvancedSearch = configManager.determineSearchCapabilities();
+    const isReleaseGroupEnabled = configManager.getIsReleaseGroupEnabled();
     
     logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
     logger.info(`[configuration] TMDb API: ${isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] Trakt API: ${isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] ⚡ Advanced search: ${hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
+    logger.info(`[configuration] 👥 Release groups: ${isReleaseGroupEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
     
     logger.info('[configuration] Search capabilities:');
     logger.info(`  • Alternative titles: ${capabilities.alternativeTitles ? '✅' : '❌'}`);
