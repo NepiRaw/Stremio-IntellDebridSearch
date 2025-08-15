@@ -1,148 +1,265 @@
 /**
- * Stream Performance Optimization Module
- * Implements caching for stream formatting operations
+ * Performance Optimize module for the stream builder 
+ * Cache metadata and technical details,allowing faster fetch and build operations.
  */
-
+    
 import { logger } from '../utils/logger.js';
+import cache from '../utils/cache-manager.js';
 import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
 import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
+import { optimizedStreamCreation, toStreamSingle } from '../stream/stream-builder.js';
 
+// Cache prefixes for unified cache organization
+const METADATA_CACHE_PREFIX = 'metadata_';
+const TECHNICAL_CACHE_PREFIX = 'tech_details_';
+const PATTERN_CACHE_PREFIX = 'pattern_match_';
 
-//Cache for technical details extraction to avoid repeated pattern matching
-const TECHNICAL_DETAILS_CACHE = new Map();
-const PARSING_CACHE = new Map();
-const CACHE_MAX_SIZE = 1000; // Limit cache size to prevent memory leaks
+// TTL configurations (in seconds)
+const METADATA_TTL = 3600;      // 1 hour for metadata (can be refined)
+const TECHNICAL_TTL = 86400;    // 24 hours for technical details (static data)
+const PATTERN_TTL = 43200;      // 12 hours for pattern matches (static patterns)
 
 /**
- * Get or parse metadata with caching for performance optimization
- * This implements lazy parsing - only parse when needed and cache results
+ * Get or parse metadata using unified cache
  */
 export function getOrParseMetadata(containerName, videoName, type = 'series') {
-    const cacheKey = `${containerName}|${videoName}|${type}`;
+    const cacheKey = `${METADATA_CACHE_PREFIX}${containerName}|${videoName}|${type}`;
     
-    if (PARSING_CACHE.has(cacheKey)) {
-        logger.debug(`[performance] Cache hit for parsing: ${videoName.substring(0, 30)}...`);
-        return PARSING_CACHE.get(cacheKey);
+    const cached = cache.get(cacheKey);
+    if (cached !== null) {
+        logger.debug(`[performance] Cache hit for metadata: ${videoName.substring(0, 30)}...`);
+        return cached;
     }
     
-    logger.debug(`[performance] Cache miss - parsing: ${videoName.substring(0, 30)}...`);
+    logger.debug(`[performance] Cache miss - parsing metadata: ${videoName.substring(0, 30)}...`);
     
     const metadata = {
         seriesInfo: type === 'series' ? extractSeriesInfo(videoName, containerName) : null,
         movieInfo: type === 'movie' ? extractMovieInfo(videoName || containerName) : null,
-        technicalDetails: extractTechnicalDetailsLegacy(videoName || containerName)
+        technicalDetails: extractTechnicalDetailsLegacy(videoName || containerName),
+        parsedAt: Date.now()
     };
     
-    if (PARSING_CACHE.size >= CACHE_MAX_SIZE) {
-        const firstKey = PARSING_CACHE.keys().next().value;
-        PARSING_CACHE.delete(firstKey);
-        logger.debug(`[performance] Parsing cache size limit reached, evicted oldest entry`);
-    }
+    cache.set(cacheKey, metadata, METADATA_TTL, {
+        type: 'metadata',
+        containerName: containerName.substring(0, 50),
+        contentType: type
+    });
     
-    PARSING_CACHE.set(cacheKey, metadata);
     return metadata;
 }
 
+/**
+ * Batch extract technical details with unified cache
+ */
 export async function batchExtractTechnicalDetails(streams) {
-    logger.debug(`[performance] Batch processing ${streams.length} streams for technical details`);
+    logger.debug(`[performance] Batch processing ${streams.length} streams`);
     
     const startTime = performance.now();
-    
     const nameGroups = new Map();
+    const cacheHits = new Set();
+    const cacheMisses = new Set();
     
-    streams.forEach((stream, index) => {
+    streams.forEach((stream) => {
         const normalizedName = normalizeFilename(stream.name || stream.title || '');
         if (!nameGroups.has(normalizedName)) {
             nameGroups.set(normalizedName, []);
         }
-        nameGroups.get(normalizedName).push({ stream, index });
+        nameGroups.get(normalizedName).push(stream);
     });
     
     logger.debug(`[performance] Grouped ${streams.length} streams into ${nameGroups.size} unique filenames`);
     
-    const processedDetails = new Map();
-    
-    for (const [normalizedName, group] of nameGroups) {
-        let technicalDetails = TECHNICAL_DETAILS_CACHE.get(normalizedName);
+    for (const [normalizedName, streamGroup] of nameGroups) {
+        const cacheKey = `${TECHNICAL_CACHE_PREFIX}${normalizedName}`;
+        let technicalDetails = cache.get(cacheKey);
         
-        if (!technicalDetails) {
+        if (technicalDetails !== null) {
+            cacheHits.add(normalizedName);
+        } else {
+            cacheMisses.add(normalizedName);
             technicalDetails = extractTechnicalDetailsLegacy(normalizedName);
             
-            if (TECHNICAL_DETAILS_CACHE.size >= CACHE_MAX_SIZE) {
-                const firstKey = TECHNICAL_DETAILS_CACHE.keys().next().value;
-                TECHNICAL_DETAILS_CACHE.delete(firstKey);
-            }
-            TECHNICAL_DETAILS_CACHE.set(normalizedName, technicalDetails);
+            cache.set(cacheKey, technicalDetails, TECHNICAL_TTL, {
+                type: 'technical_details',
+                filename: normalizedName.substring(0, 50),
+                extractedAt: Date.now()
+            });
         }
         
-        processedDetails.set(normalizedName, technicalDetails);
-    }
-
-    nameGroups.forEach((group, normalizedName) => {
-        const technicalDetails = processedDetails.get(normalizedName);
-        group.forEach(({ stream }) => {
+        streamGroup.forEach(stream => {
             stream.cachedTechnicalDetails = technicalDetails;
         });
-    });
+    }
     
     const endTime = performance.now();
-    logger.debug(`[performance] Batch technical details extraction completed in ${(endTime - startTime).toFixed(2)}ms`);
+    const duration = endTime - startTime;
+    
+    logger.debug(`[performance] Batch processing completed in ${duration.toFixed(2)}ms`);
+    logger.debug(`[performance] Cache performance: ${cacheHits.size} hits, ${cacheMisses.size} misses`);
     
     return streams;
 }
 
+/**
+ * Sequential stream formatting with error handling
+ */
 export async function sequentialStreamFormatting(streamData) {
     const formatStartTime = performance.now();
     
-    const { optimizedStreamCreation } = await import('../stream/stream-builder.js');
-
-    const streamsForOptimization = streamData.map(data => ({
-        name: data.details?.name || '',
-        title: data.details?.title || ''
-    }));
-    
-    await batchExtractTechnicalDetails(streamsForOptimization);
-    
-    const allStreams = [];
-    
-    streamData.forEach((data, index) => {
-        try {
-            const parsedMetadata = getOrParseMetadata(
-                data.details?.name || '',
-                data.details?.videos?.[0]?.name || '',
-                data.type
-            );
-            
-            // PERFORMANCE OPTIMIZATION: Use smart fallback strategy
-            const streams = optimizedStreamCreation(data.details, data.type, parsedMetadata, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
-            
-            if (streamsForOptimization[index] && streamsForOptimization[index].cachedTechnicalDetails) {
-                streams.forEach(stream => {
-                    if (stream && stream.title) {
-                        logger.debug(`[performance] Using cached technical details for stream: ${data.details?.name?.substring(0, 30)}...`);
-                    }
-                });
+    try {
+        const streamsForOptimization = streamData.map(data => ({
+            name: data.details?.name || '',
+            title: data.details?.title || ''
+        }));
+        
+        await batchExtractTechnicalDetails(streamsForOptimization);
+        
+        const allStreams = [];
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const data of streamData) {
+            try {
+                const parsedMetadata = getOrParseMetadata(
+                    data.details?.name || '',
+                    data.details?.videos?.[0]?.name || '',
+                    data.type
+                );
+                
+                const streams = optimizedStreamCreation(
+                    data.details, 
+                    data.type, 
+                    parsedMetadata, 
+                    data.knownSeasonEpisode, 
+                    data.variantInfo, 
+                    data.searchContext
+                );
+                
+                allStreams.push(...streams);
+                successCount++;
+                
+            } catch (error) {
+                logger.warn(`[performance] Failed to format streams for ${data.details?.name}: ${error.message}`);
+                errorCount++;
             }
-            
-            allStreams.push(...streams); // Add all streams from this container
-            
-        } catch (error) {
-            logger.warn(`[performance] Failed to format streams for ${data.details?.name}:`, error);
         }
-    });
-    logger.debug(`[performance] Generated ${allStreams.length} total streams from ${streamData.length} containers`);
+        
+        const endTime = performance.now();
+        const duration = endTime - formatStartTime;
+        
+        logger.debug(`[performance] Stream formatting completed in ${duration.toFixed(2)}ms`);
+        logger.debug(`[performance] Processed ${successCount}/${streamData.length} containers successfully`);
+        
+        if (errorCount > 0) {
+            logger.warn(`[performance] ${errorCount} containers failed processing`);
+        }
+        
+        return allStreams.filter(stream => stream !== null);
+        
+    } catch (error) {
+        logger.error(`[performance] Stream formatting failed: ${error.message}`);
+        return [];
+    }
+}
+
+/**
+ * Pattern matching with unified cache
+ */
+export function optimizedPatternMatching(text, patterns) {
+    if (!patterns || patterns.length === 0 || !text) {
+        return [];
+    }
     
-    return allStreams.filter(stream => stream !== null);
+    const textHash = simpleHash(text);
+    const cacheKey = `${PATTERN_CACHE_PREFIX}${textHash}_${patterns.length}`;
+    
+    const cached = cache.get(cacheKey);
+    if (cached !== null) {
+        return cached;
+    }
+    
+    const matches = [];
+    for (const pattern of patterns) {
+        const regex = pattern.compiledPattern || pattern.pattern;
+        if (regex && regex.test(text)) {
+            matches.push(pattern);
+        }
+    }
+    
+    cache.set(cacheKey, matches, PATTERN_TTL, {
+        type: 'pattern_match',
+        textLength: text.length,
+        patternCount: patterns.length
+    });
+    
+    return matches;
 }
 
-function normalizeFilename(filename) {
-    return filename
-        .toLowerCase()
-        .replace(/[\[\]{}()|+*?.^$\\]/g, '') // Remove regex special chars
-        .replace(/\s+/g, ' ')
-        .trim();
+/**
+ * Format single stream data
+ */
+export async function formatSingleStreamData(streamData) {
+    try {
+        const { details, type, knownSeasonEpisode, variantInfo, searchContext } = streamData;
+        
+        let parsedMetadata = null;
+        if (details?.name || details?.videos?.[0]?.name) {
+            parsedMetadata = getOrParseMetadata(
+                details.name || '',
+                details.videos?.[0]?.name || '',
+                type
+            );
+        }
+        
+        return toStreamSingle(details, type, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext);
+
+    } catch (error) {
+        logger.warn(`[performance] Failed to format single stream: ${error.message}`);
+        return null;
+    }
 }
 
+/**
+ * Clear performance caches
+ */
+export function clearPerformanceCaches() {
+    const metadataEntries = cache.getByPattern(`^${METADATA_CACHE_PREFIX}`);
+    const technicalEntries = cache.getByPattern(`^${TECHNICAL_CACHE_PREFIX}`);
+    const patternEntries = cache.getByPattern(`^${PATTERN_CACHE_PREFIX}`);
+    
+    const totalEntries = metadataEntries.length + technicalEntries.length + patternEntries.length;
+    
+    [...metadataEntries, ...technicalEntries, ...patternEntries].forEach(entry => {
+        cache.delete(entry.key);
+    });
+    
+    logger.debug(`[performance] Cleared ${totalEntries} performance cache entries`);
+}
+
+/**
+ * Get performance statistics
+ */
+export function getPerformanceStats() {
+    const cacheStats = cache.getStats();
+    const metadataEntries = cache.getByPattern(`^${METADATA_CACHE_PREFIX}`);
+    const technicalEntries = cache.getByPattern(`^${TECHNICAL_CACHE_PREFIX}`);
+    const patternEntries = cache.getByPattern(`^${PATTERN_CACHE_PREFIX}`);
+    
+    return {
+        unifiedCache: cacheStats,
+        performanceEntries: {
+            metadata: metadataEntries.length,
+            technical: technicalEntries.length,
+            pattern: patternEntries.length,
+            total: metadataEntries.length + technicalEntries.length + patternEntries.length
+        }
+    };
+}
+
+/**
+ * Pre-compile patterns for better performance
+ */
 export function preCompilePatterns(patterns) {
     const startTime = performance.now();
     
@@ -157,26 +274,15 @@ export function preCompilePatterns(patterns) {
     return compiled;
 }
 
-export function optimizedPatternMatching(text, patterns) {
-    const textHash = simpleHash(text);
-    const cacheKey = `${textHash}_${patterns.length}`;
-    
-    if (TECHNICAL_DETAILS_CACHE.has(cacheKey)) {
-        return TECHNICAL_DETAILS_CACHE.get(cacheKey);
-    }
-    
-    const matches = [];
-    for (const pattern of patterns) {
-        if ((pattern.compiledPattern || pattern.pattern).test(text)) {
-            matches.push(pattern);
-        }
-    }
-    
-    if (TECHNICAL_DETAILS_CACHE.size < CACHE_MAX_SIZE) {
-        TECHNICAL_DETAILS_CACHE.set(cacheKey, matches);
-    }
-    
-    return matches;
+/**
+ * Utility functions
+ */
+function normalizeFilename(filename) {
+    return filename
+        .toLowerCase()
+        .replace(/[\[\]{}()|+*?^$\\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 function simpleHash(str) {
@@ -187,33 +293,4 @@ function simpleHash(str) {
         hash = hash & hash;
     }
     return hash;
-}
-
-export function clearPerformanceCaches() {
-    TECHNICAL_DETAILS_CACHE.clear();
-    PARSING_CACHE.clear();
-    logger.debug('[performance] Performance caches cleared');
-}
-
-/**
- * Format a single stream data object (used for background stream building)
- * @param {Object} streamData - Stream data to format
- * @returns {Promise<Object>} Formatted stream object
- */
-export async function formatSingleStreamData(streamData) {
-    try {
-        const { toStreamSingle } = await import('./stream-builder.js');
-        
-        const { details, type, knownSeasonEpisode, variantInfo, searchContext } = streamData;
-        const stream = toStreamSingle(details, type, null, knownSeasonEpisode, variantInfo, searchContext);
-        
-        return stream;
-
-    } catch (error) {
-        logger.warn(`[performance-optimizer] Failed to format stream data: ${error.message}`);
-        return null;
-    }
-}
-
-export async function terminateWorkerPool() {
 }

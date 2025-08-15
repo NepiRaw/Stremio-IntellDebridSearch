@@ -27,22 +27,32 @@ class AllDebridProvider extends BaseProvider {
     async getTorrentDetails(apiKey, id) {
         return this.makeApiCall(async () => {
             const AD = new AllDebridClient(apiKey);
-            const response = await AD.magnet.status(id);
+            
+            try {
+                const response = await AD.magnet.status(id);
+                
+                // BaseProvider now handles HTML error detection universally
+                this.validateApiResponse(response, ['data']);
 
-            this.validateApiResponse(response, ['data']);
+                if (!response?.data?.magnets) {
+                    this.log('error', `No magnets found for ID ${id}`);
+                    return null;
+                }
 
-            if (!response?.data?.magnets) {
-                this.log('error', `No magnets found for ID ${id}`);
-                return null;
+                return processTorrentDetails({
+                    apiKey,
+                    rawResponse: response.data,
+                    item: response.data.magnets,
+                    source: 'alldebrid',
+                    urlBuilder: (key, torrentId, file) => this.buildStreamUrl(key, torrentId, file)
+                });
+            } catch (error) {
+                // Re-throw with more context if it's a data structure error
+                if (error.message.includes('Cannot use \'in\' operator')) {
+                    throw new Error('AllDebrid API returned invalid response format (likely rate limiting HTML response)');
+                }
+                throw error;
             }
-
-            return processTorrentDetails({
-                apiKey,
-                rawResponse: response.data,
-                item: response.data.magnets,
-                source: 'alldebrid',
-                urlBuilder: (key, torrentId, file) => this.buildStreamUrl(key, torrentId, file)
-            });
         }, 3, `getTorrentDetails(${id})`);
     }
 
@@ -61,8 +71,27 @@ class AllDebridProvider extends BaseProvider {
     async unrestrictUrl(apiKey, hostUrl) {
         return this.makeApiCall(async () => {
             const AD = new AllDebridClient(apiKey);
-            const response = await AD.link.unlock(hostUrl);
-            return response.data.link;
+            
+            try {
+                const response = await AD.link.unlock(hostUrl);
+                
+                // Check if we got an HTML error response instead of JSON
+                if (typeof response === 'string' && response.includes('<html>')) {
+                    if (response.includes('503 Service Temporarily Unavailable')) {
+                        throw new Error('AllDebrid API is temporarily unavailable (503)');
+                    } else {
+                        throw new Error('AllDebrid API returned HTML error page');
+                    }
+                }
+                
+                return response.data.link;
+            } catch (error) {
+                // Re-throw with more context if it's an HTML error
+                if (error.message.includes('Cannot use \'in\' operator')) {
+                    throw new Error('AllDebrid API returned invalid response format (likely HTML error page)');
+                }
+                throw error;
+            }
         }, 3, `unrestrictUrl(${hostUrl})`);
     }
 
@@ -77,15 +106,33 @@ class AllDebridProvider extends BaseProvider {
     async listTorrentsParallel(apiKey) {
         return this.makeApiCall(async () => {
             const AD = new AllDebridClient(apiKey);
-            const response = await AD.magnet.status();
             
-            this.validateApiResponse(response, ['data']);
-            
-            const torrents = response.data.magnets
-                .filter(item => item.statusCode === 4); // Only completed torrents
+            try {
+                const response = await AD.magnet.status();
                 
-            this.log('debug', `Retrieved ${torrents.length} completed torrents`);
-            return torrents || [];
+                // Check if we got an HTML error response instead of JSON
+                if (typeof response === 'string' && response.includes('<html>')) {
+                    if (response.includes('503 Service Temporarily Unavailable')) {
+                        throw new Error('AllDebrid API is temporarily unavailable (503)');
+                    } else {
+                        throw new Error('AllDebrid API returned HTML error page');
+                    }
+                }
+                
+                this.validateApiResponse(response, ['data']);
+                
+                const torrents = response.data.magnets
+                    .filter(item => item.statusCode === 4); // Only completed torrents
+                    
+                this.log('debug', `Retrieved ${torrents.length} completed torrents`);
+                return torrents || [];
+            } catch (error) {
+                // Re-throw with more context if it's an HTML error
+                if (error.message.includes('Cannot use \'in\' operator')) {
+                    throw new Error('AllDebrid API returned invalid response format (likely HTML error page)');
+                }
+                throw error;
+            }
         }, 3, 'listTorrentsParallel');
     }
 

@@ -44,12 +44,29 @@ export class BaseProvider {
                     )
                 ]);
                 
+                // Universal HTML error detection before processing
+                this.detectHtmlErrorResponse(result, context);
+                
                 logger.debug(`[${this.providerName}] ${context} - Success on attempt ${attempt}`);
                 return result;
                 
             } catch (error) {
                 lastError = error;
                 logger.warn(`[${this.providerName}] ${context} - Attempt ${attempt} failed:`, error.message);
+                
+                // Check if error is due to HTML response parsing
+                if (error.message.includes('Cannot use \'in\' operator') || 
+                    error.message.includes('HTML error page')) {
+                    logger.warn(`[${this.providerName}] ${context} - HTML error response detected (likely rate limiting)`);
+                    
+                    // For rate limiting errors, wait longer before retry
+                    if (attempt < retries) {
+                        const rateLimitDelay = 5000 + (attempt * 2000); // 5s, 7s, 9s
+                        logger.info(`[${this.providerName}] Rate limit detected, waiting ${rateLimitDelay}ms before retry...`);
+                        await new Promise(resolve => setTimeout(resolve, rateLimitDelay));
+                        continue;
+                    }
+                }
                 
                 if (this.isAuthenticationError(error)) {
                     break;
@@ -64,6 +81,38 @@ export class BaseProvider {
         }
         
         return this.handleError(lastError, context);
+    }
+
+    /**
+     * Universal HTML error response detection for all providers
+     * Detects rate limiting and server error responses that return HTML instead of JSON
+     */
+    detectHtmlErrorResponse(response, context = 'api-call') {
+        if (!response) return; // Allow empty responses to be handled elsewhere
+        
+        if (typeof response === 'string' && response.includes('<html>')) {
+            const htmlPreview = response.substring(0, 500).replace(/\s+/g, ' ');
+            logger.warn(`[${this.providerName}] ${context} - HTML error page detected:`);
+            logger.warn(`[${this.providerName}] HTML content preview: ${htmlPreview}...`);
+            
+            if (response.includes('503 Service Temporarily Unavailable') || 
+                response.includes('503 Service Unavailable')) {
+                throw new Error(`${this.providerName} API is temporarily unavailable (503) - likely rate limiting`);
+            } else if (response.includes('500 Internal Server Error')) {
+                throw new Error(`${this.providerName} API internal server error (500)`);
+            } else if (response.includes('429 Too Many Requests') ||
+                       response.includes('Rate limit exceeded')) {
+                throw new Error(`${this.providerName} API rate limit exceeded (429)`);
+            } else if (response.includes('502 Bad Gateway')) {
+                throw new Error(`${this.providerName} API bad gateway (502)`);
+            } else if (response.includes('504 Gateway Timeout')) {
+                throw new Error(`${this.providerName} API gateway timeout (504)`);
+            } else {
+                // For unknown HTML errors, log more context
+                logger.error(`[${this.providerName}] Unknown HTML error - full response: ${response}`);
+                throw new Error(`${this.providerName} API returned HTML error page instead of JSON`);
+            }
+        }
     }
 
     /**
@@ -232,11 +281,17 @@ export class BaseProvider {
     }
 
     /**
-     * Standard validation for API responses
+     * Standard validation for API responses with universal HTML error detection
      */
     validateApiResponse(response, expectedFields = []) {
         if (!response) {
             throw new Error('Empty API response');
+        }
+
+        this.detectHtmlErrorResponse(response, 'validateApiResponse');
+
+        if (typeof response !== 'object' || response === null) {
+            throw new Error(`Invalid API response type: expected object, got ${typeof response}`);
         }
         
         if (response.error) {

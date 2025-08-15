@@ -13,6 +13,17 @@ import { AVOID_EPISODE_PATTERNS } from '../utils/episode-patterns.js';
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
 
+// ================================================================================================
+// CONFIGURATION
+// ================================================================================================
+
+/**
+ * Configuration flag to control multi-stream per torrent behavior
+ * When true: Allows multiple streams per torrent container (slower but comprehensive)
+ * When false: Forces single stream per torrent (ultra-fast performance)
+ */
+const ENABLE_MULTI_STREAM_PER_TORRENT = process.env.ENABLE_MULTI_STREAM_PER_TORRENT === 'true';
+
 const STREAM_NAME_MAP = {
     debridlink: "[DL+] DebridSearch",
     realdebrid: "[RD⚡] DebridSearch",
@@ -44,15 +55,23 @@ function parseMetadataParams(parsedMetadataOrKnownSeasonEpisode) {
 export function optimizedStreamCreation(details, type, parsedMetadataOrKnownSeasonEpisode = null, knownSeasonEpisode = null, variantInfo = null, searchContext = null) {
     if (!details) return [];
     
-    logger.debug(`[optimizedStreamCreation] Processing ${type} content with ${details.videos?.length || 1} video(s)`);
+    logger.debug(`[optimizedStreamCreation] Processing ${type} content with ${details.videos?.length || 1} video(s), multi-stream enabled: ${ENABLE_MULTI_STREAM_PER_TORRENT}`);
     
-    // Single video scenarios
+    // Environment variable control: force single-stream for ultra-fast performance
+    if (!ENABLE_MULTI_STREAM_PER_TORRENT) {
+        logger.debug(`[optimizedStreamCreation] 🚀 Single-stream mode enforced by ENABLE_MULTI_STREAM_PER_TORRENT=false - using first video for ultra-fast performance`);
+        const singleStream = toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
+        return singleStream ? [singleStream] : [];
+    }
+    
+    // Single video scenarios (existing logic)
     if (details.fileType === FILE_TYPES.DOWNLOADS || !details.videos?.length || details.videos.length === 1) {
         const singleStream = toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
         return singleStream ? [singleStream] : [];
     }
     
-    // Multi-video scenarios - use standard processing
+    // Multi-video scenarios - use comprehensive processing when enabled
+    logger.debug(`[optimizedStreamCreation] 🔄 Multi-stream mode enabled - processing all ${details.videos.length} videos`);
     return toStreams(details, type, parsedMetadataOrKnownSeasonEpisode, knownSeasonEpisode, variantInfo, searchContext);
 }
 

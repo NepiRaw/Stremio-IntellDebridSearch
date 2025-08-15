@@ -167,6 +167,7 @@ npm start
 | `TRAKT_API_KEY`         | ❌ Recommended       | (empty)           | Trakt API key for improved episode matching (optional, get from trakt.tv)                     |
 | `TMDB_API_KEY`          | ❌ Recommended      | (empty)           | TMDb API key for enhanced title matching (optional, get from themoviedb.org)                  |
 | `VARIANT_SYSTEM_ENABLED`| ❌       | true             | True/False - Enables detection of content variants (Directors Cut, Extended Edition, OVA, title variants, etc.)                 |
+| `ENABLE_MULTI_STREAM_PER_TORRENT`| ❌       | false            | True/False - Controls stream processing mode. When false (default): single stream per torrent (ultra-fast). When true: multiple streams per torrent (comprehensive but slower) |
 | `BASE_URL`              | ❌       | http://localhost  | Base URL for the addon (optional, used for deployment)                                        |
 | `PORT`                  | ❌       | 3001              | Server port (optional)                                                                        |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
