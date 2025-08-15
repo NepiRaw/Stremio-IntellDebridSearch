@@ -15,6 +15,22 @@ import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
 
 /**
+ * Create title variants for enhanced search matching.
+ * Creates "&" → "and" variants.
+ */
+export function createTitleVariants(originalTitle, type) {
+    const variants = [originalTitle];
+    
+    if (originalTitle.includes('&')) {
+        const andVariant = originalTitle.replace(/\s*&\s*/g, ' and ');
+        variants.push(andVariant);
+        logger.debug(`[coordinator] Created "&" → "and" variant for ${type}: "${originalTitle}" → "${andVariant}"`);
+    }
+    
+    return variants;
+}
+
+/**
  * Get basic title information without complete metadata
  */
 export function getBasicTitleInfo(searchKey, type) {
@@ -58,12 +74,23 @@ export async function coordinateSearch(params) {
     
     logger.info('[coordinator] Starting two-phase search for:', searchKey);
 
+    // Create title variants for enhanced search (movie-only)
+    const titleVariants = createTitleVariants(searchKey, type);
+    
     // ========== PHASE 0: PREPARE SEARCH TERMS + EPISODE MAPPING ==========
     const preparationResult = await prepareSearchTerms({
         searchKey, type, imdbId, season, episode, tmdbApiKey, traktApiKey
     });
     
-    const { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode } = preparationResult;
+    let { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode } = preparationResult;
+    
+    // Add both raw and normalized variants from title variant creation
+    if (titleVariants.length > 1) {
+        const rawVariants = titleVariants.slice(1); // Skip first (original), keep with punctuation
+        const normalizedVariants = rawVariants.map(variant => extractKeywords(variant));
+        uniqueSearchTerms = [...uniqueSearchTerms, ...rawVariants, ...normalizedVariants];
+        logger.debug(`[coordinator] Added ${rawVariants.length} raw + ${normalizedVariants.length} normalized variant terms`);
+    }
 
     // ========== OPTIMIZED PROVIDER SEARCH (SINGLE FETCH + PRE-FILTER) ==========
     const providerImpl = providers[provider];
@@ -106,7 +133,6 @@ export async function coordinateSearch(params) {
     
     if (!phase2Decision.shouldProceed) {
         if (phase2Decision.returnPhase1) {
-            logger.info('[coordinator] Movie or no episode filtering needed, returning Phase 1 results');
             return {
                 results: titleMatches.map(m => m.item),
                 absoluteEpisode: null

@@ -2,7 +2,7 @@
  * Provides movie and series streams
  */
 import { coordinateSearch } from './search/coordinator.js';
-import { filterEpisode } from './stream/stream-builder.js';
+import { filterEpisode, filterYear } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality } from './stream/quality-processor.js';
 import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
@@ -114,6 +114,13 @@ class StreamProvider {
                     
                     if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                         logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
+                        continue;
+                    }
+                    
+                    if (!filterYear(torrentDetails, cinemetaDetails)) {
+                        const torrentYear = torrentDetails?.info?.year;
+                        const movieYear = cinemetaDetails?.year;
+                        logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
                         continue;
                     }
 
@@ -295,9 +302,10 @@ class StreamProvider {
                         return null;
                     }
 
+                    // Use mapped values for knownSeasonEpisode when anime mapping is active
                     const knownSeasonEpisode = {
-                        season,
-                        episode,
+                        season: searchResponse.animeMapping ? filterSeason : season,
+                        episode: searchResponse.animeMapping ? targetEpisode : episode,
                         absoluteEpisode: searchResponse.absoluteEpisode
                     };
 

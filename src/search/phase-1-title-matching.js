@@ -36,7 +36,7 @@ import Fuse from 'fuse.js';
  * @returns {Promise<Array>} Array of matched torrents with scores
  */
 export async function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3) {
-    logger.info('[phase-1] Starting fast title matching');
+    logger.debug('[phase-1] Starting fast title matching');
     
     const normalizedResults = allRawResults.map(result => ({ // Normalize results for Fuse.js processing
         ...result,
@@ -55,7 +55,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
     const titleMatches = [];
     const seenMatches = new Set(); // Track duplicates by original name
 
-    logger.info(`[phase-1] Starting parallel search for ${uniqueSearchTerms.length} terms`);
     const startTime = Date.now();
     
     const parallelSearches = uniqueSearchTerms.map(async (term) => {
@@ -88,7 +87,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
     });
     
     const parallelDuration = Date.now() - startTime;
-    logger.info(`[phase-1] ⚡ Parallel title matching completed in ${parallelDuration}ms`);
     
     logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
     

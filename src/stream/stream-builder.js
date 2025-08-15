@@ -441,7 +441,8 @@ function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
     lines.push(`📁 ${safeVideoName}`);
     
     // Line 2: Clean movie title with year
-    lines.push(movieInfo.title);
+    const titleWithYear = movieInfo.year ? `${movieInfo.title} (${movieInfo.year})` : movieInfo.title;
+    lines.push(titleWithYear);
     
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, null, variantInfo);
