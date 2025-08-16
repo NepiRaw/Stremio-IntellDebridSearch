@@ -5,6 +5,8 @@
 exports.handler = async (event, context) => {
     try {
         console.log(`Netlify request: ${event.httpMethod} ${event.path}`);
+        console.log('Working directory:', process.cwd());
+        console.log('__dirname:', __dirname);
         
         // Handle CORS preflight requests
         if (event.httpMethod === 'OPTIONS') {
@@ -20,7 +22,36 @@ exports.handler = async (event, context) => {
         }
         
         // Import the serverless module dynamically
-        const { default: serverlessRouter } = await import('../../serverless.js');
+        const path = require('path');
+        const fs = require('fs');
+        const { pathToFileURL } = require('url');
+        
+        // Try multiple possible paths for serverless.js
+        const possiblePaths = [
+            path.resolve(process.cwd(), 'serverless.js'),
+            path.resolve(__dirname, '../../serverless.js'),
+            path.resolve(__dirname, '../serverless.js'),
+            path.resolve('/var/task', 'serverless.js')
+        ];
+        
+        let serverlessPath = null;
+        for (const testPath of possiblePaths) {
+            console.log('Testing path:', testPath);
+            if (fs.existsSync(testPath)) {
+                serverlessPath = testPath;
+                console.log('Found serverless.js at:', serverlessPath);
+                break;
+            }
+        }
+        
+        if (!serverlessPath) {
+            throw new Error('serverless.js not found in any expected location');
+        }
+        
+        // Convert to file:// URL for Windows compatibility
+        const serverlessURL = pathToFileURL(serverlessPath).href;
+        console.log('Importing from URL:', serverlessURL);
+        const { default: serverlessRouter } = await import(serverlessURL);
         
         return new Promise((resolve, reject) => {
             const { path, queryStringParameters, headers, httpMethod, body } = event;
