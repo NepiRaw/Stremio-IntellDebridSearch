@@ -5,6 +5,7 @@
 
 import { logger } from './logger.js';
 import { parseRomanSeasons } from './roman-numeral-utils.js';
+import { parseSeasonFromTitle } from './episode-patterns.js';
 
 export class AbsoluteEpisodeProcessor {
     
@@ -85,11 +86,11 @@ export class AbsoluteEpisodeProcessor {
             return false; // Never match absolute episodes for files with explicit season/episode patterns
         }
         
-        // Check for "Season X" patterns where X would match the absolute episode number
-        // These are season indicators, not episode numbers, so should be excluded
-        const seasonIndicatorMatch = filenameLower.match(/\b(season|s)\s+(\d+)/);
-        if (seasonIndicatorMatch && parseInt(seasonIndicatorMatch[2]) === absoluteEpisode) {
-            return false; // Do not treat "Season 1" as absolute episode 1
+        // If any season indicator is found, don't use absolute episode matching
+        const detectedSeason = parseSeasonFromTitle(filename);
+        if (detectedSeason !== null) {
+            logger.debug(`[AbsoluteEpisodeProcessor] Season ${detectedSeason} detected, skipping absolute episode matching`);
+            return false; // Files with clear season indicators should not use absolute episode matching
         }
         
         // Original patterns for files without clear season/episode structure

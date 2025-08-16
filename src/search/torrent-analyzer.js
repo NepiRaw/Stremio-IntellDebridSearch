@@ -119,9 +119,7 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 const parsed = parseUnified(video.name);
                 if (parsed.season || parsed.episode || parsed.absoluteEpisode) {
                     logger.debug(`[torrent-analyzer] parseUnified for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}, absolute=${parsed.absoluteEpisode}`);
-                } else {
-                    logger.info(`[torrent-analyzer] parseUnified for video "${video.name}": season=null, episode=null, absolute=null - no episode info found`);
-                }
+                } 
                 videoInfo.season = videoInfo.season || parsed.season;
                 videoInfo.episode = videoInfo.episode || parsed.episode;
                 videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.absoluteEpisode;

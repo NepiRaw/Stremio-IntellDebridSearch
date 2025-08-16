@@ -40,6 +40,10 @@ const PatternUtils = {
  */
 
 export const SEASON_PATTERNS = {
+    ordinalSeason: {
+        regex: /\b(\d+)(?:st|nd|rd|th)[\s.-]*season/i,
+        description: 'Ordinal season format: 1st Season, 2nd Season, 3rd Season'
+    },
     standard: {
         regex: /s(?:eason[\s.-]*)?0*(\d{1,2})/i,
         description: 'Standard S01, Season 1 format (with optional zero padding)'
@@ -117,12 +121,6 @@ export const EPISODE_PATTERNS = {
         groups: { season: 1, episode: 2 },
         validation: 'skipResolution'
     },
-    episodeOnly: {
-        regex: /[Ee](\d+)/,
-        description: 'Episode only: E07 (assume season 1)',
-        groups: { episode: 1 },
-        defaultSeason: 1
-    },
     animeDashNumber: {
         regex: /(.+?)\s*-\s*(\d{2,3})(?:\s*\([^)]*\))?/,
         description: 'Anime dash number: Title - 06 or Title - 06 (1)',
@@ -140,6 +138,12 @@ export const EPISODE_PATTERNS = {
         description: 'Roman season written episode: Season II Episode 05',
         groups: { season: 1, episode: 2 },
         seasonType: 'roman'
+    },
+    episodeOnly: {
+        regex: /[Ee](\d+)/,
+        description: 'Episode only: E07 (assume season 1)',
+        groups: { episode: 1 },
+        defaultSeason: 1
     }
 };
 
@@ -250,7 +254,7 @@ export function extractEpisodeTitleFromFilename(filename) {
             title = PatternUtils.normalizeText(title);
             
             if (title.length > 2) {
-                console.log(`[extractEpisodeTitleFromFilename] Found quoted episode title (${name}): "${title}"`);
+                logger.info(`[extractEpisodeTitleFromFilename] Found quoted episode title (${name}): "${title}"`);
                 return title;
             }
         }
@@ -275,7 +279,7 @@ export function parseSeasonFromTitle(title, strict = false) {
     
     const normalizedTitle = PatternUtils.normalizeText(title);
     
-    const reliablePatterns = ['standard', 'seasonWordSpaced', 'seasonFolder'];
+    const reliablePatterns = ['ordinalSeason', 'standard', 'seasonWordSpaced', 'seasonFolder'];
     const patternsToUse = strict 
         ? Object.entries(SEASON_PATTERNS).filter(([key]) => reliablePatterns.includes(key))
         : Object.entries(SEASON_PATTERNS);

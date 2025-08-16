@@ -109,33 +109,42 @@ function cleanFilename(filename) {
 function applyRegexFallbacks(filename, pttResult) {
     let result = { ...pttResult };
     
-    // Extract absolute episode FIRST to determine if this is absolute episode content
-    result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
     
-    // Episode extraction fallbacks (now uses comprehensive patterns from episode-patterns.js)
-    const episodeInfo = extractEpisodeWithFallback(filename, pttResult);
-    if (typeof episodeInfo === 'object' && episodeInfo !== null) {
-        // Always use the episode number from episode parsing initially
-        result.episode = episodeInfo.episode;
+    if (pttResult.season && pttResult.episode) {
+        // PTT found both season and episode
+        logger.debug(`[unified-parser] PTT found reliable season/episode: S${pttResult.season}E${pttResult.episode}, using PTT results`);
+        result.season = pttResult.season;
+        result.episode = pttResult.episode;
         
-        // Only use season info if we don't have an absolute episode
-        // Absolute episodes are season-independent and should not have season defaulting
-        // EXCEPTION: Always preserve explicit season/episode patterns (S00E01, S01E01, etc.)
-        if (episodeInfo.season !== null && (!result.absoluteEpisode || episodeInfo.season !== undefined)) {
-            result.season = episodeInfo.season;
-        } else if (episodeInfo.season && result.absoluteEpisode) {
-            logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode}`);
+        // Skip absolute episode extraction since we have clear season/episode
+        result.absoluteEpisode = null;
+        
+    } else {        
+        // Extract absolute episode FIRST to determine if this is absolute episode content
+        result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
+        
+        // Episode extraction fallbacks
+        const episodeInfo = extractEpisodeWithFallback(filename, pttResult);
+        if (typeof episodeInfo === 'object' && episodeInfo !== null) {
+            result.episode = episodeInfo.episode;
+            
+            // Only use season info if we don't have an absolute episode
+            if (episodeInfo.season !== null && (!result.absoluteEpisode || episodeInfo.season !== undefined)) {
+                result.season = episodeInfo.season;
+            } else if (episodeInfo.season && result.absoluteEpisode) {
+                logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode}`);
+            }
+        } else {
+            result.episode = episodeInfo;
         }
-    } else {
-        result.episode = episodeInfo;
-    }
-    
-    // Handle absolute episode vs season/episode priority
-    result = handleAbsoluteEpisodePriority(result, episodeInfo, filename);
-    
-    // Only extract season if we don't have an absolute episode
-    if (!result.absoluteEpisode && !result.season) {
-        result.season = extractSeasonWithFallback(filename, pttResult);
+        
+        // Handle absolute episode vs season/episode priority
+        result = handleAbsoluteEpisodePriority(result, episodeInfo, filename);
+        
+        // Only extract season if we don't have an absolute episode
+        if (!result.absoluteEpisode && !result.season) {
+            result.season = extractSeasonWithFallback(filename, pttResult);
+        }
     }
     
     // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
