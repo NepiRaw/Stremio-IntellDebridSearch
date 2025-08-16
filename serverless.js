@@ -56,6 +56,12 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
 })
 
 router.get('/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
+    // Add CORS headers for Stremio v5/web compatibility
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control')
+    res.setHeader('Access-Control-Allow-Credentials', 'false')
+    
     const clientIp = requestIp.getClientIp(req)
     StreamProvider.resolveUrl(req.params.debridProvider, req.params.debridApiKey, req.params.id, decode(req.params.hostUrl), clientIp)
         .then(url => {
