@@ -46,6 +46,7 @@ Addon currently available at: [WIP]
 - [Self-Hosting Installation](#-Self-Hosting-Installation)
   - [Docker Compose (Recommended)](#-Docker-Compose-(Recommended))
   - [Manual Installation](#manual-installation)
+  - [Netlify Deployment (Recommended for Cloud)](#netlify-deployment-recommended-for-cloud)
   - [Vercel Deployment](#vercel-deployment)
 - [Environment Variables](#-environment-variables)
 - [FAQs](#-faqs)
@@ -150,7 +151,14 @@ npm start
 ```
 5. **Access your addon at `http://localhost:3001` (or your configured domain)**
 
-### 🔺 Vercel Deployment
+### 🌐 Netlify Deployment (Recommended for Cloud)
+1. **Copy this repository to your GitHub account**
+2. **Deploy to Netlify:**
+   - Connect your GitHub repository to Netlify
+   - Configure environment variables in the Netlify dashboard (see below)
+   - Netlify will auto-detect install and build commands
+
+### 🔺 Vercel Deployment (not supported for Stremio v.5/web)
 
 1. **Copy this repository to your GitHub account**
 2. **Deploy to Vercel:**

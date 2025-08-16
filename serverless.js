@@ -55,7 +55,7 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
         })
 })
 
-router.options('/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
+router.options('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
     // Handle preflight OPTIONS request for Vercel CORS compatibility
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
@@ -65,7 +65,7 @@ router.options('/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res)
     res.status(200).end()
 })
 
-router.get('/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
+router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
     // Add CORS headers for Stremio v5/web compatibility
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
