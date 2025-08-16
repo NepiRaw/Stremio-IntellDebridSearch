@@ -12,7 +12,7 @@
 	"license": "MIT",
 	"type": "module",
 	"dependencies": {
-		"@torbox/torbox-api": "^1.0.6",
+		"@torbox/torbox-api": "^1.0.9",
 		"@types/node": "^22.0.0",
 		"all-debrid-api": "^1.2.0",
 		"cors": "^2.8.5",
@@ -20,7 +20,7 @@
 		"dotenv": "^16.4.5",
 		"express": "^4.21.1",
 		"express-rate-limit": "^7.4.1",
-		"fuse.js": "^7.0.0",
+		"fuse.js": "^7.1.0",
 		"loglevel": "^1.9.2",
 		"node-fetch": "^3.3.2",
 		"parse-torrent-title": "github:TheBeastLT/parse-torrent-title#b98e2ba2fb64fd5fa1c34c620bd9050bbc2e271d",
@@ -41,10 +41,10 @@
 		"debridsearch"
 	],
 	"devDependencies": {
-		"nodemon": "^3.1.7"
+		"nodemon": "^3.1.10"
 	},
 	"engines": {
-		"node": "22.x",
-		"pnpm": "^9.x"
+		"node": ">=20.x",
+		"pnpm": ">=9.x"
 	}
 }
