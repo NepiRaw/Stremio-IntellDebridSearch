@@ -139,7 +139,8 @@ function createSingleStreamFast(details, video, type, icon, parsedMetadata, know
         title,
         url: video.url,
         behaviorHints: {
-            bingeGroup: details.source + '|' + details.id
+            bingeGroup: details.source + '|' + details.id,
+            notWebReady: true  // Fix Stremio v5/web compatibility issues with redirect URLs
         }
     };
 }
@@ -203,7 +204,8 @@ function createSingleStream(details, video, type, icon, parsedMetadata, knownSea
         title,
         url: video.url,
         behaviorHints: {
-            bingeGroup: bingeGroup
+            bingeGroup: bingeGroup,
+            notWebReady: true  // Fix Stremio v5/web compatibility issues with redirect URLs
         }
     }
 }
