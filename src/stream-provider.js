@@ -116,7 +116,7 @@ class StreamProvider {
                         logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                         continue;
                     }
-                    
+
                     if (!filterYear(torrentDetails, cinemetaDetails)) {
                         const torrentYear = torrentDetails?.info?.year;
                         const movieYear = cinemetaDetails?.year;

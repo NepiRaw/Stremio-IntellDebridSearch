@@ -34,9 +34,7 @@ function getManifest(config = {}) {
         ],
         types: [
             "movie",
-            "series",
-            'anime',
-            "other"
+            "series"
         ],
         idPrefixes: ['tt'],
         behaviorHints: {

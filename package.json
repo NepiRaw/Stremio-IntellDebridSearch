@@ -13,7 +13,7 @@
 	"type": "module",
 	"dependencies": {
 		"@torbox/torbox-api": "^1.0.6",
-		"@types/node": "^18.19.67",
+		"@types/node": "^22.0.0",
 		"all-debrid-api": "^1.2.0",
 		"cors": "^2.8.5",
 		"debrid-link-api": "^1.0.1",
@@ -44,7 +44,7 @@
 		"nodemon": "^3.1.7"
 	},
 	"engines": {
-		"node": "^18.x",
+		"node": "22.x",
 		"pnpm": "^9.x"
 	}
 }

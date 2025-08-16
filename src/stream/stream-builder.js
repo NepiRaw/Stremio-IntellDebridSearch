@@ -398,12 +398,13 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     const lines = [];
     
     // Line 1: Original video torrent name (escape commas to prevent Stremio display issues)
-    const safeVideoName = (videoName || containerName).replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character
+    const safeVideoName = (videoName || containerName).replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character (prevent Stremio display issues)
     lines.push(`📁 ${safeVideoName}`);
     
     // Line 2: Clean series title - prioritize matchedTerm over PTT-extracted title
     const displayTitle = (matchedTerm && matchedTerm.trim()) ? matchedTerm : seriesInfo.title;
-    lines.push(displayTitle);
+    const safedisplayTitle = displayTitle.replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character (prevent Stremio display issues)
+    lines.push(safedisplayTitle);
     
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, detectedVariant, variantInfo);
@@ -411,7 +412,7 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     // Line 3 or 4: Episode name (if found)
     if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
         const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
-        const safeEpisodeName = episodeName.replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character
+        const safeEpisodeName = episodeName.replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character (prevent Stremio display issues)
         lines.push(`📺 "${safeEpisodeName}"`);
     }
     
