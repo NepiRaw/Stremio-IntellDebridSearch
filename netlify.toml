@@ -1,17 +1,9 @@
 [build]
-  functions = "netlify/functions"
-  
-[functions]
-  node_bundler = "esbuild"
+  command = 'npm install'
+  publish = '.'
+  functions = 'netlify/functions'
 
 [[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/app/:splat"
+  from = '/*'
+  to = '/.netlify/functions/addon'
   status = 200
-  
-[[headers]]
-  for = "/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control"
