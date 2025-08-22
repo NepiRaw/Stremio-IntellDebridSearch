@@ -128,7 +128,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         
         // Filter relevant entries (TV + Special)
         const entries = searchData.data?.filter(entry => {
-            return ['TV', 'Special'].includes(entry.type) &&
+            return ['TV', 'Special', 'ONA'].includes(entry.type) &&
                    entry.titles?.some(title => 
                        title.title.toLowerCase().includes(titleQuery.toLowerCase())
                    );
@@ -254,9 +254,6 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
             };
         });
         
-        logger.info(`[jikan-api] ✅ Found ${result.length} anime seasons for "${titleQuery}":`, 
-            result.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
-        
         // Cache successful result with UnifiedCacheManager (24-hour TTL)
         cache.set(cacheKey, result, 86400, {
             type: 'anime_season',
@@ -305,7 +302,19 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
         return null;
     }
     
-    const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
+    // OLD FILTERING: Only TV anime
+    // const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
+    
+    // Include TV, ONA content types for mapping
+    const mainSeasons = animeSeasons.filter(season => {
+        const isMainContent = ['TV', 'ONA'].includes(season.type) && season.episodes > 0;
+        if (!isMainContent) {
+            logger.debug(`[anime-mapping] Excluding "${season.title}" (${season.type}) - not main content or 0 episodes`);
+        } else {
+            logger.debug(`[anime-mapping] Including "${season.title}" (${season.type}) - ${season.episodes} episodes`);
+        }
+        return isMainContent;
+    });
     
     if (mainSeasons.length === 0) {
         return null;
@@ -354,7 +363,28 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
     if (requestedSeasonData) {
         logger.info(`[anime-mapping] ✅ Episode ${targetEpisode} exceeds S${targetSeason} capacity (${requestedSeasonData.episodes} episodes), attempting cross-season mapping`);
     } else {
-        logger.info(`[anime-mapping] ✅ S${targetSeason} not found in anime data, attempting cross-season mapping for episode ${targetEpisode}`);
+        // Check if requested episode would fall within the range of available seasons
+        let totalEpisodes = 0;
+        for (const season of combinedSeasons) {
+            totalEpisodes += season.episodes;
+        }
+        
+        // If the episode number is within the total episode range, it could be valid cross-season mapping
+        // If it's beyond total episodes, no mapping possible
+        if (targetEpisode > totalEpisodes) {
+            logger.info(`[anime-mapping] ❌ S${targetSeason} not found and episode ${targetEpisode} exceeds total episodes (${totalEpisodes}) - cannot map`);
+            return null;
+        }
+        
+        // Check if this looks like a reasonable cross-season mapping
+        // Compare against what the episode would map to in S1 range
+        const firstSeason = combinedSeasons[0];
+        if (firstSeason && targetEpisode <= firstSeason.episodes) {
+            logger.info(`[anime-mapping] ❌ S${targetSeason} not found but S${targetSeason}E${targetEpisode} would map within S1 range (${firstSeason.episodes} episodes) - likely legitimate missing season, not overflow`);
+            return null;
+        }
+        
+        logger.info(`[anime-mapping] ✅ S${targetSeason} not found but episode ${targetEpisode} appears to be overflow from earlier seasons - attempting cross-season mapping`);
     }
     
     let cumulativeEpisodes = 0;
