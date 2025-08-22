@@ -23,7 +23,6 @@ export class AbsoluteEpisodeProcessor {
         }
         
         const absoluteNumber = traktData.absoluteEpisode;
-        logger.debug(`[AbsoluteEpisodeProcessor] Processing ${torrentVideos.length} videos for absolute episode ${absoluteNumber}`);
         
         const enhancedVideos = [];
         let matchCount = 0;
@@ -59,8 +58,6 @@ export class AbsoluteEpisodeProcessor {
             
             enhancedVideos.push(enhanced);
         }
-        
-        logger.debug(`[AbsoluteEpisodeProcessor] Found ${matchCount} absolute episode matches out of ${torrentVideos.length} videos`);
         return enhancedVideos;
     }
     

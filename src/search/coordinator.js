@@ -295,7 +295,10 @@ export async function coordinateSearch(params) {
  * Apply absolute episode post-processing to search results
  */
 function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) {
-    if (!absoluteEpisodeData || !Array.isArray(searchResults)) {
+    if (!absoluteEpisodeData || !absoluteEpisodeData.absoluteEpisode || !Array.isArray(searchResults)) {
+        if (absoluteEpisodeData && !absoluteEpisodeData.absoluteEpisode) {
+            logger.debug(`[coordinator] ⚡ Skipping absolute episode processing - no absolute episode data from Trakt`);
+        }
         return searchResults; // No absolute episode data or invalid input
     }
     

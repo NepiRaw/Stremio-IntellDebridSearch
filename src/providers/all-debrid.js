@@ -172,7 +172,7 @@ class AllDebridProvider extends BaseProvider {
             }
 
             if (magnetDetails.files && Array.isArray(magnetDetails.files)) {
-                this.log('debug', `Files included in status response for magnet ${id}`);
+                this.log('debug', `Files included in status response for magnet ${id} - ${magnetDetails.filename}`);
             } else {
                 try {
                     const filesResponse = await this.makeAllDebridRequest('magnet/files', { id: [parseInt(id)] }, apiKey);
@@ -194,39 +194,48 @@ class AllDebridProvider extends BaseProvider {
         }, 3, `getTorrentDetails(${id})`);
     }
 
-    async toTorrentDetails(apiKey, item, context = 'stream') {
-        // Flatten AllDebrid's nested file structure inline
+    /**
+     * Universal AllDebrid file flattening function
+     * Handles all known AllDebrid file structure patterns
+     */
+    flattenAllDebridFiles(files) {
         const flattenedFiles = [];
         
-        if (item.files && item.files.length > 0) {
-            const firstContainer = item.files[0];
-            
-            // Case 1: Single file torrent
-            if (firstContainer.n && firstContainer.s && firstContainer.l) {
-                flattenedFiles.push({
-                    name: firstContainer.n,
-                    size: firstContainer.s,
-                    allDebridFile: firstContainer
-                });
-            }
-            // Case 2: Multi-file with nested structure
-            else if (firstContainer.e && Array.isArray(firstContainer.e)) {
-                const flattenRecursive = (container) => {
-                    container.forEach(fileItem => {
-                        if (fileItem.s && fileItem.n) {
-                            flattenedFiles.push({
-                                name: fileItem.n,
-                                size: fileItem.s,
-                                allDebridFile: fileItem
-                            });
-                        } else if (fileItem.e && Array.isArray(fileItem.e)) {
-                            flattenRecursive(fileItem.e);
-                        }
-                    });
-                };
-                flattenRecursive(firstContainer.e);
-            }
+        if (!files || !Array.isArray(files) || files.length === 0) {
+            return flattenedFiles;
         }
+
+        const extractFiles = (items) => {
+            if (!items) return;
+            
+            if (Array.isArray(items)) {
+                items.forEach((item) => {
+                    extractFiles(item);
+                });
+                return;
+            }
+            
+            if (typeof items === 'object') {
+                if (items.n && items.s && items.l) {
+                    flattenedFiles.push({
+                        name: items.n,
+                        size: items.s,
+                        allDebridFile: items
+                    });
+                }
+                
+                if (items.e && Array.isArray(items.e)) {
+                    extractFiles(items.e);
+                }
+            }
+        };
+        extractFiles(files);
+        
+        return flattenedFiles;
+    }
+
+    async toTorrentDetails(apiKey, item, context = 'stream') {
+        const flattenedFiles = this.flattenAllDebridFiles(item.files);
 
         const videoFiles = flattenedFiles.filter(file => isVideo(file.name));
         

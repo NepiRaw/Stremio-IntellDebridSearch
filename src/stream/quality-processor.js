@@ -66,6 +66,7 @@ export function sortMovieStreamsByQuality(streams) {
 export function deduplicateStreams(streams) {
     const seen = new Set();
     const deduplicated = [];
+    let duplicateCount = 0;
     
     for (const stream of streams) {
         const titleLines = stream.title.split('\n');
@@ -83,8 +84,13 @@ export function deduplicateStreams(streams) {
             seen.add(uniqueKey);
             deduplicated.push(stream);
         } else {
-            logger.debug(`[deduplicateStreams] Skipping duplicate: ${videoFileName}`);
+            logger.info(`[quality-processor] 🔄 Filtered duplicate stream: ${videoFileName}`);
+            duplicateCount++;
         }
+    }
+    
+    if (duplicateCount > 0) {
+        logger.info(`[quality-processor] 📊 Stream deduplication: ${streams.length} → ${deduplicated.length} streams (filtered ${duplicateCount} duplicates)`);
     }
     
     return deduplicated;

@@ -70,18 +70,22 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
     });
 
     const allSearchResults = await Promise.all(parallelSearches);
-    
-    // Collect unique matches from all parallel searches
+
+    // Deduplicate by torrent ID
     allSearchResults.forEach(({ term, matches }) => {
         matches.forEach(match => {
+            const torrentId = match.item.originalResult.id;
             const originalName = match.item.originalResult.name;
-            if (!seenMatches.has(originalName)) {
-                seenMatches.add(originalName);
+            const size = match.item.originalResult.size;
+            
+            if (!seenMatches.has(torrentId)) {
+                seenMatches.add(torrentId);
                 titleMatches.push({
                     ...match,
                     item: match.item.originalResult,
                     matchedTerm: term // Store which search term actually matched this torrent
                 });
+                logger.debug(`[phase-1] Added torrent: ${originalName} (ID: ${torrentId}, Size: ${size})`);
             }
         });
     });

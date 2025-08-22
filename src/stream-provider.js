@@ -35,46 +35,25 @@ const StreamHelpers = {
     },
 
     performDeduplication(searchResults, contentType) {
-        // Deduplicate by exact name + size (allow multiple files from same torrent)
+        // Deduplicate by exact name + size
         const seenFiles = new Set();
-        let deduplicatedResults;
+        let duplicateCount = 0;
         
-        if (contentType === 'series') {
-            // For series, also check torrent IDs to prevent duplicate torrent processing
-            const seenTorrents = new Set();
-            deduplicatedResults = searchResults.filter(result => {
-                const torrentId = result.id;
-                const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
-                
-                if (seenTorrents.has(torrentId)) {
-                    logger.debug(`[stream-provider] ⚡ Skipping duplicate torrent: ${torrentId} (${result.name?.substring(0, 50)}...)`);
-                    return false;
-                }
-                
-                if (seenFiles.has(fileKey)) {
-                    logger.debug(`[stream-provider] ⚡ Skipping duplicate file: ${result.name?.substring(0, 50)}... (${result.size} bytes)`);
-                    return false;
-                }
-                
-                seenTorrents.add(torrentId);
-                seenFiles.add(fileKey);
-                return true;
-            });
-        } else {
-            // For movies, only deduplicate by file content
-            deduplicatedResults = searchResults.filter(result => {
-                const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
-                if (seenFiles.has(fileKey)) {
-                    logger.debug(`[stream-provider] ⚡ Skipping duplicate file: ${result.name?.substring(0, 50)}... (${result.size} bytes)`);
-                    return false;
-                }
-                seenFiles.add(fileKey);
-                return true;
-            });
-        }
+        const deduplicatedResults = searchResults.filter(result => {
+            const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
+            
+            if (seenFiles.has(fileKey)) {
+                logger.info(`[stream-provider] 🔄 Filtered duplicate file: ${result.name} (${result.size} bytes) - same name+size`);
+                duplicateCount++;
+                return false;
+            }
+            
+            seenFiles.add(fileKey);
+            return true;
+        });
 
         if (deduplicatedResults.length !== searchResults.length) {
-            logger.info(`[stream-provider] ⚡ Deduplicated ${searchResults.length} → ${deduplicatedResults.length} results (eliminated ${searchResults.length - deduplicatedResults.length} duplicates)`);
+            logger.info(`[stream-provider] 📊 Deduplication: ${searchResults.length} → ${deduplicatedResults.length} results (filtered ${duplicateCount} name+size duplicates)`);
         }
 
         return deduplicatedResults;

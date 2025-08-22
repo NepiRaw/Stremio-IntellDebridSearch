@@ -152,7 +152,7 @@ export function parseRomanSeasons(title) {
                 const season = romanToNumber(upperRoman);
                 
                 if (season !== null && season >= 1 && season <= 10) { // Reasonable season range
-                    logger.debug(`[parseRomanSeasons] Found Roman season: ${upperRoman} = ${season}, episode = ${episodeNum}`);
+                    logger.debug(`[parseRomanSeasons] Found Roman season: ${upperRoman} = ${season}, episode = ${episodeNum} - ${title}`);
                     
                     return {
                         season: season,

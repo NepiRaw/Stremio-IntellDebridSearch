@@ -122,7 +122,7 @@ function applyRegexFallbacks(filename, pttResult) {
     
     if (pttResult.season && pttResult.episode) {
         // PTT found both season and episode
-        logger.debug(`[unified-parser] PTT found reliable season/episode: S${pttResult.season}E${pttResult.episode}, using PTT results`);
+        logger.debug(`[unified-parser] PTT found reliable season/episode: S${pttResult.season}E${pttResult.episode}, using PTT results - ${filename}`);
         result.season = pttResult.season;
         result.episode = pttResult.episode;
         
@@ -142,7 +142,7 @@ function applyRegexFallbacks(filename, pttResult) {
             if (episodeInfo.season !== null && (!result.absoluteEpisode || episodeInfo.season !== undefined)) {
                 result.season = episodeInfo.season;
             } else if (episodeInfo.season && result.absoluteEpisode) {
-                logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode}`);
+                logger.debug(`[unified-parser] Skipping season ${episodeInfo.season} from episode-patterns due to absolute episode ${result.absoluteEpisode} - ${filename}`);
             }
         } else {
             result.episode = episodeInfo;
@@ -185,12 +185,12 @@ function handleAbsoluteEpisodePriority(result, episodeInfo, filename) {
         const hasSeasonEpisodePattern = episodeInfo && typeof episodeInfo === 'object' && 
                                        episodeInfo.season !== null && episodeInfo.episode !== null;
         if (hasSeasonEpisodePattern) {
-            logger.debug(`[unified-parser] Preserving explicit season/episode pattern: S${episodeInfo.season}E${episodeInfo.episode} (ignoring absolute episode ${result.absoluteEpisode})`);
+            logger.debug(`[unified-parser] Preserving explicit season/episode pattern: S${episodeInfo.season}E${episodeInfo.episode} (ignoring absolute episode ${result.absoluteEpisode} - ${filename})`);
             result.season = episodeInfo.season; // Preserve the season from episode parsing
             result.episode = episodeInfo.episode; // Preserve the episode from episode parsing
             result.absoluteEpisode = null; // Clear absolute episode when we have explicit patterns
         } else {
-            logger.debug(`[unified-parser] Using absolute episode ${result.absoluteEpisode} over parsed episode ${result.episode}`);
+            logger.debug(`[unified-parser] Using absolute episode ${result.absoluteEpisode} over parsed episode ${result.episode} - ${filename}`);
             result.episode = result.absoluteEpisode;
         }
     }
@@ -218,7 +218,7 @@ function applyRomanNumeralFallback(result, filename) {
                                (result.season === 1 && romanSeasonInfo.season > 1));
         
         if (shouldUseRoman) {
-            logger.debug(`[unified-parser] Using Roman numeral parsing: season=${romanSeasonInfo.season}, episode=${romanSeasonInfo.episode} (${romanSeasonInfo.roman})`);
+            logger.debug(`[unified-parser] Using Roman numeral parsing: season=${romanSeasonInfo.season}, episode=${romanSeasonInfo.episode} (${romanSeasonInfo.roman}) - ${filename}`);
             
             if (romanSeasonInfo.season) {
                 result.season = romanSeasonInfo.season;
@@ -231,7 +231,7 @@ function applyRomanNumeralFallback(result, filename) {
             // It's season-based numbering with Roman season indicators
             result.absoluteEpisode = null;
         } else {
-            logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanSeasonInfo.season},${romanSeasonInfo.episode}), absoluteEpisode=${result.absoluteEpisode}`);
+            logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanSeasonInfo.season},${romanSeasonInfo.episode}), absoluteEpisode=${result.absoluteEpisode} - ${filename}`);
         }
     }
     
@@ -304,7 +304,7 @@ function extractSeasonWithFallback(filename, pttResult) {
 function extractAbsoluteEpisode(filename, pttResult) {
     const romanSeasonInfo = parseRomanSeasons(filename);
     if (romanSeasonInfo) {
-        logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanSeasonInfo.roman}`);
+        logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanSeasonInfo.roman} - ${filename}`);
         return null;
     }
     
@@ -324,7 +324,7 @@ function extractAbsoluteEpisode(filename, pttResult) {
     }
     
     if (absoluteEpisode !== null) {
-        logger.debug(`[unified-parser] Absolute episode extracted via episode-patterns: ${absoluteEpisode}`);
+        logger.debug(`[unified-parser] Absolute episode extracted via episode-patterns: ${absoluteEpisode} - ${filename}`);
         return absoluteEpisode;
     }
     
