@@ -3,7 +3,9 @@
 # Stremio Intelligent Debrid Search Addon
 
 <p>
-  <img src="https://img.shields.io/github/v/release/NepiRaw/Stremio-IntellDebridSearch?sort=semver" alt="GitHub release (latest by semver)" />
+   <a href="https://github.com/NepiRaw/Stremio-IntellDebridSearch/releases/latest">
+    <img alt="GitHub release" src="https://img.shields.io/github/v/release/NepiRaw/Stremio-IntellDebridSearch?style=flat-square&logo=github&logoColor=white&labelColor=1C1E26&color=4A5568">
+  </a>
   <img src="https://img.shields.io/badge/Stremio-Addon-purple" alt="Stremio" />
   <img src="https://img.shields.io/badge/Node.js-20+-brightgreen" alt="Node.js" />
 </p>
