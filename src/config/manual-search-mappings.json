@@ -1,0 +1,7 @@
+{
+  // Manual search term mappings for specific IMDB IDs
+  // These mappings allow for custom search terms to be added alongside the original search term
+  // Format: "imdb_id": ["search_term_1", "search_term_2", ...]
+  
+  "tt30217403": ["Dan Da Dan"] // DANDADAN - normalization fixed for DAN.DA.DAN torrent
+}
