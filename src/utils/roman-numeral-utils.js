@@ -1,4 +1,24 @@
 import { logger } from './logger.js';
+import cache, { romanCache } from './cache-manager.js';
+
+// Cache configuration constants
+const ROMAN_CACHE_TTL = 72000; // 20 hours (shorter than parser cache)
+const ROMAN_CACHE_TYPE = 'roman';
+
+const loggedRomanResults = new Set();
+
+function logRomanResult(title, upperRoman, season, episodeNum) {
+    const logKey = `${title}:${upperRoman}:${season}:${episodeNum}`;
+    
+    if (!loggedRomanResults.has(logKey)) {
+        logger.debug(`[parseRomanSeasons] Found Roman season: ${upperRoman} = ${season}, episode = ${episodeNum} - ${title}`);
+        loggedRomanResults.add(logKey);
+        
+        if (loggedRomanResults.size > 1000) {
+            loggedRomanResults.clear();
+        }
+    }
+}
 
 // ============ UNIFIED ROMAN NUMERAL DEFINITIONS ============
 /**
@@ -132,8 +152,36 @@ export function parseRomanNumeral(num) {
 export function parseRomanSeasons(title) {
     if (!title || typeof title !== 'string') return null;
     
-    // Only try Roman numeral parsing if there's no explicit S##E## pattern
-    // We still want to try if it's something like "AnimeName III - 04" vs "DanMachi.S03E04"
+    // Multi-tier cache lookup strategy
+    const romanKey = `roman:${title}`;
+    const parserKey = `parser:${title}`;
+    
+    // 1. Check if filename was already parsed by unified parser (most comprehensive)
+    if (cache.has(parserKey)) {
+        const parserCached = cache.get(parserKey);
+        if (parserCached && parserCached.romanSeason !== undefined) {
+            return parserCached.romanSeason;
+        }
+    }
+    
+    // 2. Check dedicated Roman cache (faster lookup, longer TTL)
+    if (romanCache.has(romanKey)) {
+        const romanCached = romanCache.get(romanKey);
+        return romanCached;
+    }
+    
+    // 3. Compute Roman season parsing (original logic)
+    const result = computeRomanSeasons(title);
+    
+    // 4. Cache the result in dedicated Roman cache for future lookups
+    romanCache.set(romanKey, result, ROMAN_CACHE_TTL, { type: ROMAN_CACHE_TYPE });
+    
+    return result;
+}
+
+// Extract original parsing logic into separate function
+function computeRomanSeasons(title) {
+    // Only try Roman numeral parsing if there's no explicit S##E## / S## E## / S## - E## / S##.E## pattern
     const hasExplicitSE = /s\d{1,2}e\d{1,3}/i.test(title);
     if (hasExplicitSE) {
         return null; // Use explicit S##E## numbering instead
@@ -151,14 +199,16 @@ export function parseRomanSeasons(title) {
                 const upperRoman = romanNumeral.toUpperCase();
                 const season = romanToNumber(upperRoman);
                 
-                if (season !== null && season >= 1 && season <= 10) { // Reasonable season range
-                    logger.debug(`[parseRomanSeasons] Found Roman season: ${upperRoman} = ${season}, episode = ${episodeNum} - ${title}`);
+                if (season !== null && season >= 1 && season <= 10) {
+                    // Enhanced logging with deduplication
+                    logRomanResult(title, upperRoman, season, episodeNum);
                     
                     return {
                         season: season,
                         episode: parseInt(episodeNum, 10),
                         roman: upperRoman,
-                        fullMatch: match[0]
+                        pattern: pattern.source,
+                        confidence: 0.9
                     };
                 }
             }

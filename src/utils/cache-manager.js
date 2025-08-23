@@ -221,10 +221,17 @@ class UnifiedCacheManager {
 
 
 const cache = new UnifiedCacheManager({
-    maxSize: 1000,        // Limit cache entries for memory efficiency
+    maxSize: 10000,       // Limit cache entries
     defaultTTL: 3600,    // 1 hour default TTL
     cleanupInterval: 300 // 5 minute cleanup interval
 });
 
+// Dedicated cache for Roman numeral parsing
+const romanCache = new UnifiedCacheManager({
+    maxSize: 5000,        // Dedicated space for Roman results
+    defaultTTL: 7200,     // 2 hour TTL for Roman results
+    cleanupInterval: 600  // 10 minute cleanup interval
+});
+
 export default cache;
-export { UnifiedCacheManager };
+export { UnifiedCacheManager, romanCache };
