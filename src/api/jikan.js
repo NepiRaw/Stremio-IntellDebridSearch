@@ -128,7 +128,7 @@ export async function fetchAnimeSeasonInfo(titleQuery) {
         
         // Filter relevant entries (TV + Special)
         const entries = searchData.data?.filter(entry => {
-            return ['TV', 'Special', 'ONA'].includes(entry.type) &&
+            return ['TV', 'Special'].includes(entry.type) &&
                    entry.titles?.some(title => 
                        title.title.toLowerCase().includes(titleQuery.toLowerCase())
                    );
@@ -302,12 +302,9 @@ export function mapAnimeEpisode(animeSeasons, targetSeason, targetEpisode) {
         return null;
     }
     
-    // OLD FILTERING: Only TV anime
-    // const mainSeasons = animeSeasons.filter(season => season.type === 'TV' && season.episodes > 0);
-    
-    // Include TV, ONA content types for mapping
+    // Include TV content types for mapping (ONA?)
     const mainSeasons = animeSeasons.filter(season => {
-        const isMainContent = ['TV', 'ONA'].includes(season.type) && season.episodes > 0;
+        const isMainContent = ['TV'].includes(season.type) && season.episodes > 0;
         if (!isMainContent) {
             logger.debug(`[anime-mapping] Excluding "${season.title}" (${season.type}) - not main content or 0 episodes`);
         } else {
