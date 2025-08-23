@@ -7,13 +7,16 @@ import { logger } from './logger.js';
 function parseVideoInfo(filename) {
     const basicInfo = parseUnified(filename);
     if (!basicInfo.season) {
-        const romanSeason = parseRomanSeasons(filename);
-        if (romanSeason) {
-            basicInfo.season = romanSeason.season;
+        // Check if unified parser found Roman info
+        if (basicInfo.romanSeason) {
+            logger.debug(`[debrid-processor] Using Roman data from unified parser: S${basicInfo.romanSeason.season}E${basicInfo.romanSeason.episode} - ${filename}`);
+            basicInfo.season = basicInfo.romanSeason.season;
             
             const episodeInfo = parseEpisodeFromTitle(filename);
             if (episodeInfo && episodeInfo.episode) {
                 basicInfo.episode = episodeInfo.episode;
+            } else if (basicInfo.romanSeason.episode) {
+                basicInfo.episode = basicInfo.romanSeason.episode;
             }
         }
     }

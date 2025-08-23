@@ -119,6 +119,8 @@ function cleanFilename(filename) {
 function applyRegexFallbacks(filename, pttResult) {
     let result = { ...pttResult };
     
+    // Call parseRomanSeasons() and share result
+    const romanSeasonInfo = parseRomanSeasons(filename);
     
     if (pttResult.season && pttResult.episode) {
         // PTT found both season and episode
@@ -131,7 +133,8 @@ function applyRegexFallbacks(filename, pttResult) {
         
     } else {        
         // Extract absolute episode FIRST to determine if this is absolute episode content
-        result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult);
+        // Pass pre-computed Roman data to avoid redundant call
+        result.absoluteEpisode = extractAbsoluteEpisode(filename, pttResult, romanSeasonInfo);
         
         // Episode extraction fallbacks
         const episodeInfo = extractEpisodeWithFallback(filename, pttResult);
@@ -158,7 +161,11 @@ function applyRegexFallbacks(filename, pttResult) {
     }
     
     // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
-    result = applyRomanNumeralFallback(result, filename);
+    // Pass pre-computed Roman data
+    result = applyRomanNumeralFallback(result, filename, romanSeasonInfo);
+    
+    // Store Roman data in result for external modules (always set, even if null)
+    result.romanSeason = romanSeasonInfo;
     
     // Ensure season is explicitly null when not set (for consistency)
     if (result.season === undefined) {
@@ -202,36 +209,40 @@ function handleAbsoluteEpisodePriority(result, episodeInfo, filename) {
  * Apply Roman numeral season parsing as fallback
  * @param {Object} result - Current parsing result
  * @param {string} filename - Original filename
+ * @param {Object|null} romanSeasonInfo - Pre-computed Roman season info
  * @returns {Object} Updated result
  */
-function applyRomanNumeralFallback(result, filename) {
+function applyRomanNumeralFallback(result, filename, romanSeasonInfo = null) {
     // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
     // This handles anime titles like "DanMachi III - 04.mkv" where III=season 3, 04=episode 4
-    const romanSeasonInfo = parseRomanSeasons(filename);
-    if (romanSeasonInfo) {
+    
+    // Use pre-computed Roman data if available, otherwise compute it
+    const romanInfo = romanSeasonInfo !== null ? romanSeasonInfo : parseRomanSeasons(filename);
+    
+    if (romanInfo) {
         // Use Roman results if:
         // 1. We don't have season/episode from classic parsing, OR
         // 2. Classic parsing found season=1 (might be incorrect default) and Roman parsing has better info
         // 3. BUT only if we don't have an absolute episode (absolute episodes are season-independent)
         const shouldUseRoman = !result.absoluteEpisode && 
                               (!result.season || !result.episode || 
-                               (result.season === 1 && romanSeasonInfo.season > 1));
+                               (result.season === 1 && romanInfo.season > 1));
         
         if (shouldUseRoman) {
-            logger.debug(`[unified-parser] Using Roman numeral parsing: season=${romanSeasonInfo.season}, episode=${romanSeasonInfo.episode} (${romanSeasonInfo.roman}) - ${filename}`);
+            logger.debug(`[unified-parser] Using Roman numeral parsing: season=${romanInfo.season}, episode=${romanInfo.episode} (${romanInfo.roman}) - ${filename}`);
             
-            if (romanSeasonInfo.season) {
-                result.season = romanSeasonInfo.season;
+            if (romanInfo.season) {
+                result.season = romanInfo.season;
             }
-            if (romanSeasonInfo.episode) {
-                result.episode = romanSeasonInfo.episode;
+            if (romanInfo.episode) {
+                result.episode = romanInfo.episode;
             }
             
             // When we use Roman numeral parsing, this can't be an absolute episode
             // It's season-based numbering with Roman season indicators
             result.absoluteEpisode = null;
         } else {
-            logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanSeasonInfo.season},${romanSeasonInfo.episode}), absoluteEpisode=${result.absoluteEpisode} - ${filename}`);
+            logger.debug(`[unified-parser] Roman numeral found but keeping classic parsing: classic=(${result.season},${result.episode}), roman=(${romanInfo.season},${romanInfo.episode}), absoluteEpisode=${result.absoluteEpisode} - ${filename}`);
         }
     }
     
@@ -299,12 +310,15 @@ function extractSeasonWithFallback(filename, pttResult) {
  * Extract absolute episode number for anime
  * @param {string} filename - Filename to parse
  * @param {Object} pttResult - PTT parsing result
+ * @param {Object|null} romanSeasonInfo - Pre-computed Roman season info (Phase 2 optimization)
  * @returns {number|null} Absolute episode number
  */
-function extractAbsoluteEpisode(filename, pttResult) {
-    const romanSeasonInfo = parseRomanSeasons(filename);
-    if (romanSeasonInfo) {
-        logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanSeasonInfo.roman} - ${filename}`);
+function extractAbsoluteEpisode(filename, pttResult, romanSeasonInfo = null) {
+    // PHASE 2: Use pre-computed Roman data if available, otherwise compute it
+    const romanInfo = romanSeasonInfo !== null ? romanSeasonInfo : parseRomanSeasons(filename);
+    
+    if (romanInfo) {
+        logger.debug(`[unified-parser] Skipping absolute episode detection due to Roman numeral season context: ${romanInfo.roman} - ${filename}`);
         return null;
     }
     

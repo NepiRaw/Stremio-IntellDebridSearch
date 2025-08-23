@@ -3,7 +3,7 @@
  */
 import { coordinateSearch } from './search/coordinator.js';
 import { filterEpisode, filterYear } from './stream/stream-builder.js';
-import { sortMovieStreamsByQuality } from './stream/quality-processor.js';
+import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
 import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
@@ -35,25 +35,34 @@ const StreamHelpers = {
     },
 
     performDeduplication(searchResults, contentType) {
-        // Deduplicate by exact name + size
+        // Deduplicate by torrent ID first, then by name + size as fallback
+        const seenTorrents = new Set();
         const seenFiles = new Set();
         let duplicateCount = 0;
         
         const deduplicatedResults = searchResults.filter(result => {
-            const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
+            // Primary deduplication: by torrent ID
+            if (result.id && seenTorrents.has(result.id)) {
+                logger.info(`[stream-provider] 🔄 Filtered duplicate torrent: ${result.name} (ID: ${result.id}) - same torrent ID`);
+                duplicateCount++;
+                return false;
+            }
             
+            // Secondary deduplication: by name + size (for torrents without IDs)
+            const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
             if (seenFiles.has(fileKey)) {
                 logger.info(`[stream-provider] 🔄 Filtered duplicate file: ${result.name} (${result.size} bytes) - same name+size`);
                 duplicateCount++;
                 return false;
             }
             
+            if (result.id) seenTorrents.add(result.id);
             seenFiles.add(fileKey);
             return true;
         });
 
         if (deduplicatedResults.length !== searchResults.length) {
-            logger.info(`[stream-provider] 📊 Deduplication: ${searchResults.length} → ${deduplicatedResults.length} results (filtered ${duplicateCount} name+size duplicates)`);
+            logger.info(`[stream-provider] 📊 Deduplication: ${searchResults.length} → ${deduplicatedResults.length} results (filtered ${duplicateCount} duplicates)`);
         }
 
         return deduplicatedResults;
@@ -198,7 +207,10 @@ class StreamProvider {
             const streamProcessingEnd = Date.now();
             logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
-            const sortedStreams = sortMovieStreamsByQuality(streams);
+            logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
+            const deduplicatedStreams = deduplicateStreams(streams);
+
+            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
             
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Movie search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId}`);
@@ -449,7 +461,10 @@ class StreamProvider {
             const streamProcessingEnd = Date.now();
             logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
 
-            const sortedStreams = sortMovieStreamsByQuality(streamTasks);
+            logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
+            const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
+
+            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreamTasks);
             
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
