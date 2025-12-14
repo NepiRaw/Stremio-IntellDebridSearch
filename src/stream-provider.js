@@ -8,6 +8,7 @@ import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
+import { AbsoluteEpisodeProcessor } from './utils/absolute-episode-processor.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
@@ -347,6 +348,13 @@ class StreamProvider {
                             return null;
                         }
 
+                        if (searchResponse.absoluteEpisode) {
+                            torrentDetails.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
+                                searchResponse.absoluteEpisode,
+                                torrentDetails.videos
+                            );
+                        }
+
                         const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);
                         if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
@@ -399,6 +407,13 @@ class StreamProvider {
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             return null;
+                        }
+
+                        if (searchResponse.absoluteEpisode) {
+                            torrentDetails.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
+                                searchResponse.absoluteEpisode,
+                                torrentDetails.videos
+                            );
                         }
 
                         const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);

@@ -56,6 +56,73 @@ async function getMeta(type, imdbId) {
         throw new Error(`Error from Cinemeta: ${err.message}`);
     }
 }
+
+/**
+ * Get episode count per season from Cinemeta
+ * Used for calculating absolute episode numbers when Trakt uses different numbering
+ * @param {string} imdbId - IMDb ID
+ * @returns {Promise<object|null>} Map of season number → episode count info
+ */
+async function getSeasonEpisodeCounts(imdbId) {
+    if (!imdbId) {
+        logger.warn('[cinemeta] getSeasonEpisodeCounts: Missing imdbId');
+        return null;
+    }
+    
+    try {
+        const meta = await getMeta('series', imdbId);
+        
+        if (!meta || !meta.videos) {
+            logger.warn(`[cinemeta] No videos found for ${imdbId}`);
+            return null;
+        }
+        
+        const seasonMap = {};
+        
+        meta.videos.forEach(video => {
+            const season = video.season;
+            const episode = video.episode;
+            
+            // Skip entries without season or episode numbers
+            if (season === undefined || season === null) return;
+            if (episode === undefined || episode === null) return;
+            
+            if (!seasonMap[season]) {
+                seasonMap[season] = {
+                    count: 0,
+                    firstEpisode: Infinity,
+                    lastEpisode: 0,
+                    episodes: []
+                };
+            }
+            
+            seasonMap[season].count++;
+            seasonMap[season].firstEpisode = Math.min(seasonMap[season].firstEpisode, episode);
+            seasonMap[season].lastEpisode = Math.max(seasonMap[season].lastEpisode, episode);
+            seasonMap[season].episodes.push(episode);
+        });
+        
+        Object.keys(seasonMap).forEach(season => {
+            if (seasonMap[season].firstEpisode === Infinity) {
+                seasonMap[season].firstEpisode = 0;
+            }
+        });
+        
+        logger.debug(`[cinemeta] Season structure for ${imdbId}:`, 
+            Object.entries(seasonMap)
+                .map(([s, data]) => `S${s}: ${data.count} eps`)
+                .join(', ')
+        );
+        
+        return seasonMap;
+        
+    } catch (err) {
+        logger.warn(`[cinemeta] Failed to get season episode counts for ${imdbId}: ${err.message}`);
+        return null;
+    }
+}
+
 export default { 
-    getMeta
+    getMeta,
+    getSeasonEpisodeCounts
 };

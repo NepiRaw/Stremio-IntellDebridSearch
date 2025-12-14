@@ -1,5 +1,6 @@
 import cache from '../utils/cache-manager.js';
 import { logger } from '../utils/logger.js';
+import Cinemeta from './cinemeta.js';
 
 /**
  * Trakt API client with caching and centralized API key management
@@ -38,6 +39,112 @@ export function isTraktEnabled() {
     }
     
     return false; // All other scenarios: disable Trakt
+}
+
+/**
+ * Calculate absolute episode number based on Cinemeta's season structure
+ * @param {object} cinemetaSeasonMap - Season → episode count map from Cinemeta
+ * @param {number} targetSeason - The requested season number
+ * @param {number} targetEpisode - The requested episode number within that season
+ * @returns {number} Calculated absolute episode number
+ */
+function calculateAbsoluteFromCinemeta(cinemetaSeasonMap, targetSeason, targetEpisode) {
+    let absoluteEpisode = 0;
+    
+    for (let s = 1; s < targetSeason; s++) {
+        if (cinemetaSeasonMap[s]) {
+            absoluteEpisode += cinemetaSeasonMap[s].count;
+        }
+    }
+    
+    absoluteEpisode += targetEpisode;
+    
+    logger.debug(`[trakt-api] Calculated absolute from Cinemeta: S${targetSeason}E${targetEpisode} → Absolute ${absoluteEpisode}`);
+    
+    return absoluteEpisode;
+}
+
+/**
+ * Detect if we need to use Cinemeta fallback due to season numbering mismatch
+ * @param {Array} traktSeasonData - Episodes from Trakt for the requested season
+ * @param {number} requestedEpisode - The episode number we're looking for
+ * @returns {boolean} True if Cinemeta fallback should be triggered
+ */
+function shouldTriggerCinemetaFallback(traktSeasonData, requestedEpisode) {
+    if (!traktSeasonData || traktSeasonData.length === 0) {
+        return false; // Empty season, different issue
+    }
+    
+    const directMatch = traktSeasonData.find(ep => ep.number === requestedEpisode);
+    if (directMatch) {
+        return false; // Found directly, no fallback needed
+    }
+    
+    const episodeNumbers = traktSeasonData.map(ep => ep.number);
+    const firstEpisodeNumber = Math.min(...episodeNumbers);
+    const lastEpisodeNumber = Math.max(...episodeNumbers);
+    
+    if (firstEpisodeNumber > requestedEpisode + 10) {
+        logger.info(`[trakt-api] Detected absolute numbering: Trakt season starts at E${firstEpisodeNumber}, requested E${requestedEpisode}`);
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Find an episode across all Trakt seasons by absolute episode number
+ * @param {string} traktApiKey - Trakt API key
+ * @param {number} traktId - Trakt show ID
+ * @param {number} absoluteEpisode - The absolute episode number to find
+ * @returns {Promise<object|null>} Episode mapping if found
+ */
+async function findEpisodeByAbsolute(traktApiKey, traktId, absoluteEpisode) {
+    const resolvedApiKey = getTraktApiKey(traktApiKey);
+    
+    const allSeasonsUrl = `https://api.trakt.tv/shows/${traktId}/seasons?extended=episodes`;
+    
+    try {
+        const response = await fetch(allSeasonsUrl, {
+            headers: {
+                'Content-Type': 'application/json',
+                'trakt-api-version': '2',
+                'trakt-api-key': resolvedApiKey
+            }
+        });
+        
+        if (!response.ok) {
+            logger.warn(`[trakt-api] Failed to fetch all seasons: ${response.status}`);
+            return null;
+        }
+        
+        const allSeasons = await response.json();
+        
+        // Search for the absolute episode number
+        for (const season of allSeasons) {
+            if (!season.episodes) continue;
+            
+            const foundEpisode = season.episodes.find(ep => ep.number_abs === absoluteEpisode);
+            
+            if (foundEpisode) {
+                logger.info(`[trakt-api] ✅ Found absolute ${absoluteEpisode} → S${season.number}E${foundEpisode.number}`);
+                return {
+                    season: season.number,
+                    episode: foundEpisode.number,
+                    absoluteEpisode: foundEpisode.number_abs,
+                    title: foundEpisode.title,
+                    overview: foundEpisode.overview,
+                    mappedFromCinemeta: true
+                };
+            }
+        }
+        
+        logger.warn(`[trakt-api] Absolute episode ${absoluteEpisode} not found in any season`);
+        return null;
+    } catch (err) {
+        logger.warn(`[trakt-api] Error finding episode by absolute:`, err.message);
+        return null;
+    }
 }
 
 export async function getEpisodeMapping(traktApiKey = null, imdbId, season, episode) {
@@ -150,19 +257,55 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
             } else {
                 logger.warn(`[trakt-api] Episode ${episode} not found in season ${season}`);
                 
-                const maxEpisode = Math.max(...seasonData.map(ep => ep.number));
-                if (episode > maxEpisode) {
-                    logger.info(`[trakt-api] Episode ${episode} exceeds max episode ${maxEpisode}, using last episode`);
-                    const lastEpisode = seasonData.find(ep => ep.number === maxEpisode);
-                    if (lastEpisode) {
-                        episodeMapping = {
-                            season: season,
-                            episode: lastEpisode.number,
-                            absoluteEpisode: lastEpisode.number_abs,
-                            title: lastEpisode.title,
-                            overview: lastEpisode.overview,
-                            fallback: true
-                        };
+                // Check if we should trigger Cinemeta fallback
+                // This handles cases where Trakt uses absolute numbering (e.g., anime)
+                if (shouldTriggerCinemetaFallback(seasonData, episode)) {
+                    logger.info(`[trakt-api] 🔄 Triggering Cinemeta fallback for S${season}E${episode}`);
+                    
+                    try {
+                        const cinemetaSeasonMap = await Cinemeta.getSeasonEpisodeCounts(imdbId);
+                        
+                        if (cinemetaSeasonMap && cinemetaSeasonMap[season]) {
+                            const calculatedAbsolute = calculateAbsoluteFromCinemeta(
+                                cinemetaSeasonMap, 
+                                parseInt(season), 
+                                parseInt(episode)
+                            );
+                            
+                            logger.info(`[trakt-api] Cinemeta calculated absolute: S${season}E${episode} → Absolute ${calculatedAbsolute}`);
+                            
+                            episodeMapping = await findEpisodeByAbsolute(
+                                resolvedApiKey, 
+                                traktId, 
+                                calculatedAbsolute
+                            );
+                            
+                            if (episodeMapping) {
+                                logger.info(`[trakt-api] ✅ Cinemeta fallback successful: S${season}E${episode} → Absolute ${calculatedAbsolute} → S${episodeMapping.season}E${episodeMapping.episode}`);
+                            }
+                        } else {
+                            logger.warn(`[trakt-api] Cinemeta season map not available for season ${season}`);
+                        }
+                    } catch (fallbackErr) {
+                        logger.warn(`[trakt-api] Cinemeta fallback failed:`, fallbackErr.message);
+                    }
+                }
+                
+                if (!episodeMapping) {
+                    const maxEpisode = Math.max(...seasonData.map(ep => ep.number));
+                    if (episode > maxEpisode) {
+                        logger.info(`[trakt-api] Episode ${episode} exceeds max episode ${maxEpisode}, using last episode`);
+                        const lastEpisode = seasonData.find(ep => ep.number === maxEpisode);
+                        if (lastEpisode) {
+                            episodeMapping = {
+                                season: season,
+                                episode: lastEpisode.number,
+                                absoluteEpisode: lastEpisode.number_abs,
+                                title: lastEpisode.title,
+                                overview: lastEpisode.overview,
+                                fallback: true
+                            };
+                        }
                     }
                 }
             }

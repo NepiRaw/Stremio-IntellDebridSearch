@@ -106,10 +106,10 @@ export class AbsoluteEpisodeProcessor {
             return false; // Never match absolute episodes for files with explicit season/episode patterns
         }
         
-        // If any season indicator is found, don't use absolute episode matching
-        const detectedSeason = parseSeasonFromTitle(filename);
+        // If any RELIABLE season indicator is found, don't use absolute episode matching
+        const detectedSeason = parseSeasonFromTitle(filename, true);
         if (detectedSeason !== null) {
-            logger.debug(`[AbsoluteEpisodeProcessor] Season ${detectedSeason} detected, skipping absolute episode matching`);
+            logger.debug(`[AbsoluteEpisodeProcessor] Season ${detectedSeason} detected (strict), skipping absolute episode matching`);
             return false; // Files with clear season indicators should not use absolute episode matching
         }
         
@@ -120,6 +120,10 @@ export class AbsoluteEpisodeProcessor {
             
             // Delimited patterns
             new RegExp(`[-\\.]0*${absoluteEpisode}[\\.\\s-]`),   // "-030.", ".30 "
+            
+            // Episode prefix patterns - handles E012, Ep012, Episode 012 formats
+            // This is common in anime releases like "One.Piece.E012.MULTi.1080p.mkv"
+            new RegExp(`[\\.-]E[Pp]?0*${absoluteEpisode}[\\.-]`, 'i'),  // ".E012.", ".EP012."
             
             // Episode prefix patterns (only for files without season patterns or high episode numbers)
             ...(absoluteEpisode > 50 || !seasonEpisodeMatch ? [
