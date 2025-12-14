@@ -87,7 +87,8 @@ class TorBoxProvider extends BaseProvider {
             }
             return null;
         } catch (err) {
-            return this.handleError(err);
+            this.logApiError(err, 'getTorrentDetails');
+            return null;
         }
     }
 
@@ -125,8 +126,12 @@ class TorBoxProvider extends BaseProvider {
                 if (res.success) {
                     return res.data
                 }
+                return null;
             })
-            .catch(err => this.handleError(err))
+            .catch(err => {
+                this.logApiError(err, 'unrestrictUrl');
+                return null;
+            })
     }
 
     async toTorrent(apiKey, item, context = 'stream') {
@@ -223,7 +228,35 @@ class TorBoxProvider extends BaseProvider {
                     })
                     .then(files => files.filter(f => f.download_finished && f.download_present))
                     .catch(err => {
-                        this.handleError(err)
+                        const status = err?.response?.status || err?.metadata?.status || err?.status;
+                        let errorCode = err?.response?.data?.error || err?.error;
+                        
+                        // Try to parse raw body for SDK errors
+                        if (!errorCode && err?.raw) {
+                            try {
+                                const rawString = typeof err.raw === 'string' 
+                                    ? err.raw 
+                                    : new TextDecoder().decode(err.raw);
+                                const parsed = JSON.parse(rawString);
+                                errorCode = parsed?.error;
+                                if (parsed?.detail) {
+                                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
+                                }
+                            } catch (parseErr) {
+                                // Ignore parsing errors
+                            }
+                        }
+                        
+                        // Log specific error types
+                        if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
+                            logger.warn('[TorBox] Authentication failed: Invalid or expired API token');
+                        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
+                            logger.warn('[TorBox] Access denied: API feature not available on your plan');
+                        } else {
+                            logger.warn('[TorBox] API call failed:', err?.message || errorCode || 'Unknown error');
+                        }
+                        
+                        // Return empty array to allow addon to continue gracefully
                         return []
                     })
             } else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS) {
@@ -236,17 +269,99 @@ class TorBoxProvider extends BaseProvider {
         }
     }
 
+    /**
+     * Log API errors in a consistent format without throwing
+     * Use this when you want to log an error but continue execution gracefully
+     * @param {Error} err - The error object
+     * @param {string} context - The context/method where the error occurred
+     */
+    logApiError(err, context = 'unknown') {
+        const status = err?.response?.status || err?.metadata?.status || err?.status;
+        let errorCode = err?.response?.data?.error || err?.error;
+        let errorDetail = null;
+        
+        // Try to parse raw body for SDK errors
+        if (!errorCode && err?.raw) {
+            try {
+                const rawString = typeof err.raw === 'string' 
+                    ? err.raw 
+                    : new TextDecoder().decode(err.raw);
+                const parsed = JSON.parse(rawString);
+                errorCode = parsed?.error;
+                errorDetail = parsed?.detail;
+            } catch (parseErr) {
+                // Ignore parsing errors
+            }
+        }
+        
+        // Log with appropriate message based on error type
+        if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
+            logger.warn(`[TorBox] ${context}: Authentication failed - Invalid or expired API token`);
+        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
+            logger.warn(`[TorBox] ${context}: Access denied - API feature not available on your plan`);
+        } else if (errorDetail) {
+            logger.warn(`[TorBox] ${context}: ${errorCode} - ${errorDetail}`);
+        } else {
+            logger.warn(`[TorBox] ${context}: API error - ${err?.message || errorCode || 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Handle TorBox API errors gracefully
+     * Supports both standard response format and TorBox SDK HttpError format
+     * @param {Error} err - The error object
+     * @returns {Promise} Rejected promise with appropriate error type
+     */
     handleError(err) {
-        logger.debug(err)
+        // Extract status from multiple possible locations:
+        // - Standard fetch: err.response.status
+        // - TorBox SDK HttpError: err.metadata.status
+        const status = err?.response?.status || err?.metadata?.status || err?.status;
         
-        if (err?.response?.data?.error === 'invalid_token' || err?.response?.status === 401) {
-            return Promise.reject(BadTokenError)
-        }
-        if (err?.response?.status === 403) {
-            return Promise.reject(AccessDeniedError)
+        // Extract error code from response body or SDK error
+        // - Standard: err.response.data.error
+        // - SDK raw body needs parsing
+        let errorCode = err?.response?.data?.error || err?.error;
+        
+        // Try to parse the raw body if it's an ArrayBuffer/Uint8Array (SDK format)
+        if (!errorCode && err?.raw) {
+            try {
+                const rawString = typeof err.raw === 'string' 
+                    ? err.raw 
+                    : new TextDecoder().decode(err.raw);
+                const parsed = JSON.parse(rawString);
+                errorCode = parsed?.error;
+                
+                // Log the detailed error for debugging
+                if (parsed?.detail) {
+                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
+                }
+            } catch (parseErr) {
+                // Ignore parsing errors, continue with other checks
+            }
         }
         
-        return Promise.reject(err)
+        logger.debug(`[TorBox] handleError - status: ${status}, errorCode: ${errorCode}`);
+        
+        // Check for authentication errors (invalid token, bad token)
+        if (errorCode === 'invalid_token' || 
+            errorCode === 'BAD_TOKEN' || 
+            status === 401) {
+            logger.warn('[TorBox] Authentication error: Invalid or expired API token');
+            return Promise.reject(BadTokenError);
+        }
+        
+        // Check for access denied / plan restricted errors
+        if (status === 403 || 
+            errorCode === 'PLAN_RESTRICTED_FEATURE' ||
+            errorCode === 'Forbidden') {
+            logger.warn('[TorBox] Access denied: API feature not available (plan restriction or forbidden)');
+            return Promise.reject(AccessDeniedError);
+        }
+        
+        // Log unhandled errors for debugging
+        logger.warn(`[TorBox] Unhandled API error:`, err?.message || err);
+        return Promise.reject(err);
     }
 }
 
