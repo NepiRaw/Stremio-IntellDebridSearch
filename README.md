@@ -64,12 +64,12 @@ Addon currently available at:
 3. Click "Install Addon" to add it to Stremio
 
 ### Configuration Options
-- **Provider Selection**: Choose your Debrid provider (not all debrid providers have been tested - provide feedback) <p>
+- **Provider Selection**: Choose your Debrid provider<p>
     - [x] AllDebrid, 
     - [x] RealDebrid,
     - [x] Torbox,
     - [x] Debrid-Link,
-    - [ ] Premiumize (not yet tested - provide feedback), 
+    - [x] Premiumize
 
 - **API Keys**: Enter your debrid provider API key.
 
