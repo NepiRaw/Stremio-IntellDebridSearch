@@ -82,55 +82,44 @@ Addon currently available at:
 ## 🚀 Self-Hosting Installation
 
 ### 🐳 Docker Compose (Recommended)
-1. **Create a `Dockerfile` in your project root:**
 
-```Dockerfile
-FROM node:20
-WORKDIR /app
-COPY . .
-RUN npm install
-EXPOSE 3001
-CMD ["npm", "start"]
-```
+The easiest way to run the addon is using Docker Compose with image from Docker Hub.
 
-2. **Create a `docker-compose.yml` file:**
+1. **Create a `docker-compose.yml` file:**
 
 ```yaml
 services:
   stremio-intelldebridsearch:
-    build: .
+    image: nepiraw/stremio-intelldebridsearch:latest
     container_name: stremio-intelldebridsearch
     restart: unless-stopped
     ports:
       - "3001:3001"
-    env_file:
-      - .env
+    environment:
+      # Set your public addon URL
+      - ADDON_URL=https://your-domain.com
+      - TMDB_API_KEY=
+      - TVDB_API_KEY=
+      - TRAKT_API_KEY=
+      - LOG_LEVEL=info
+      - VARIANT_SYSTEM_ENABLED=true
+      - ENABLE_RELEASE_GROUP=true
+      - ENABLE_MULTI_STREAM_PER_TORRENT=false
 ```
 
-> **Note:**
-> - This setup builds your addon from source using the included Dockerfile.
-> - The container will use your `.env` file for configuration.
+2. **Start the container:**
 
-1. **Set up environment and build:**
-
-```powershell
-# Clone the repository
- git clone https://github.com/NepiRaw/Stremio-IntellDebridSearch.git
- cd Stremio-IntellDebridSearch
-
-# Copy and configure environment
- cp .env.example .env
- # Edit .env with your API keys and settings
-
-# Start with Docker Compose (builds and runs the container)
- docker-compose up -d --build
+```bash
+docker-compose up -d
 ```
-> **Note:**
-> - Make sure to adapt your `.env` file with the correct API keys and settings.
 
-4. **Access your addon at `http://localhost:3001` (or your configured domain)**
+3. **Access your addon:**
 
+Open `http://URL:PORT/configure` in your browser to configure the addon.
 
+> **📝 Notes:**
+> - Update to the latest version: `docker-compose pull && docker-compose up -d`
+> - For environment file: Create `.env` and use `env_file: - .env` in docker-compose.yml instead of listing environment variables
 
 ### 🐍 Manual Installation
 
