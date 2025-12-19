@@ -21,11 +21,18 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
     
     const config = configManager.getProviderConfig(provider);
     if (!config) {
+        logger.error(`[provider-search] Unsupported provider: ${provider}`);
         throw new Error(`Unsupported provider: ${provider}`);
     }
 
     const bulkMethod = providerImpl[config.bulkMethod];
     if (!bulkMethod) {
+        if (typeof providerImpl.searchTorrents !== 'function') {
+            logger.error(`[provider-search] ${provider} implementation error: Missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
+            throw new Error(`${provider} does not support torrent fetching - missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
+        }
+        
+        logger.info(`[provider-search] ${provider} using fallback searchTorrents method (no bulk support)`);
         return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
     }
 
@@ -46,12 +53,15 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
         return normalizedTorrents;
         
     } catch (error) {
-        logger.warn(`[provider-search] Failed to fetch torrents from ${provider}:`, error);
+        logger.warn(`[provider-search] Failed to fetch torrents from ${provider}:`, error.message);
         
-        if (providerImpl.searchTorrents) {
+        // Check if fallback method exists before calling it
+        if (typeof providerImpl.searchTorrents === 'function') {
+            logger.info(`[provider-search] Falling back to searchTorrents for ${provider}`);
             return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
         }
         
+        // No fallback available, re-throw the error
         throw error;
     }
 }

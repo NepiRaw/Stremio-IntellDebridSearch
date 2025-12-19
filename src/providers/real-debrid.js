@@ -151,21 +151,79 @@ class RealDebridProvider extends BaseProvider {
         try {
             const firstResp = await RD.torrents.get(0, 1, pageSize);
             const firstPage = firstResp.data || [];
-            const total = firstResp.meta?.total || firstPage.length;
-            const totalPages = Math.ceil(total / pageSize);
             
-            if (totalPages <= 1) return firstPage;
-
-            const pagePromises = [];
-            for (let p = 2; p <= totalPages; p++) {
-                pagePromises.push(
-                    RD.torrents.get(0, p, pageSize).then(resp => resp.data || [])
-                );
+            if (firstPage.length === 0) return [];
+            if (firstPage.length < pageSize) return firstPage;
+            
+            const pageNumbers = [];
+            let testPage = 2;
+            let hasMore = true;
+            
+            while (hasMore && testPage <= 100) { // Safety limit
+                try {
+                    const testResp = await RD.torrents.get(0, testPage, pageSize);
+                    if (!testResp.data || testResp.data.length === 0) {
+                        hasMore = false;
+                    } else {
+                        pageNumbers.push(testPage);
+                        testPage++;
+                    }
+                } catch {
+                    hasMore = false;
+                }
             }
             
-            const otherPages = await Promise.all(pagePromises);
-            return firstPage.concat(...otherPages);
+            if (pageNumbers.length === 0) return firstPage;
+            
+            // Adaptive batch sizing - start with 3 (proven safe threshold)
+            const allTorrents = [...firstPage];
+            let batchSize = 3;
+            const pagesToFetch = [...pageNumbers];
+            
+            while (pagesToFetch.length > 0) {
+                const currentBatch = pagesToFetch.splice(0, batchSize);
+                
+                const batchResults = await Promise.all(
+                    currentBatch.map(page => 
+                        RD.torrents.get(0, page, pageSize)
+                            .then(resp => ({ page, data: resp.data || [], success: true }))
+                            .catch(error => ({ 
+                                page,
+                                status: error.response?.status,
+                                error: error.response?.data?.error,
+                                success: false
+                            }))
+                    )
+                );
+                
+                const successful = batchResults.filter(r => r.success);
+                const rateLimited = batchResults.filter(r => r.status === 429);
+                
+                if (rateLimited.length > 0 && batchSize > 1) {
+                    this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
+                    batchSize = Math.max(1, Math.floor(batchSize / 2));
+                    pagesToFetch.unshift(...currentBatch); // Re-add pages to retry
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Brief delay before retry
+                    continue;
+                }
+
+                successful.forEach(r => allTorrents.push(...r.data));
+                
+                if (pagesToFetch.length > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+            
+            return allTorrents;
         } catch (error) {
+            if (error.response?.status === 401 || 
+                error.response?.data?.error === 'bad_token' ||
+                error.response?.data?.error_code === 8) {
+                
+                this.log('error', `RealDebrid authentication failed: ${error.response?.data?.error || 'Invalid or expired API key'}. Please verify your API key in addon settings. Error code: ${error.response?.data?.error_code || 'unknown'}`);
+                throw error;
+            }
+            
             this.log('warn', 'fetchTorrentsParallel failed:', error);
             return [];  // Return empty array on failure
         }
@@ -175,24 +233,82 @@ class RealDebridProvider extends BaseProvider {
         try {
             const firstResp = await RD.downloads.get(0, 1, pageSize);
             const firstPage = firstResp.data || [];
-            const total = firstResp.meta?.total || firstPage.length;
-            const totalPages = Math.ceil(total / pageSize);
             
-            if (totalPages <= 1) {
+            if (firstPage.length === 0) return [];
+            if (firstPage.length < pageSize) {
                 return firstPage.filter(f => f.host !== 'real-debrid.com');
             }
-
-            const pagePromises = [];
-            for (let p = 2; p <= totalPages; p++) {
-                pagePromises.push(
-                    RD.downloads.get(0, p, pageSize).then(resp => resp.data || [])
-                );
+            
+            const pageNumbers = [];
+            let testPage = 2;
+            let hasMore = true;
+            
+            while (hasMore && testPage <= 100) { // Safety limit
+                try {
+                    const testResp = await RD.downloads.get(0, testPage, pageSize);
+                    if (!testResp.data || testResp.data.length === 0) {
+                        hasMore = false;
+                    } else {
+                        pageNumbers.push(testPage);
+                        testPage++;
+                    }
+                } catch {
+                    hasMore = false;
+                }
             }
             
-            const otherPages = await Promise.all(pagePromises);
-            const allFiles = firstPage.concat(...otherPages);
-            return allFiles.filter(f => f.host !== 'real-debrid.com');
+            if (pageNumbers.length === 0) {
+                return firstPage.filter(f => f.host !== 'real-debrid.com');
+            }
+            
+            const allDownloads = [...firstPage];
+            let batchSize = 3;
+            const pagesToFetch = [...pageNumbers];
+            
+            while (pagesToFetch.length > 0) {
+                const currentBatch = pagesToFetch.splice(0, batchSize);
+                
+                const batchResults = await Promise.all(
+                    currentBatch.map(page => 
+                        RD.downloads.get(0, page, pageSize)
+                            .then(resp => ({ page, data: resp.data || [], success: true }))
+                            .catch(error => ({ 
+                                page,
+                                status: error.response?.status,
+                                error: error.response?.data?.error,
+                                success: false
+                            }))
+                    )
+                );
+                
+                const successful = batchResults.filter(r => r.success);
+                const rateLimited = batchResults.filter(r => r.status === 429);
+                
+                if (rateLimited.length > 0 && batchSize > 1) {
+                    this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
+                    batchSize = Math.max(1, Math.floor(batchSize / 2));
+                    pagesToFetch.unshift(...currentBatch); // Re-add pages to retry
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Brief delay before retry
+                    continue;
+                }
+                
+                successful.forEach(r => allDownloads.push(...r.data));
+                
+                if (pagesToFetch.length > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+            
+            return allDownloads.filter(f => f.host !== 'real-debrid.com');
         } catch (error) {
+            if (error.response?.status === 401 || 
+                error.response?.data?.error === 'bad_token' ||
+                error.response?.data?.error_code === 8) {
+                
+                this.log('error', `RealDebrid authentication failed: ${error.response?.data?.error || 'Invalid or expired API key'}. Please verify your API key in addon settings. Error code: ${error.response?.data?.error_code || 'unknown'}`);
+                throw error;
+            }
+            
             this.log('warn', 'fetchDownloadsParallel failed:', error);
             return [];  // Return empty array on failure
         }
