@@ -72,7 +72,8 @@ router.post('/encrypt-config', (req, res) => {
             return res.status(500).json({ error: 'Encryption failed' });
         }
         
-        const baseUrl = `${req.protocol}://${req.headers.host}`;
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const baseUrl = `${protocol}://${req.headers.host}`;
         const manifestUrl = `${baseUrl}/${encryptedConfig}/manifest.json`;
         
         res.json({
