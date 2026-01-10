@@ -140,6 +140,8 @@ function createSingleStreamFast(details, video, type, icon, parsedMetadata, know
         url: video.url,
         behaviorHints: {
             bingeGroup: details.source + '|' + details.id,
+            filename: video.name || null,
+            videoSize: video.size || null,
         }
     };
 }
@@ -203,7 +205,9 @@ function createSingleStream(details, video, type, icon, parsedMetadata, knownSea
         title,
         url: video.url,
         behaviorHints: {
-            bingeGroup: bingeGroup
+            bingeGroup: bingeGroup,
+            filename: video.name || null,
+            videoSize: video.size || null,
         }
     }
 }

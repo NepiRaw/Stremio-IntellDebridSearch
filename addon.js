@@ -218,7 +218,8 @@ builder.defineMetaHandler(async (args) => {
                             url: streamUrl,
                             behaviorHints: {
                                 bingeGroup: `${providerName}-${torrentId}`,
-                                filename: file.name || `File ${index + 1}`
+                                filename: file.name || `File ${index + 1}`,
+                                videoSize: file.size || null
                             }
                         }
                     ]
