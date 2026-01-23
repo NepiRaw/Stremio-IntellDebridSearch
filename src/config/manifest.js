@@ -44,6 +44,10 @@ function getManifest(config = {}) {
             configurable: true,
             configurationRequired: isConfigurationRequired(config)
         },
+        stremioAddonsConfig: {
+            issuer: "https://stremio-addons.net",
+            signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..Ctj1eME09X-XiyOXZr753A.9Mcoi4N9S3iPrzorFKSYXy1CtBPchxhBpizzjEr2DXWQ5McpFkybSkuBD62azwSBx0YJzLS109mjYQjgOMxkXMg6EVP1lyQQtpHLfoajJwCD2pBo6okvbt45aKWKP2WT.kf8IPdPoLTm4YpaL6fQaKA"
+        }
     }
 
     return manifest
