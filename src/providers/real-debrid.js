@@ -168,7 +168,12 @@ class RealDebridProvider extends BaseProvider {
                         pageNumbers.push(testPage);
                         testPage++;
                     }
-                } catch {
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        this.log('warn', 'Rate limited during page discovery, waiting 5 seconds');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        continue;
+                    }
                     hasMore = false;
                 }
             }
@@ -179,6 +184,8 @@ class RealDebridProvider extends BaseProvider {
             const allTorrents = [...firstPage];
             let batchSize = 3;
             const pagesToFetch = [...pageNumbers];
+            let rateLimitRetries = 0;
+            const maxRateLimitRetries = 2;
             
             while (pagesToFetch.length > 0) {
                 const currentBatch = pagesToFetch.splice(0, batchSize);
@@ -199,11 +206,20 @@ class RealDebridProvider extends BaseProvider {
                 const successful = batchResults.filter(r => r.success);
                 const rateLimited = batchResults.filter(r => r.status === 429);
                 
-                if (rateLimited.length > 0 && batchSize > 1) {
-                    this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
-                    batchSize = Math.max(1, Math.floor(batchSize / 2));
-                    pagesToFetch.unshift(...currentBatch); // Re-add pages to retry
-                    await new Promise(resolve => setTimeout(resolve, 300)); // Brief delay before retry
+                if (rateLimited.length > 0) {
+                    rateLimitRetries++;
+                    if (rateLimitRetries > maxRateLimitRetries) {
+                        this.log('warn', 'Max rate limit retries reached, returning partial results');
+                        break;
+                    }
+                    if (batchSize > 1) {
+                        this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
+                        batchSize = Math.max(1, Math.floor(batchSize / 2));
+                    }
+                    pagesToFetch.unshift(...currentBatch);
+                    const waitTime = rateLimitRetries === 1 ? 2000 : 5000;
+                    this.log('warn', `Rate limited (429), waiting ${waitTime/1000}s before retry ${rateLimitRetries}/${maxRateLimitRetries}`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue;
                 }
 
@@ -216,6 +232,14 @@ class RealDebridProvider extends BaseProvider {
             
             return allTorrents;
         } catch (error) {
+            if (error.isAxiosError && !error.response) {
+                throw error;
+            }
+            
+            if (error.response?.status === 429) {
+                this.log('warn', 'Rate limited (429) on initial request, returning empty');
+                return [];
+            }
             if (error.response?.status === 401 || 
                 error.response?.data?.error === 'bad_token' ||
                 error.response?.data?.error_code === 8) {
@@ -224,7 +248,7 @@ class RealDebridProvider extends BaseProvider {
                 throw error;
             }
             
-            this.log('warn', 'fetchTorrentsParallel failed:', error);
+            this.log('warn', `fetchTorrentsParallel failed: ${error.message}`);
             return [];  // Return empty array on failure
         }
     }
@@ -252,7 +276,12 @@ class RealDebridProvider extends BaseProvider {
                         pageNumbers.push(testPage);
                         testPage++;
                     }
-                } catch {
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        this.log('warn', 'Rate limited during downloads page discovery, waiting 5 seconds');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        continue;
+                    }
                     hasMore = false;
                 }
             }
@@ -264,6 +293,8 @@ class RealDebridProvider extends BaseProvider {
             const allDownloads = [...firstPage];
             let batchSize = 3;
             const pagesToFetch = [...pageNumbers];
+            let rateLimitRetries = 0;
+            const maxRateLimitRetries = 2;
             
             while (pagesToFetch.length > 0) {
                 const currentBatch = pagesToFetch.splice(0, batchSize);
@@ -284,11 +315,20 @@ class RealDebridProvider extends BaseProvider {
                 const successful = batchResults.filter(r => r.success);
                 const rateLimited = batchResults.filter(r => r.status === 429);
                 
-                if (rateLimited.length > 0 && batchSize > 1) {
-                    this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
-                    batchSize = Math.max(1, Math.floor(batchSize / 2));
-                    pagesToFetch.unshift(...currentBatch); // Re-add pages to retry
-                    await new Promise(resolve => setTimeout(resolve, 300)); // Brief delay before retry
+                if (rateLimited.length > 0) {
+                    rateLimitRetries++;
+                    if (rateLimitRetries > maxRateLimitRetries) {
+                        this.log('warn', 'Max rate limit retries reached for downloads, returning partial results');
+                        break;
+                    }
+                    if (batchSize > 1) {
+                        this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
+                        batchSize = Math.max(1, Math.floor(batchSize / 2));
+                    }
+                    pagesToFetch.unshift(...currentBatch);
+                    const waitTime = rateLimitRetries === 1 ? 2000 : 5000;
+                    this.log('warn', `Rate limited (429), waiting ${waitTime/1000}s before retry ${rateLimitRetries}/${maxRateLimitRetries}`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue;
                 }
                 
@@ -301,6 +341,14 @@ class RealDebridProvider extends BaseProvider {
             
             return allDownloads.filter(f => f.host !== 'real-debrid.com');
         } catch (error) {
+            if (error.isAxiosError && !error.response) {
+                throw error;
+            }
+            
+            if (error.response?.status === 429) {
+                this.log('warn', 'Rate limited (429) on initial downloads request, returning empty');
+                return [];
+            }
             if (error.response?.status === 401 || 
                 error.response?.data?.error === 'bad_token' ||
                 error.response?.data?.error_code === 8) {
@@ -309,7 +357,7 @@ class RealDebridProvider extends BaseProvider {
                 throw error;
             }
             
-            this.log('warn', 'fetchDownloadsParallel failed:', error);
+            this.log('warn', `fetchDownloadsParallel failed: ${error.message}`);
             return [];  // Return empty array on failure
         }
     }

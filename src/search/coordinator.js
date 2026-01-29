@@ -109,7 +109,7 @@ export async function coordinateSearch(params) {
     try {
         allTorrents = await fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold);
     } catch (error) {
-        logger.warn('[coordinator] Failed to fetch torrents:', error);
+        logger.warn(`[coordinator] Failed to fetch torrents: ${error.message}`);
         return [];
     }
 

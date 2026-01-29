@@ -348,7 +348,7 @@ class TorBoxProvider extends BaseProvider {
             errorCode === 'BAD_TOKEN' || 
             status === 401) {
             logger.warn('[TorBox] Authentication error: Invalid or expired API token');
-            return Promise.reject(BadTokenError);
+            return Promise.reject(new BadTokenError('Invalid API token', 'TorBox'));
         }
         
         // Check for access denied / plan restricted errors
@@ -356,7 +356,7 @@ class TorBoxProvider extends BaseProvider {
             errorCode === 'PLAN_RESTRICTED_FEATURE' ||
             errorCode === 'Forbidden') {
             logger.warn('[TorBox] Access denied: API feature not available (plan restriction or forbidden)');
-            return Promise.reject(AccessDeniedError);
+            return Promise.reject(new AccessDeniedError('Access denied: Plan restricted feature', 'TorBox'));
         }
         
         // Log unhandled errors for debugging

@@ -123,7 +123,7 @@ builder.defineCatalogHandler(async (args) => {
             throw new Error('Invalid catalog request')
         }
     } catch (error) {
-        logger.error('Catalog handler error:', error);
+        logger.error(`Catalog handler error: ${error.message}`);
         throw error;
     }
 })
@@ -241,7 +241,7 @@ builder.defineMetaHandler(async (args) => {
         return { meta };
         
     } catch (error) {
-        logger.error('Meta handler error:', error);
+        logger.error(`Meta handler error: ${error.message}`);
         throw error;
     }
 })

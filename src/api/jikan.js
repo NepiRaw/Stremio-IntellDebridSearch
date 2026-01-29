@@ -13,8 +13,8 @@ import { errorManager } from '../utils/error-handler.js';
 class JikanRateLimiter {
     constructor() {
         this.lastRequestTime = 0;
-        this.minInterval = 334; // 1000ms / 3 requests = 334ms minimum
-        this.retryDelay = 600; // Retry delay for rate limits (ms)
+        this.minInterval = 500; // 500ms between requests
+        this.retryDelay = 1000; // Retry delay for 429 responses
     }
 
     async waitForNextRequest() {

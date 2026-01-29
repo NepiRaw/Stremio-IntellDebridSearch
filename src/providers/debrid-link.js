@@ -32,7 +32,13 @@ class DebridLinkProvider extends BaseProvider {
                     torrents = torrents.concat(result.value)
                 }
             })
-            .catch(err => this.handleError(err))
+            .catch(err => {
+                if (err === 'badToken') {
+                    logger.warn('[DebridLink] Invalid or expired API token');
+                } else {
+                    logger.warn('[DebridLink] API error:', err?.message || err);
+                }
+            })
 
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id.split('-')[0],
@@ -58,8 +64,11 @@ class DebridLinkProvider extends BaseProvider {
                     }
                 })
                 .catch(err => {
-                    this.handleError(err)
-                    return []
+                    if (err === 'badToken') {
+                        logger.warn('[DebridLink] Invalid or expired API token');
+                    } else {
+                        logger.warn('[DebridLink] API error:', err?.message || err);
+                    }
                 })
 
             while (nextPage != -1 && nextPage < totalPages) {
@@ -72,7 +81,9 @@ class DebridLinkProvider extends BaseProvider {
                             }
                         })
                         .catch(err => {
-                            this.handleError(err)
+                            if (err === 'badToken') {
+                                logger.warn('[DebridLink] Invalid or expired API token');
+                            }
                         })
                 )
                 nextPage = nextPage + 1
@@ -80,13 +91,13 @@ class DebridLinkProvider extends BaseProvider {
 
             await Promise.all(promises)
                 .catch(err => {
-                    this.handleError(err)
+                    logger.warn('[DebridLink] Batch fetch error:', err?.message || err);
                 })
 
             return torrents || []
         } catch (error) {
-            logger.warn('DebridLink listTorrentsParallel failed:', error);
-            return [];  // Return empty array on failure
+            logger.warn(`[DebridLink] listTorrentsParallel failed: ${error?.message || error}`);
+            return [];
         }
     }
 
@@ -108,7 +119,14 @@ class DebridLinkProvider extends BaseProvider {
                 
                 return Array.isArray(ids) ? detailsArray : (detailsArray[0] || null);
             })
-            .catch(err => this.handleError(err))
+            .catch(err => {
+                if (err === 'badToken') {
+                    logger.warn('[DebridLink] Invalid or expired API token');
+                } else {
+                    logger.warn('[DebridLink] API error:', err?.message || err);
+                }
+                return null;
+            })
     }
 
     toTorrent(item) {
@@ -158,11 +176,12 @@ class DebridLinkProvider extends BaseProvider {
     }
 
     handleError(err) {
-        logger.error(err)
         if (err === 'badToken') {
-            return Promise.reject(BadTokenError)
+            logger.warn('[DebridLink] Invalid or expired API token');
+            return Promise.reject(new BadTokenError('Invalid API token', 'DebridLink'))
         }
 
+        logger.error('[DebridLink] API error:', err?.message || err);
         return Promise.reject(err)
     }
 

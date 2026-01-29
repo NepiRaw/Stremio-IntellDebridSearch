@@ -187,13 +187,13 @@ router.get('/ping', (_, res) => {
 })
 
 function handleError(err, res) {
-    if (err == BadTokenError) {
+    if (err instanceof BadTokenError) {
         res.writeHead(401)
         res.end(JSON.stringify({ err: 'Bad token' }))
-    } else if (err == AccessDeniedError) {
+    } else if (err instanceof AccessDeniedError) {
         res.writeHead(403)
         res.end(JSON.stringify({ err: 'Access denied' }))
-    } else if (err == BadRequestError) {
+    } else if (err instanceof BadRequestError) {
         res.writeHead(400)
         res.end(JSON.stringify({ err: 'Bad request' }))
     } else {

@@ -23,7 +23,7 @@ const sharedProviders = {
     RealDebrid: new RealDebridProvider(), 
     DebridLink: new DebridLinkProvider(),
     TorBox: new TorBoxProvider(),
-    Premiumize: PremiumizeProvider  // Now using standard provider instance
+    Premiumize: new PremiumizeProvider()
 };
 
 const StreamHelpers = {
