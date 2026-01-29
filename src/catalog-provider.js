@@ -6,6 +6,7 @@ import { PremiumizeProvider } from './providers/premiumize.js'
 import { coordinateSearch } from './search/coordinator.js'
 import { BadRequestError } from './utils/error-handler.js'
 import { getApiConfig } from './config/configuration.js'
+import { logger } from './utils/logger.js'
 
 // Create provider instances once for testable providers to avoid duplicate initialization logging
 const sharedProviders = {
@@ -67,11 +68,17 @@ async function searchTorrents(config, searchKey) {
             resultsPromise = sharedProviders.TorBox.searchTorrents(config.DebridApiKey, searchKey);
             break;
         default:
-            return Promise.reject(BadRequestError);
+            return Promise.reject(new BadRequestError(`Unknown provider: ${config.DebridProvider}`));
     }
 
     return resultsPromise
-        .then(torrents => torrents.map(torrent => toMeta(torrent)))
+        .then(torrents => {
+            if (!Array.isArray(torrents)) {
+                logger.warn('[catalog-provider] searchTorrents returned non-array, defaulting to empty');
+                return [];
+            }
+            return torrents.map(torrent => toMeta(torrent));
+        })
 }
 
 async function listTorrents(config, skip = 0) {
@@ -98,11 +105,17 @@ async function listTorrents(config, skip = 0) {
             resultsPromise = sharedProviders.TorBox.listTorrents(config.DebridApiKey, skip);
             break;
         default:
-            return Promise.reject(BadRequestError);
+            return Promise.reject(new BadRequestError(`Unknown provider: ${config.DebridProvider}`));
     }
 
     return resultsPromise
-        .then(torrents => torrents.map(torrent => toMeta(torrent)))
+        .then(torrents => {
+            if (!Array.isArray(torrents)) {
+                logger.warn('[catalog-provider] listTorrents returned non-array, defaulting to empty');
+                return [];
+            }
+            return torrents.map(torrent => toMeta(torrent));
+        })
 }
 
 function toMeta(torrent) {

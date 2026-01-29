@@ -99,20 +99,11 @@ export class BaseProvider {
                 
             } catch (error) {
                 lastError = error;
-                logger.warn(`[BaseProvider-${this.providerName}] ${context} - Attempt ${attempt} failed:`, error.message);
                 
-                // Check if error is due to HTML response parsing
-                if (error.message.includes('Cannot use \'in\' operator') || 
-                    error.message.includes('HTML error page')) {
-                    logger.warn(`[BaseProvider-${this.providerName}] ${context} - HTML error response detected (likely rate limiting)`);
-                    
-                    // For rate limiting errors, wait longer before retry
-                    if (attempt < retries) {
-                        const rateLimitDelay = 5000 + (attempt * 2000); // 5s, 7s, 9s
-                        logger.info(`[BaseProvider-${this.providerName}] Rate limit detected, waiting ${rateLimitDelay}ms before retry...`);
-                        await new Promise(resolve => setTimeout(resolve, rateLimitDelay));
-                        continue;
-                    }
+                if (attempt === retries) {
+                    logger.warn(`[BaseProvider-${this.providerName}] ${context} - All ${retries} attempts failed:`, error.message);
+                } else {
+                    logger.debug(`[BaseProvider-${this.providerName}] ${context} - Attempt ${attempt}/${retries} failed:`, error.message);
                 }
                 
                 if (this.isAuthenticationError(error)) {

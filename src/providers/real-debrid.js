@@ -170,6 +170,11 @@ class RealDebridProvider extends BaseProvider {
     async listTorrents(apiKey, skip = 0) {
         const nextPage = Math.floor(skip / 50) + 1;
         const torrents = await this.listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage);
+        
+        if (!Array.isArray(torrents)) {
+            this.log('warn', 'listFilesParrallel returned non-array, defaulting to empty');
+            return [];
+        }
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
             name: torrent.filename
@@ -225,7 +230,7 @@ class RealDebridProvider extends BaseProvider {
             
             // Adaptive batch sizing - start with 3 (proven safe threshold)
             const allTorrents = [...firstPage];
-            let batchSize = 3;
+            let batchSize = 2;
             const pagesToFetch = [...pageNumbers];
             let rateLimitRetries = 0;
             const maxRateLimitRetries = 2;

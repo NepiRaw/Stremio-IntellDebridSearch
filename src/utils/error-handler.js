@@ -20,16 +20,25 @@ class ErrorManager {
         };
     }
 
-    static handleProviderError(providerName) {
-        return (operation) => this.handle(operation, `provider:${providerName}`);
+    static handleProviderError(errorOrProviderName, providerName = null, context = 'unknown') {
+        if (errorOrProviderName instanceof Error) {
+            return this.processError(errorOrProviderName, `provider:${providerName || 'unknown'}:${context}`, []);
+        }
+        return (operation) => this.handle(operation, `provider:${errorOrProviderName}`);
     }
     
-    static handleApiError(apiName) {
-        return (operation) => this.handle(operation, `api:${apiName}`);
+    static handleApiError(errorOrApiName, apiName = null, context = 'unknown') {
+        if (errorOrApiName instanceof Error) {
+            return this.processError(errorOrApiName, `api:${apiName || 'unknown'}:${context}`, []);
+        }
+        return (operation) => this.handle(operation, `api:${errorOrApiName}`);
     }
     
-    static handleSearchError(searchType) {
-        return (operation) => this.handle(operation, `search:${searchType}`);
+    static handleSearchError(errorOrSearchType, searchType = null, context = 'unknown') {
+        if (errorOrSearchType instanceof Error) {
+            return this.processError(errorOrSearchType, `search:${searchType || 'unknown'}:${context}`, []);
+        }
+        return (operation) => this.handle(operation, `search:${errorOrSearchType}`);
     }
     
     static processError(error, context, operationArgs = []) {
@@ -316,7 +325,21 @@ export function isRetryableError(err) {
     return false;
 }
 
-export const BadRequestError = { code: 'BAD_REQUEST' };
+export class BadRequestError extends Error {
+    constructor(message = 'Bad request', context = null, originalError = null) {
+        super(message);
+        this.name = 'BadRequestError';
+        this.code = 'BAD_REQUEST';
+        this.context = context;
+        this.originalError = originalError;
+        this.isRecoverable = true;
+        
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, BadRequestError);
+        }
+    }
+}
+
 export const LEGACY_ACCESS_DENIED_ERROR = { code: 'ACCESS_DENIED' };
 
 export const ERROR_CODES = {
