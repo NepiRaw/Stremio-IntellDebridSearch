@@ -8,6 +8,49 @@ class RealDebridProvider extends BaseProvider {
         super('RealDebrid');
     }
 
+    /**
+     * Validate RealDebrid API key before encryption
+     * Static method for use in /encrypt-config endpoint
+     * @param {string} apiKey - API key to validate
+     * @returns {Promise<{valid: boolean, error?: string, username?: string, premium?: boolean}>}
+     */
+    static async validateApiKey(apiKey) {
+        const VALIDATION_TIMEOUT = 10000;
+        
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
+            
+            const response = await fetch('https://api.real-debrid.com/rest/1.0/user', {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                return { 
+                    valid: false, 
+                    error: errorData.error || `HTTP ${response.status}`,
+                    errorCode: errorData.error_code
+                };
+            }
+            
+            const data = await response.json();
+            return {
+                valid: true,
+                username: data.username,
+                premium: data.premium > 0,
+                expiration: data.expiration
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { valid: false, error: 'Validation timeout - try again' };
+            }
+            return { valid: false, error: error.message };
+        }
+    }
+
     async searchFiles(fileType, apiKey, searchKey, threshold = 0.3) {
         this.log('debug', `Search ${fileType.description} with searchKey: ${searchKey}`);
 

@@ -10,6 +10,48 @@ class DebridLinkProvider extends BaseProvider {
         super('DebridLink')
     }
 
+    /**
+     * Validate DebridLink API key before encryption
+     * Static method for use in /encrypt-config endpoint
+     * @param {string} apiKey - API key to validate
+     * @returns {Promise<{valid: boolean, error?: string, username?: string, premium?: boolean}>}
+     */
+    static async validateApiKey(apiKey) {
+        const VALIDATION_TIMEOUT = 10000;
+        
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
+            
+            const response = await fetch('https://debrid-link.com/api/v2/account/infos', {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                return {
+                    valid: false,
+                    error: data.error || 'Invalid API key'
+                };
+            }
+            
+            return {
+                valid: true,
+                username: data.value?.username,
+                premium: data.value?.premiumLeft > 0,
+                premiumLeft: data.value?.premiumLeft
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { valid: false, error: 'Validation timeout - try again' };
+            }
+            return { valid: false, error: error.message };
+        }
+    }
+
     async searchTorrents(apiKey, searchKey, threshold = 0.3) {
         logger.debug(`[debridlink] Search torrents with searchKey: ${searchKey}`)
 

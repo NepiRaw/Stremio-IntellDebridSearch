@@ -21,6 +21,49 @@ class AllDebridProvider extends BaseProvider {
         this.baseUrl = 'https://api.alldebrid.com/v4.1'; // Updated to v4.1
     }
 
+    /**
+     * Validate AllDebrid API key before encryption
+     * Static method for use in /encrypt-config endpoint
+     * @param {string} apiKey - API key to validate
+     * @returns {Promise<{valid: boolean, error?: string, username?: string, premium?: boolean}>}
+     */
+    static async validateApiKey(apiKey) {
+        const VALIDATION_TIMEOUT = 10000;
+        
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
+            
+            const response = await fetch('https://api.alldebrid.com/v4/user', {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                return {
+                    valid: false,
+                    error: data.error?.message || data.error?.code || 'Unknown error',
+                    errorCode: data.error?.code
+                };
+            }
+            
+            return {
+                valid: true,
+                username: data.data?.user?.username,
+                premium: data.data?.user?.isPremium,
+                premiumUntil: data.data?.user?.premiumUntil
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { valid: false, error: 'Validation timeout - try again' };
+            }
+            return { valid: false, error: error.message };
+        }
+    }
+
     getHeaders(apiKey) {
         return {
             'Authorization': `Bearer ${apiKey}`,

@@ -11,6 +11,20 @@ import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/e
 import { ApiKeySecurityManager } from './src/providers/BaseProvider.js'
 import { logger } from './src/utils/logger.js'
 
+import { RealDebridProvider } from './src/providers/real-debrid.js'
+import { AllDebridProvider } from './src/providers/all-debrid.js'
+import { DebridLinkProvider } from './src/providers/debrid-link.js'
+import { PremiumizeProvider } from './src/providers/premiumize.js'
+import { TorBoxProvider } from './src/providers/torbox.js'
+
+const PROVIDER_CLASSES = {
+    RealDebrid: RealDebridProvider,
+    AllDebrid: AllDebridProvider,
+    DebridLink: DebridLinkProvider,
+    Premiumize: PremiumizeProvider,
+    TorBox: TorBoxProvider
+};
+
 const router = new Router();
 
 router.get('/', (_, res) => {
@@ -26,7 +40,7 @@ router.get('/encryption-data', (req, res) => {
     })
 })
 
-router.post('/encrypt-config', (req, res) => {
+router.post('/encrypt-config', async (req, res) => {
     res.setHeader('content-type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -67,6 +81,29 @@ router.post('/encrypt-config', (req, res) => {
             return res.status(400).json({ error: 'Configuration too large' });
         }
         
+        if (config.DebridProvider && config.DebridApiKey) {
+            const ProviderClass = PROVIDER_CLASSES[config.DebridProvider];
+            
+            if (!ProviderClass) {
+                logger.warn(`[encrypt-config] Unknown provider: ${config.DebridProvider}`);
+                return res.status(400).json({ 
+                    error: `Unknown provider: ${config.DebridProvider}`,
+                    validationFailed: true
+                });
+            }
+            
+            const validation = await ProviderClass.validateApiKey(config.DebridApiKey);
+            
+            if (!validation.valid) {
+                await new Promise(r => setTimeout(r, 500));
+                return res.status(400).json({
+                    error: validation.error || 'Invalid API key',
+                    validationFailed: true,
+                    provider: config.DebridProvider
+                });
+            }
+        }
+        
         const encryptedConfig = encryptConfig(config);
         if (!encryptedConfig) {
             return res.status(500).json({ error: 'Encryption failed' });
@@ -74,6 +111,8 @@ router.post('/encrypt-config', (req, res) => {
         
         const baseUrl = process.env.ADDON_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}`;
         const manifestUrl = `${baseUrl}/${encryptedConfig}/manifest.json`;
+        
+        logger.debug(`[encrypt-config] Manifest generated for ${config.DebridProvider} - ${manifestUrl}`);
         
         res.json({
             encrypted: true,

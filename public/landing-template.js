@@ -358,8 +358,11 @@ const STYLESHEET = `
         input:-webkit-autofill:hover, 
         input:-webkit-autofill:focus, 
         input:-webkit-autofill:active {
-            -webkit-box-shadow: 0 0 0px 1000px var(--color-medium-blue-bg) inset !important;
+            -webkit-box-shadow: 0 0 0px 1000px rgba(74, 144, 226, 0.15) inset !important;
             -webkit-text-fill-color: var(--color-text-light) !important;
+            background-color: rgba(74, 144, 226, 0.15) !important;
+            transition: background-color 5000s ease-in-out 0s !important;
+            caret-color: var(--color-text-light) !important;
         }
 
         /* Placeholder text color */
@@ -384,6 +387,7 @@ const STYLESHEET = `
         input[type="password"]:hover {
             border-color: var(--color-accent-blue);
             box-shadow: 0 0 10px rgba(74, 144, 226, 0.4); /* Use var(--color-accent-blue) with opacity */
+            background-color: rgba(74, 144, 226, 0.15);
         }
 
         input[type="text"]:focus,
@@ -391,6 +395,17 @@ const STYLESHEET = `
             outline: none;
             border-color: var(--color-accent-blue);
             box-shadow: 0 0 15px rgba(74, 144, 226, 0.6); /* Use var(--color-accent-blue) with opacity */
+            background-color: rgba(74, 144, 226, 0.15);
+        }
+
+        input.error {
+            border-color: #ff4444 !important;
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.4) !important;
+        }
+
+        input.success {
+            border-color: #44ff44 !important;
+            box-shadow: 0 0 10px rgba(68, 255, 68, 0.3) !important;
         }
 
         .toggle-group {
@@ -599,11 +614,27 @@ const STYLESHEET = `
             gap: 10px;
             z-index: 1000;
             transform: translateX(150%);
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, background 0.3s ease;
         }
 
         .notification.show {
             transform: translateX(0);
+        }
+
+        .notification-success {
+            background: #28a745;
+        }
+
+        .notification-error {
+            background: #dc3545;
+        }
+
+        .notification-warning {
+            background: #fd7e14;
+        }
+
+        .notification-info {
+            background: var(--color-accent-blue);
         }
 
         .footer-badge {
@@ -771,7 +802,7 @@ function landingTemplate(manifest, config) {
     </div>
 
     <div class="notification" id="notification">
-        <i class="fas fa-check-circle"></i>
+        <i class="fas fa-check-circle" id="notificationIcon"></i>
         <span id="notificationText">URL copied to clipboard!</span>
     </div>
 
@@ -784,6 +815,7 @@ function landingTemplate(manifest, config) {
             dropdownMenu: document.getElementById('dropdownMenu'),
             notification: document.getElementById('notification'),
             notificationText: document.getElementById('notificationText'),
+            notificationIcon: document.getElementById('notificationIcon'),
             mainForm: document.getElementById('mainForm'),
             debridApiKey: document.getElementById('DebridApiKey'),
             showCatalog: document.getElementById('ShowCatalog'),
@@ -874,7 +906,7 @@ function landingTemplate(manifest, config) {
         }
         async function handleInstallAction(action) {
             if (!isValidConfig()) {
-                showNotification('Please fill in all required fields');
+                showNotification('Please fill in all required fields', 'warning');
                 return;
             }
             
@@ -885,8 +917,7 @@ function landingTemplate(manifest, config) {
             };
             
             try {
-                updateButtonState(true);
-                showNotification('Securing configuration...');
+                updateButtonState(true, 'Validating & securing...');
                 
                 const response = await fetch('/encrypt-config', {
                     method: 'POST',
@@ -897,21 +928,39 @@ function landingTemplate(manifest, config) {
                 });
                 const data = await response.json();
                 
+                if (data.validationFailed) {
+                    showNotification('The debrid API key is invalid.', 'error');
+                    elements.debridApiKey.classList.add('error');
+                    elements.debridApiKey.classList.remove('success');
+                    updateButtonState(false);
+                    return;
+                }
+                
+                if (data.error && !data.encrypted) {
+                    showNotification(data.error, 'warning');
+                    updateButtonState(false);
+                    return;
+                }
+                
                 if (data.encrypted && data.desktopUrl && data.webUrl && data.manifestUrl) {
-                    showNotification('Configuration secured successfully!');
+                    showNotification('Configuration validated & secured!', 'success');
+                    elements.debridApiKey.classList.remove('error');
+                    elements.debridApiKey.classList.add('success');
                     
                     var actions = {
                         install: function() {
+                            updateButtonState(true, 'Opening Stremio...');
                             window.location.href = data.desktopUrl;
                             setTimeout(function() { updateButtonState(false); }, 3000);
                         },
                         web: function() {
+                            updateButtonState(true, 'Opening Stremio Web...');
                             window.open(data.webUrl, '_blank');
-                            updateButtonState(false);
+                            setTimeout(function() { updateButtonState(false); }, 1000);
                         },
                         copy: function() {
                             navigator.clipboard.writeText(data.manifestUrl);
-                            showNotification('Encrypted manifest URL copied to clipboard!');
+                            showNotification('Encrypted manifest URL copied to clipboard!', 'success');
                             updateButtonState(false);
                         }
                     };
@@ -923,7 +972,7 @@ function landingTemplate(manifest, config) {
                 }
             } catch (error) {
                 console.warn('Encryption request failed, using fallback:', error);
-                showNotification('Using fallback method...');
+                showNotification('Using fallback method...', 'info');
             }
             
             var configString = encodeURIComponent(JSON.stringify(config));
@@ -942,24 +991,48 @@ function landingTemplate(manifest, config) {
                 },
                 copy: function() {
                     navigator.clipboard.writeText('https://' + manifestHost + '/' + configString + '/manifest.json');
-                    showNotification('Manifest URL copied to clipboard!');
+                    showNotification('Manifest URL copied to clipboard!', 'success');
                     updateButtonState(false);
                 }
             };
             
             if (fallbackActions[action]) fallbackActions[action]();
         }
-        function updateButtonState(isLoading) {
+        function updateButtonState(isLoading, text) {
+            text = text || 'Opening...';
             if (isLoading) {
-                elements.mainInstallButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening...';
+                elements.mainInstallButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + text;
                 elements.mainInstallButton.classList.add('success');
             } else {
                 elements.mainInstallButton.innerHTML = '<i class="fas fa-download"></i> Install Addon';
                 elements.mainInstallButton.classList.remove('success');
             }
         }
-        function showNotification(text) {
+        function showNotification(text, type) {
+            // Set icon based on notification type
+            var iconClass = 'fa-check-circle'; // default success
+            if (type === 'error') {
+                iconClass = 'fa-times-circle';
+            } else if (type === 'warning') {
+                iconClass = 'fa-exclamation-triangle';
+            } else if (type === 'info') {
+                iconClass = 'fa-info-circle';
+            }
+            elements.notificationIcon.className = 'fas ' + iconClass;
             elements.notificationText.textContent = text;
+            
+            // Update notification background color based on type
+            elements.notification.classList.remove('notification-success', 'notification-error', 'notification-warning', 'notification-info');
+            if (type === 'error') {
+                elements.notification.classList.add('notification-error');
+            } else if (type === 'warning') {
+                elements.notification.classList.add('notification-warning');
+            } else if (type === 'info') {
+                elements.notification.classList.add('notification-info');
+            } else {
+                elements.notification.classList.add('notification-success');
+            }
+            
             elements.notification.classList.add('show');
             setTimeout(function() { elements.notification.classList.remove('show'); }, 3000);
         }

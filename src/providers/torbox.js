@@ -24,6 +24,48 @@ class TorBoxProvider extends BaseProvider {
     }
 
     /**
+     * Validate TorBox API key before encryption
+     * Static method for use in /encrypt-config endpoint
+     * @param {string} apiKey - API key to validate
+     * @returns {Promise<{valid: boolean, error?: string, email?: string, premium?: boolean}>}
+     */
+    static async validateApiKey(apiKey) {
+        const VALIDATION_TIMEOUT = 10000;
+        
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
+            
+            const response = await fetch('https://api.torbox.app/v1/api/user/me', {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                return { 
+                    valid: false, 
+                    error: data.error || data.detail || 'Invalid API key'
+                };
+            }
+            
+            return {
+                valid: true,
+                email: data.data?.email,
+                premium: data.data?.plan !== 'free',
+                plan: data.data?.plan
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { valid: false, error: 'Validation timeout - try again' };
+            }
+            return { valid: false, error: error.message };
+        }
+    }
+
+    /**
      * Apply rate limiting to avoid TorBox API limits (5 per second)
      */
     async rateLimit() {

@@ -10,6 +10,44 @@ class PremiumizeProvider extends BaseProvider {
     }
 
     /**
+     * Validate Premiumize API key before encryption
+     * Static method for use in /encrypt-config endpoint
+     * @param {string} apiKey - API key to validate
+     * @returns {Promise<{valid: boolean, error?: string, customerId?: string, premium?: boolean}>}
+     */
+    static async validateApiKey(apiKey) {
+        const VALIDATION_TIMEOUT = 10000;
+        
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
+            
+            const response = await fetch(`https://www.premiumize.me/api/account/info?apikey=${apiKey}`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                return { valid: false, error: data.message || 'Invalid API key' };
+            }
+            
+            return {
+                valid: data.status === 'success',
+                customerId: data.customer_id,
+                premium: data.premium_until > Date.now() / 1000,
+                premiumUntil: data.premium_until
+            };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { valid: false, error: 'Validation timeout - try again' };
+            }
+            return { valid: false, error: error.message };
+        }
+    }
+
+    /**
      * Search files using fuzzy matching
      */
     async searchFiles(apiKey, searchKey, threshold = 0.3) {
