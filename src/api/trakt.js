@@ -9,9 +9,20 @@ import Cinemeta from './cinemeta.js';
 
 const startupWarnings = new Set();
 
+// Shared base headers for all Trakt API requests.
+// User-Agent is required - Trakt blocks requests without one.
+function getTraktHeaders(apiKey) {
+    return {
+        'Content-Type': 'application/json',
+        'trakt-api-version': '2',
+        'trakt-api-key': apiKey,
+        'User-Agent': 'Stremio-IntellDebridSearch/1.0'
+    };
+}
+
 function getTraktApiKey(userProvidedKey = null) {
     const apiKey = process.env.TRAKT_API_KEY;
-    
+
     if (!apiKey) {
         if (!startupWarnings.has('trakt_missing')) {
             logger.warn('[trakt-api] TRAKT_API_KEY is not set. Trakt-powered features will be disabled.');
@@ -19,25 +30,25 @@ function getTraktApiKey(userProvidedKey = null) {
         }
         return null;
     }
-    
+
     return apiKey;
 }
 
 export function isTraktEnabled() {
     const tmdbApiKey = process.env.TMDB_API_KEY;
     const traktApiKey = process.env.TRAKT_API_KEY;
-    
+
     // Trakt is enabled ONLY if:
     // 1. Both Trakt AND TMDb keys exist (Scenario 1)
     // All other scenarios disable Trakt (as without TMDb, Trakt features are limited):
     // 2. TMDb only (Scenario 2) - Trakt features disabled
     // 3. Trakt only (Scenario 3) - should disable Trakt (fallback to basic)
     // 4. Neither key (Scenario 4) - should disable Trakt
-    
+
     if (tmdbApiKey && traktApiKey) {
         return true; // Scenario 1: Both APIs
     }
-    
+
     return false; // All other scenarios: disable Trakt
 }
 
@@ -50,17 +61,17 @@ export function isTraktEnabled() {
  */
 function calculateAbsoluteFromCinemeta(cinemetaSeasonMap, targetSeason, targetEpisode) {
     let absoluteEpisode = 0;
-    
+
     for (let s = 1; s < targetSeason; s++) {
         if (cinemetaSeasonMap[s]) {
             absoluteEpisode += cinemetaSeasonMap[s].count;
         }
     }
-    
+
     absoluteEpisode += targetEpisode;
-    
+
     logger.debug(`[trakt-api] Calculated absolute from Cinemeta: S${targetSeason}E${targetEpisode} → Absolute ${absoluteEpisode}`);
-    
+
     return absoluteEpisode;
 }
 
@@ -74,21 +85,21 @@ function shouldTriggerCinemetaFallback(traktSeasonData, requestedEpisode) {
     if (!traktSeasonData || traktSeasonData.length === 0) {
         return false; // Empty season, different issue
     }
-    
+
     const directMatch = traktSeasonData.find(ep => ep.number === requestedEpisode);
     if (directMatch) {
         return false; // Found directly, no fallback needed
     }
-    
+
     const episodeNumbers = traktSeasonData.map(ep => ep.number);
     const firstEpisodeNumber = Math.min(...episodeNumbers);
     const lastEpisodeNumber = Math.max(...episodeNumbers);
-    
+
     if (firstEpisodeNumber > requestedEpisode + 10) {
         logger.info(`[trakt-api] Detected absolute numbering: Trakt season starts at E${firstEpisodeNumber}, requested E${requestedEpisode}`);
         return true;
     }
-    
+
     return false;
 }
 
@@ -101,31 +112,28 @@ function shouldTriggerCinemetaFallback(traktSeasonData, requestedEpisode) {
  */
 async function findEpisodeByAbsolute(traktApiKey, traktId, absoluteEpisode) {
     const resolvedApiKey = getTraktApiKey(traktApiKey);
-    
+
     const allSeasonsUrl = `https://api.trakt.tv/shows/${traktId}/seasons?extended=episodes`;
-    
+
     try {
+        // FIX: added User-Agent header (Cloudflare blocks requests without it)
         const response = await fetch(allSeasonsUrl, {
-            headers: {
-                'Content-Type': 'application/json',
-                'trakt-api-version': '2',
-                'trakt-api-key': resolvedApiKey
-            }
+            headers: getTraktHeaders(resolvedApiKey)
         });
-        
+
         if (!response.ok) {
             logger.warn(`[trakt-api] Failed to fetch all seasons: ${response.status}`);
             return null;
         }
-        
+
         const allSeasons = await response.json();
-        
+
         // Search for the absolute episode number
         for (const season of allSeasons) {
             if (!season.episodes) continue;
-            
+
             const foundEpisode = season.episodes.find(ep => ep.number_abs === absoluteEpisode);
-            
+
             if (foundEpisode) {
                 logger.info(`[trakt-api] ✅ Found absolute ${absoluteEpisode} → S${season.number}E${foundEpisode.number}`);
                 return {
@@ -138,7 +146,7 @@ async function findEpisodeByAbsolute(traktApiKey, traktId, absoluteEpisode) {
                 };
             }
         }
-        
+
         logger.warn(`[trakt-api] Absolute episode ${absoluteEpisode} not found in any season`);
         return null;
     } catch (err) {
@@ -149,14 +157,14 @@ async function findEpisodeByAbsolute(traktApiKey, traktId, absoluteEpisode) {
 
 export async function getEpisodeMapping(traktApiKey = null, imdbId, season, episode) {
     const resolvedApiKey = getTraktApiKey();
-    
+
     if (!resolvedApiKey || !imdbId) {
         logger.debug('[trakt-api] Trakt API key not available or missing IMDb ID, skipping episode mapping');
         return null;
     }
 
     const cacheKey = `trakt_episode_${imdbId}_s${season}_e${episode}`;
-    
+
     const cachedResult = cache.get(cacheKey);
     if (cachedResult) {
         logger.info(`[trakt-api] Cache hit for episode mapping: ${imdbId} S${season}E${episode}`);
@@ -165,13 +173,10 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
 
     try {
         const searchUrl = `https://api.trakt.tv/search/imdb/${imdbId}`;
-        
+
+        // FIX: added User-Agent header (Cloudflare blocks requests without it)
         const searchResponse = await fetch(searchUrl, {
-            headers: {
-                'Content-Type': 'application/json',
-                'trakt-api-version': '2',
-                'trakt-api-key': resolvedApiKey
-            }
+            headers: getTraktHeaders(resolvedApiKey)
         });
 
         if (!searchResponse.ok) {
@@ -190,39 +195,35 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
         logger.info(`[trakt-api] Found Trakt ID: ${traktId} for IMDb ID: ${imdbId}`);
 
         const seasonUrl = `https://api.trakt.tv/shows/${traktId}/seasons/${season}?extended=full`;
-        
-            const seasonResponse = await fetch(seasonUrl, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'trakt-api-version': '2',
-                    'trakt-api-key': resolvedApiKey
-                }
-            });        let episodeMapping = null;
+
+        // FIX: added User-Agent header (Cloudflare blocks requests without it)
+        const seasonResponse = await fetch(seasonUrl, {
+            headers: getTraktHeaders(resolvedApiKey)
+        });
+
+        let episodeMapping = null;
 
         if (!seasonResponse.ok) {
             logger.warn(`[trakt-api] Season ${season} not found, trying to find absolute episode...`);
-            
+
             const allSeasonsUrl = `https://api.trakt.tv/shows/${traktId}/seasons?extended=episodes`;
-            
+
             try {
+                // FIX: added User-Agent header (Cloudflare blocks requests without it)
                 const allSeasonsResponse = await fetch(allSeasonsUrl, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'trakt-api-version': '2',
-                        'trakt-api-key': resolvedApiKey
-                    }
+                    headers: getTraktHeaders(resolvedApiKey)
                 });
 
                 if (allSeasonsResponse.ok) {
                     const allSeasonsData = await allSeasonsResponse.json();
-                    
+
                     for (const seasonInfo of allSeasonsData) {
                         if (seasonInfo.episodes) {
-                            const foundEpisode = seasonInfo.episodes.find(ep => 
-                                ep.number_abs === episode || 
+                            const foundEpisode = seasonInfo.episodes.find(ep =>
+                                ep.number_abs === episode ||
                                 (seasonInfo.number === season && ep.number === episode)
                             );
-                            
+
                             if (foundEpisode) {
                                 episodeMapping = {
                                     season: seasonInfo.number,
@@ -241,7 +242,7 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
             }
         } else {
             const seasonData = await seasonResponse.json();
-            
+
             const targetEpisode = seasonData.find(ep => {
                 return ep.number === episode;
             });
@@ -256,30 +257,30 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
                 };
             } else {
                 logger.warn(`[trakt-api] Episode ${episode} not found in season ${season}`);
-                
+
                 // Check if we should trigger Cinemeta fallback
                 // This handles cases where Trakt uses absolute numbering (e.g., anime)
                 if (shouldTriggerCinemetaFallback(seasonData, episode)) {
                     logger.info(`[trakt-api] 🔄 Triggering Cinemeta fallback for S${season}E${episode}`);
-                    
+
                     try {
                         const cinemetaSeasonMap = await Cinemeta.getSeasonEpisodeCounts(imdbId);
-                        
+
                         if (cinemetaSeasonMap && cinemetaSeasonMap[season]) {
                             const calculatedAbsolute = calculateAbsoluteFromCinemeta(
-                                cinemetaSeasonMap, 
-                                parseInt(season), 
+                                cinemetaSeasonMap,
+                                parseInt(season),
                                 parseInt(episode)
                             );
-                            
+
                             logger.info(`[trakt-api] Cinemeta calculated absolute: S${season}E${episode} → Absolute ${calculatedAbsolute}`);
-                            
+
                             episodeMapping = await findEpisodeByAbsolute(
-                                resolvedApiKey, 
-                                traktId, 
+                                resolvedApiKey,
+                                traktId,
                                 calculatedAbsolute
                             );
-                            
+
                             if (episodeMapping) {
                                 logger.info(`[trakt-api] ✅ Cinemeta fallback successful: S${season}E${episode} → Absolute ${calculatedAbsolute} → S${episodeMapping.season}E${episodeMapping.episode}`);
                             }
@@ -290,7 +291,7 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
                         logger.warn(`[trakt-api] Cinemeta fallback failed:`, fallbackErr.message);
                     }
                 }
-                
+
                 if (!episodeMapping) {
                     const maxEpisode = Math.max(...seasonData.map(ep => ep.number));
                     if (episode > maxEpisode) {
@@ -312,7 +313,7 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
         }
 
         if (episodeMapping) {
-                logger.debug(`[trakt-api] Found episode mapping for ${imdbId} S${season}E${episode}:`, JSON.stringify(episodeMapping, null, 2));
+            logger.debug(`[trakt-api] Found episode mapping for ${imdbId} S${season}E${episode}:`, JSON.stringify(episodeMapping, null, 2));
         } else {
             logger.warn(`[trakt-api] No episode mapping found for ${imdbId} S${season}E${episode}`);
         }
@@ -329,14 +330,14 @@ export async function getEpisodeMapping(traktApiKey = null, imdbId, season, epis
 
 export async function getShowInfo(traktApiKey = null, imdbId) {
     const resolvedApiKey = getTraktApiKey();
-    
+
     if (!resolvedApiKey || !imdbId) {
         logger.debug('[trakt-api] Trakt API key not available or missing IMDb ID, skipping show info');
         return null;
     }
 
     const cacheKey = `trakt_show_${imdbId}`;
-    
+
     const cachedResult = cache.get(cacheKey);
     if (cachedResult) {
         logger.info(`[trakt-api] Cache hit for show info: ${imdbId}`);
@@ -345,13 +346,10 @@ export async function getShowInfo(traktApiKey = null, imdbId) {
 
     try {
         const searchUrl = `https://api.trakt.tv/search/imdb/${imdbId}`;
-        
+
+        // FIX: added User-Agent header (Cloudflare blocks requests without it)
         const response = await fetch(searchUrl, {
-            headers: {
-                'Content-Type': 'application/json',
-                'trakt-api-version': '2',
-                'trakt-api-key': resolvedApiKey
-            }
+            headers: getTraktHeaders(resolvedApiKey)
         });
 
         if (!response.ok) {
@@ -375,7 +373,7 @@ export async function getShowInfo(traktApiKey = null, imdbId) {
         }
 
         logger.info(`[trakt-api] Show info for ${imdbId}:`, showInfo ? `Found ${showInfo.title}` : 'Not found');
-        
+
         cache.set(cacheKey, showInfo, 24 * 3600); // Cache result for 24 hours
         return showInfo;
 
