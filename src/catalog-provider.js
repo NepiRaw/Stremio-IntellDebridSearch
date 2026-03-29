@@ -7,6 +7,7 @@ import { coordinateSearch } from './search/coordinator.js'
 import { BadRequestError } from './utils/error-handler.js'
 import { getApiConfig } from './config/configuration.js'
 import { logger } from './utils/logger.js'
+import { createPosterLookupContext, isCatalogPosterEnabled, resolvePosterFromContext } from './catalog/poster-resolver.js'
 
 // Create provider instances once for testable providers to avoid duplicate initialization logging
 const sharedProviders = {
@@ -17,6 +18,54 @@ const sharedProviders = {
     TorBox: new TorBoxProvider(),
     Premiumize: new PremiumizeProvider()  // Now using standard provider instance
 };
+
+async function mapLimit(items, limit, mapper) {
+    const results = new Array(items.length);
+    let index = 0;
+
+    async function worker() {
+        while (index < items.length) {
+            const current = index++;
+            results[current] = await mapper(items[current], current);
+        }
+    }
+
+    const workerCount = Math.max(1, Math.min(limit, items.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+}
+
+async function toMetas(torrents = []) {
+    if (!Array.isArray(torrents) || torrents.length === 0) {
+        return [];
+    }
+
+    if (!isCatalogPosterEnabled()) {
+        return torrents.map(torrent => toMeta(torrent));
+    }
+
+    const contexts = torrents.map(torrent => createPosterLookupContext(torrent));
+    const uniqueContexts = new Map();
+
+    for (const context of contexts) {
+        if (context?.cacheKey && !uniqueContexts.has(context.cacheKey)) {
+            uniqueContexts.set(context.cacheKey, context);
+        }
+    }
+
+    const resolvedPosters = await mapLimit([...uniqueContexts.values()], 4, async (context) => {
+        const posterResult = await resolvePosterFromContext(context);
+        return [context.cacheKey, posterResult];
+    });
+
+    const posterByKey = new Map(resolvedPosters);
+
+    return torrents.map((torrent, index) => {
+        const context = contexts[index];
+        const posterResult = context?.cacheKey ? posterByKey.get(context.cacheKey) || null : null;
+        return toMeta(torrent, { posterResult });
+    });
+}
 
 async function searchTorrents(config, searchKey) {
     const apiConfig = getApiConfig();
@@ -45,7 +94,7 @@ async function searchTorrents(config, searchKey) {
         }
         const searchResult = await coordinateSearch(params)
         const torrents = Array.isArray(searchResult) ? searchResult : searchResult.results
-        return torrents.map(torrent => toMeta(torrent))
+        return toMetas(torrents)
     }
 
     let resultsPromise
@@ -77,7 +126,7 @@ async function searchTorrents(config, searchKey) {
                 logger.warn('[catalog-provider] searchTorrents returned non-array, defaulting to empty');
                 return [];
             }
-            return torrents.map(torrent => toMeta(torrent));
+            return toMetas(torrents);
         })
 }
 
@@ -114,14 +163,15 @@ async function listTorrents(config, skip = 0) {
                 logger.warn('[catalog-provider] listTorrents returned non-array, defaulting to empty');
                 return [];
             }
-            return torrents.map(torrent => toMeta(torrent));
+            return toMetas(torrents);
         })
 }
 
-function toMeta(torrent) {
+function toMeta(torrent, options = {}) {
     let metaId;
-    if (torrent.id && torrent.id.includes(':')) {
-        metaId = torrent.id;
+    if (typeof torrent.id === 'string' && torrent.id.includes(':')) {
+        const [currentProvider, currentId] = torrent.id.split(':');
+        metaId = `${currentProvider.toLowerCase()}:${currentId}`;
     } else if (torrent.source && torrent.id) {
         const providerLowercase = torrent.source.toLowerCase(); // Convert provider name to lowercase for other addon metadata sync
         metaId = providerLowercase + ':' + torrent.id;
@@ -129,14 +179,24 @@ function toMeta(torrent) {
         console.warn('Warning: torrent object missing proper ID or source fields:', torrent);
         metaId = torrent.id || 'unknown';
     }
+
+    const posterResult = options.posterResult || null;
     
-    return {
+    const meta = {
         id: metaId,
-        name: torrent.name,
-        type: torrent.type,
-        //poster: `https://img.icons8.com/ios/256/video--v1.png`,
+        name: torrent.name || torrent.filename || 'Unknown Torrent',
+        type: torrent.type || 'other'
+    };
+
+    if (posterResult?.posterUrl) {
+        meta.poster = posterResult.posterUrl;
+        meta.posterShape = posterResult.posterShape || 'poster';
     }
+
+    return meta;
 }
 
 
-export default { searchTorrents, listTorrents }
+export { toMeta, toMetas, searchTorrents, listTorrents }
+
+export default { searchTorrents, listTorrents, toMeta, toMetas }

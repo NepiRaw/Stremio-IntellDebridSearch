@@ -163,6 +163,7 @@ function applyRegexFallbacks(filename, pttResult) {
     // Roman numeral parsing - use as fallback or when classic parsing gives questionable results
     // Pass pre-computed Roman data
     result = applyRomanNumeralFallback(result, filename, romanSeasonInfo);
+    result = clearLikelyAudioChannelEpisodeMatch(filename, result);
     
     // Store Roman data in result for external modules (always set, even if null)
     result.romanSeason = romanSeasonInfo;
@@ -175,6 +176,36 @@ function applyRegexFallbacks(filename, pttResult) {
     result.title = cleanTitle(filename, pttResult);
     
     return result;
+}
+
+function clearLikelyAudioChannelEpisodeMatch(filename, result) {
+    if (!result?.season || !result?.episode) {
+        return result;
+    }
+
+    if (hasObviousEpisodeIndicators(filename)) {
+        return result;
+    }
+
+    const audioChannels = extractAudioChannels(filename);
+    const audioMatch = String(audioChannels || '').match(/^(\d)\.(\d)$/);
+    if (!audioMatch) {
+        return result;
+    }
+
+    const [, seasonLike, episodeLike] = audioMatch;
+    if (Number(result.season) !== Number(seasonLike) || Number(result.episode) !== Number(episodeLike)) {
+        return result;
+    }
+
+    logger.debug(`[unified-parser] Clearing likely audio-channel season/episode false positive (${audioChannels}) - ${filename}`);
+
+    return {
+        ...result,
+        season: null,
+        episode: null,
+        absoluteEpisode: null
+    };
 }
 
 /**

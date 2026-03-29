@@ -147,6 +147,164 @@ export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
     }
 }
 
+function normalizeSearchType(type) {
+    return type === 'series' ? 'tv' : type;
+}
+
+export function buildTMDbPosterUrl(posterPath, size = 'w342') {
+    if (!posterPath) {
+        return null;
+    }
+
+    return `https://image.tmdb.org/t/p/${size}${posterPath}`;
+}
+
+export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
+    const resolvedApiKey = getTmdbApiKey();
+    const endpoint = normalizeSearchType(mediaType);
+
+    if (!resolvedApiKey || !tmdbId || !endpoint) {
+        logger.debug('[tmdb-api] Missing TMDb API key, tmdbId, or mediaType for external ID lookup');
+        return null;
+    }
+
+    const cacheKey = `tmdb_external_ids_${endpoint}_${tmdbId}`;
+    const cachedResult = cache.get(cacheKey);
+    if (cachedResult !== null && cachedResult !== undefined) {
+        return cachedResult;
+    }
+
+    try {
+        const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}/external_ids?api_key=${resolvedApiKey}`;
+        const response = await fetch(url, {
+            headers: { accept: 'application/json' }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const imdbId = data?.imdb_id || null;
+
+        cache.set(cacheKey, imdbId, imdbId ? 24 * 3600 : 1800, {
+            type: 'tmdb_external_ids',
+            endpoint
+        });
+
+        return imdbId;
+    } catch (err) {
+        logger.error(`[tmdb-api] Failed to fetch external IDs for ${endpoint}/${tmdbId}:`, err.message);
+        cache.set(cacheKey, null, 1800, {
+            type: 'tmdb_external_ids',
+            endpoint,
+            error: true
+        });
+        return null;
+    }
+}
+
+export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = {}) {
+    const resolvedApiKey = getTmdbApiKey();
+    const endpoint = normalizeSearchType(type);
+
+    if (!resolvedApiKey || !title || !endpoint) {
+        logger.debug('[tmdb-api] Missing TMDb API key, title, or endpoint for media search');
+        return [];
+    }
+
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/gi, '_');
+    const cacheKey = `tmdb_media_search_${endpoint}_${normalizedTitle}_${year || 'none'}_${limit}`;
+    const cachedResult = cache.get(cacheKey);
+    if (cachedResult) {
+        return cachedResult;
+    }
+
+    try {
+        const params = new URLSearchParams({
+            api_key: resolvedApiKey,
+            query: title,
+            include_adult: 'false'
+        });
+
+        if (year) {
+            if (endpoint === 'movie') {
+                params.set('year', String(year));
+            } else {
+                params.set('first_air_date_year', String(year));
+            }
+        }
+
+        const url = `https://api.themoviedb.org/3/search/${endpoint}?${params.toString()}`;
+        const response = await fetch(url, {
+            headers: { accept: 'application/json' }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const results = (data.results || []).slice(0, limit).map(result => ({
+            id: result.id,
+            mediaType: endpoint === 'tv' ? 'series' : 'movie',
+            displayTitle: result.title || result.name || result.original_title || result.original_name || null,
+            originalTitle: result.original_title || result.original_name || null,
+            displayDate: result.release_date || result.first_air_date || null,
+            posterPath: result.poster_path || null,
+            popularity: result.popularity ?? null,
+            voteAverage: result.vote_average ?? null,
+            voteCount: result.vote_count ?? null
+        }));
+
+        cache.set(cacheKey, results, 6 * 3600);
+        return results;
+    } catch (err) {
+        logger.error(`[tmdb-api] Failed to search TMDb ${endpoint} for "${title}":`, err.message);
+        cache.set(cacheKey, [], 1800);
+        return [];
+    }
+}
+
+export async function fetchTMDbTVDetails(tmdbId) {
+    const resolvedApiKey = getTmdbApiKey();
+
+    if (!resolvedApiKey || !tmdbId) {
+        return null;
+    }
+
+    const cacheKey = `tmdb_tv_details_${tmdbId}`;
+    const cachedResult = cache.get(cacheKey);
+    if (cachedResult) {
+        return cachedResult;
+    }
+
+    try {
+        const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${resolvedApiKey}&language=en-US`;
+        const response = await fetch(url, {
+            headers: { accept: 'application/json' }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const details = {
+            number_of_seasons: data.number_of_seasons ?? null,
+            number_of_episodes: data.number_of_episodes ?? null,
+            status: data.status || null
+        };
+
+        cache.set(cacheKey, details, 24 * 3600);
+        return details;
+    } catch (err) {
+        logger.error(`[tmdb-api] Failed to fetch TV details for ${tmdbId}:`, err.message);
+        cache.set(cacheKey, null, 1800);
+        return null;
+    }
+}
+
 export function getCacheStats() {
     return cache.getStats();
 }

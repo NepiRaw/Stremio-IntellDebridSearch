@@ -1,6 +1,7 @@
 import { addonBuilder } from "stremio-addon-sdk"
 import StreamProvider from './src/stream-provider.js'
 import { getManifest } from './src/config/manifest.js'
+import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
 import { logger } from './src/utils/logger.js';
 
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
@@ -90,28 +91,8 @@ builder.defineCatalogHandler(async (args) => {
                 }
             }
 
-            const metas = torrents.map(torrent => {
-                let torrentId;
-                let torrentName;
-                
-                if (torrent.source && torrent.id) {
-                    torrentId = `${torrent.source.toLowerCase()}:${torrent.id}`;
-                    torrentName = torrent.name;
-                } else if (torrent.id && torrent.id.includes(':')) {
-                    const [currentProvider, id] = torrent.id.split(':');
-                    torrentId = `${currentProvider.toLowerCase()}:${id}`;
-                    torrentName = torrent.name;
-                } else {
-                    torrentId = `${providerName.toLowerCase()}:${torrent.id}`;
-                    torrentName = torrent.name;
-                }
-                
-                return {
-                    id: torrentId,
-                    name: torrentName,
-                    type: 'other'
-                };
-            });
+            const { toMetas } = await import('./src/catalog-provider.js');
+            const metas = await toMetas(torrents);
 
             logger.info(`[CatalogHandler] Returning ${metas.length} catalog metas`);
             
@@ -231,13 +212,19 @@ builder.defineMetaHandler(async (args) => {
             }
         }
         
-        const meta = {
+        const baseMeta = {
             id: args.id,
             type: 'other',
             name: torrentDetails.name || 'Unknown Torrent',
             description: `${providerName} cached file ➡️ ${torrentDetails.name} 🔍 ${videos.length} video file(s)`,
             videos: videos
         };
+
+        const meta = await enrichTorrentMeta(baseMeta, {
+            providerName,
+            torrentDetails
+        });
+
         return { meta };
         
     } catch (error) {
