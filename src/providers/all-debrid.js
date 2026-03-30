@@ -15,6 +15,8 @@ const limiter = new Bottleneck({
     reservoirRefreshInterval: 60 * 1000
 });
 
+const ALL_DEBRID_CLIENT_NAME = 'intell-debridsearch';
+
 class AllDebridProvider extends BaseProvider {
     constructor() {
         super('AllDebrid');
@@ -33,8 +35,11 @@ class AllDebridProvider extends BaseProvider {
         try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
-            
-            const response = await fetch('https://api.alldebrid.com/v4/user', {
+
+            const validationUrl = new URL('https://api.alldebrid.com/v4/user');
+            validationUrl.searchParams.set('agent', ALL_DEBRID_CLIENT_NAME);
+
+            const response = await fetch(validationUrl, {
                 headers: { 'Authorization': `Bearer ${apiKey}` },
                 signal: controller.signal
             });
@@ -81,10 +86,10 @@ class AllDebridProvider extends BaseProvider {
 
     // Enhanced API request
     async makeAllDebridRequest(endpoint, params = {}, apiKey) {
-        const url = `${this.baseUrl}/${endpoint}`;
-        
+        const requestUrl = new URL(`${this.baseUrl}/${endpoint}`);
+        requestUrl.searchParams.set('agent', ALL_DEBRID_CLIENT_NAME);
+
         const postData = {
-            agent: 'intelldebrid',
             ...params
         };
 
@@ -95,7 +100,7 @@ class AllDebridProvider extends BaseProvider {
             try {
                 const response = await limiter.schedule(() => axios({
                     method: 'POST',
-                    url: url,
+                    url: requestUrl.toString(),
                     data: querystring.stringify(postData),
                     headers: this.getHeaders(apiKey),
                     timeout: 30000,
