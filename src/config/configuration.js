@@ -205,6 +205,40 @@ class ConfigurationManager {
         const enableReleaseGroup = this.getEnvVar('ENABLE_RELEASE_GROUP', 'false');
         return enableReleaseGroup.toLowerCase() === 'true';
     }
+
+    getIsCatalogPosterEnabled() {
+        const enableCatalogPosters = this.getEnvVar('ENABLE_CATALOG_POSTERS', 'false');
+        return enableCatalogPosters.toLowerCase() === 'true';
+    }
+
+    getCatalogEnrichmentCacheConfig() {
+        const parseBoolean = (value, defaultValue = false) => {
+            if (value === null || value === undefined) {
+                return defaultValue;
+            }
+
+            return String(value).toLowerCase() === 'true';
+        };
+
+        const parseNumber = (value, defaultValue) => {
+            const parsed = Number.parseInt(String(value ?? defaultValue), 10);
+            return Number.isFinite(parsed) ? parsed : defaultValue;
+        };
+
+        return {
+            enabled: parseBoolean(this.getEnvVar('CATALOG_ENRICHMENT_CACHE_ENABLED', 'true'), true),
+            dbPath: this.getEnvVar('CATALOG_ENRICHMENT_CACHE_DB_PATH', './data/catalog-enrichment-cache.sqlite'),
+            resolutionPositiveTtlMs: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_RESOLUTION_POSITIVE_TTL_DAYS', '14'), 14) * 24 * 60 * 60 * 1000, // Default 14 days for positive poster/content matches
+            resolutionNegativeTtlMs: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_RESOLUTION_NEGATIVE_TTL_HOURS', '12'), 12) * 60 * 60 * 1000, // Default 12 hours for negative poster/content matches
+            metadataPositiveTtlMs: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_METADATA_POSITIVE_TTL_HOURS', '48'), 48) * 60 * 60 * 1000, // Default 48 hours for positive metadata enrichment
+            metadataNegativeTtlMs: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_METADATA_NEGATIVE_TTL_HOURS', '6'), 6) * 60 * 60 * 1000, // Default 6 hours for negative metadata enrichment
+            metadataSuspectTtlMs: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_METADATA_SUSPECT_TTL_HOURS', '12'), 12) * 60 * 60 * 1000, // Default 12 hours for suspect metadata enrichment
+            cleanupIntervalSeconds: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_CACHE_CLEANUP_INTERVAL_SECONDS', '21600'), 21600), // Default 6 hours
+            walSizeLimitBytes: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_CACHE_WAL_SIZE_LIMIT_MB', '32'), 32) * 1024 * 1024, // Default 32 MB WAL size limit before checkpointing
+            maxDbSizeBytes: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_CACHE_MAX_DB_MB', '0'), 0) * 1024 * 1024, // Default 0 (no limit) for maximum SQLite file size before pruning
+            pruneBatchSize: parseNumber(this.getEnvVar('CATALOG_ENRICHMENT_CACHE_PRUNE_BATCH_SIZE', '100'), 100) // Default 100 entries to prune in each batch when maxDbSizeBytes is exceeded
+        };
+    }
 }
 
 function generateEncryptionKey() {
@@ -376,6 +410,10 @@ export function getApiConfig() {
     return configManager.getApiConfig();
 }
 
+export function getIsCatalogPosterEnabled() {
+    return configManager.getIsCatalogPosterEnabled();
+}
+
 export function logApiStartupStatus() {
     const apiConfig = configManager.getApiConfig();
     const capabilities = configManager.getSearchCapabilities();
@@ -383,12 +421,23 @@ export function logApiStartupStatus() {
     const isTraktEnabled = configManager.getIsTraktEnabled();
     const hasAdvancedSearch = configManager.determineSearchCapabilities();
     const isReleaseGroupEnabled = configManager.getIsReleaseGroupEnabled();
+    const isCatalogPosterEnabled = configManager.getIsCatalogPosterEnabled();
+    const enrichmentCacheConfig = configManager.getCatalogEnrichmentCacheConfig();
+    const isMetadataEnrichmentEnabled = isCatalogPosterEnabled;
+    const isPersistentCacheActive = isCatalogPosterEnabled && enrichmentCacheConfig.enabled;
     
     logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
     logger.info(`[configuration] TMDb API: ${isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] Trakt API: ${isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] ⚡ Advanced search: ${hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
     logger.info(`[configuration] 👥 Release groups: ${isReleaseGroupEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
+    logger.info(`[configuration] 🖼️  Catalog posters: ${isCatalogPosterEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
+    logger.info(`[configuration] 🧠 Catalog metadata enrichment: ${isMetadataEnrichmentEnabled ? 'Enabled ✅' : 'Disabled ❌'}${isMetadataEnrichmentEnabled ? '' : ' (follows catalog poster toggle)'}`);
+    logger.info(`[configuration] 💾 Persistent enrichment cache: ${enrichmentCacheConfig.enabled ? 'Enabled ✅' : 'Disabled ❌'}${enrichmentCacheConfig.enabled && !isPersistentCacheActive ? ' (inactive while catalog posters are disabled)' : ''}`);
+
+    if (enrichmentCacheConfig.enabled) {
+        logger.info(`[configuration] 🗃️  Enrichment cache DB path: ${enrichmentCacheConfig.dbPath}`);
+    }
     
     logger.info('[configuration] Search capabilities:');
     logger.info(`  • Alternative titles: ${capabilities.alternativeTitles ? '✅' : '❌'}`);

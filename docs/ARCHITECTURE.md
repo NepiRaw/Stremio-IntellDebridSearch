@@ -36,6 +36,8 @@ The addon is built on a modular, service-oriented architecture. Each layer is re
 ├───────────────────────────────────────────────────────────────┤
 │  Catalog Provider  │  Stream Provider  │  Search Coordinator  │
 ├───────────────────────────────────────────────────────────────┤
+│     Catalog Enrichment Resolver + L0/L1/L2 Cache Stack       │
+├───────────────────────────────────────────────────────────────┤
 │              Multi-Phase Search Engine                        │
 │  Phase 0 (Prep) │ Phase 1 (Matching) │ Phase 2 (Analysis)   │
 ├───────────────────────────────────────────────────────────────┤
@@ -120,21 +122,27 @@ The following steps describe how a Stremio client request is processed from entr
      - Batch processing for technical details
      - Pattern pre-compilation for efficiency
      ↓
-8. Quality Processing & Stream Building
+8. Catalog Enrichment Resolution (catalog/meta flows)
+     - Conservative poster resolution from torrent names
+     - Canonical content-key generation
+     - Exact filename alias reuse across users/providers
+     - Persistent SQLite cache for poster + metadata enrichment
+     ↓
+9. Quality Processing & Stream Building
      - Quality detection and filtering
      - Technical details extraction
      - Stream object assembly
      ↓
-9. Debrid Service Integration
+10. Debrid Service Integration
      - Provider-specific API interactions
      - Consistent error handling and retry logic
      ↓
-10. UnifiedCacheManager Integration
+11. UnifiedCacheManager Integration
       - Caches API responses (24h TTL for most data)
       - Performance optimization caching
       - Statistics tracking and monitoring
      ↓
-11. Response Assembly & Delivery
+12. Response Assembly & Delivery
       - Final stream objects assembled
       - Response sent back to Stremio client
 ```
@@ -307,7 +315,31 @@ cache.getStats()
 - Metadata storage for debugging and monitoring
 - Automatic background cleanup every 5 minutes
 
-### 5. Multi-Phase Search Engine
+### 5. Catalog Enrichment Cache Layer
+**Locations**: `src/catalog/poster-resolver.js`, `src/catalog/meta-enricher.js`, `src/catalog/enrichment-cache.js`
+
+The catalog/meta enrichment path now uses a dedicated cache-aware resolver stack:
+
+```javascript
+// Build a canonical content identity from a torrent filename
+createPosterLookupContext(torrent)
+
+// Resolve a poster/content match with L1 + L2 cache reuse
+resolveContentFromContext(context)
+
+// Compose final clicked-item metadata using cached provider-agnostic enrichment
+enrichTorrentMeta(baseMeta, { providerName, torrentDetails })
+```
+
+**Capabilities**:
+- Conservative poster resolution for strong matches only
+- Shared `contentKey` identity for poster + metadata enrichment
+- Exact filename aliasing so identical release names can hit cache across users/providers
+- L1 in-memory cache for hot requests
+- L2 SQLite cache for restart-safe reuse of accepted/rejected enrichment decisions
+- Separate TTLs for stable poster matches vs less-stable upstream metadata
+
+### 6. Multi-Phase Search Engine
 **Locations**: `src/search/coordinator.js`, `src/search/phase-*.js`
 
 Intelligent 3-phase search process for optimal results:
@@ -338,7 +370,7 @@ performContentAnalysis(titleMatches, season, episode, absoluteEpisode)
 reAnalyzeWithMapping(titleMatches, episodeMapping)
 ```
 
-### 6. BaseProvider Architecture
+### 7. BaseProvider Architecture
 **Location**: `src/providers/BaseProvider.js`
 
 Abstract base class providing consistent functionality across all debrid providers:
@@ -363,7 +395,7 @@ extractVideoFiles(item, apiKey, urlBuilder)
 - **Debrid-Link**: `src/providers/debrid-link.js` - Standard implementation
 - **TorBox**: `src/providers/torbox.js` - Download-focused implementation
 
-### 7. Episode Pattern Recognition
+### 8. Episode Pattern Recognition
 **Location**: `src/utils/episode-patterns.js`
 
 Comprehensive episode and season detection:
@@ -400,6 +432,11 @@ parseSeasonFromTitle(filename)
 - `jikan.js` - Anime metadata via Jikan API with rate limiting (24h TTL, 3 req/sec)
 - `tmdb.js` - Movie/TV metadata via TMDB API (6h-24h TTL)
 - `trakt.js` - TV/streaming metadata via Trakt API (24h TTL)
+
+#### `/src/catalog/`
+- `enrichment-cache.js` - Persistent SQLite cache for poster/content resolution and metadata enrichment
+- `meta-enricher.js` - Clicked-item metadata enrichment composer
+- `poster-resolver.js` - Conservative poster/content resolution logic
 
 #### `/src/config/`
 - `configuration.js` - Centralized configuration management with ConfigurationManager class
@@ -486,6 +523,19 @@ Result Assembly → Quality Filtering → Stream Generation → Response
 ### Multi-Level Caching Strategy
 The system implements a sophisticated, enterprise-grade caching system with multiple layers:
 
+#### 0. **Catalog Enrichment Cache Stack**
+- **L0 request dedupe**: `src/catalog-provider.js` deduplicates repeated poster lookups inside a single response
+- **L1 hot cache**: `src/utils/cache-manager.js` stores short-lived accepted/rejected poster and metadata enrichment results
+- **L2 persistent cache**: `src/catalog/enrichment-cache.js` stores restart-safe content resolution, metadata enrichment, and filename alias mappings in SQLite
+
+Persistent catalog enrichment behavior:
+- accepted poster/content matches are cached longer than metadata payloads
+- negative poster/content decisions are cached with shorter TTLs to allow future refreshes
+- exact filename aliases point to a canonical `contentKey`, allowing the same release name to reuse cache across providers/users
+- metadata records can be marked suspect and refreshed sooner when upstream data looks inconsistent
+- periodic maintenance removes expired rows, checkpoints WAL state, and reclaims free pages with incremental auto-vacuum
+- an optional soft DB-size limit can prune the oldest/least useful cache entries before the SQLite file grows unbounded
+
 #### 1. **UnifiedCacheManager** (`src/utils/cache-manager.js`)
 **Central caching system** for all addon components:
 ```javascript
@@ -517,6 +567,11 @@ class UnifiedCacheManager {
 - **TTL variations**: 30min (failures) to 24h (stable data)
 - **Pattern retrieval**: `cache.getByPattern()` for debugging and monitoring
 - **Statistics**: Real-time cache performance tracking
+
+#### 5. **Catalog Enrichment Persistence**
+- **Resolution cache**: accepted/rejected poster/content identity keyed by canonical parsed title/year/type
+- **Metadata cache**: provider-agnostic enrichment payloads (`background`, `logo`, synopsis tail, release info, IMDb rating, genres, runtime, links)
+- **Alias cache**: exact filename fingerprints that map multiple users/providers to the same canonical content key
 
 ### Performance Metrics
 Based on comprehensive testing with real-world data:

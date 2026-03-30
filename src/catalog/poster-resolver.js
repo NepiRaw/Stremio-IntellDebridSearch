@@ -2,6 +2,7 @@ import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { hasObviousEpisodeIndicators, hasSeasonOnlyIndicators, isTechnicalTerm } from '../utils/media-patterns.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 import { romanToNumber } from '../utils/roman-numeral-utils.js';
+import cache from '../utils/cache-manager.js';
 import { logger } from '../utils/logger.js';
 import {
     buildTMDbPosterUrl,
@@ -9,6 +10,7 @@ import {
     fetchTMDbTVDetails,
     searchTMDbMedia
 } from '../api/tmdb.js';
+import { buildContentKey, buildFilenameAliasKey, getEnrichmentCache } from './enrichment-cache.js';
 
 const ACCEPT_THRESHOLD = 0.82;
 const FALLBACK_ACCEPT_THRESHOLD = 0.74;
@@ -16,9 +18,124 @@ const AMBIGUITY_DELTA = 0.08;
 const DOMINANT_SINGLE_CANDIDATE_THRESHOLD = 0.64;
 const DOMINANT_SINGLE_CANDIDATE_DELTA = 0.12;
 const SUPPORT_NEUTRAL_SCORE = 0.6;
+const POSTER_RESOLUTION_CACHE_PREFIX = 'poster_resolution:';
+const POSTER_RESOLUTION_POSITIVE_L1_TTL_SECONDS = 6 * 3600;
+const POSTER_RESOLUTION_NEGATIVE_L1_TTL_SECONDS = 1800;
 const STOPWORDS = new Set(['a', 'an', 'and', 'de', 'du', 'des', 'en', 'for', 'in', 'la', 'le', 'les', 'my', 'of', 'on', 'or', 'the', 'to', 'with']);
 const WEAK_TITLE_TOKENS = new Set(['film', 'movie']);
 const FLEXIBLE_SERIES_PART_PATTERN = /\bS(\d{1,2})([A-DF-Z])(\d{2,3})\b/i;
+
+function buildPosterResolutionCacheKey(contentKey) {
+    return `${POSTER_RESOLUTION_CACHE_PREFIX}${contentKey}`;
+}
+
+function readCachedResolution(contentKey) {
+    if (!contentKey) {
+        return null;
+    }
+
+    return cache.get(buildPosterResolutionCacheKey(contentKey));
+}
+
+function writeCachedResolution(resolution) {
+    if (!resolution?.contentKey) {
+        return;
+    }
+
+    cache.set(
+        buildPosterResolutionCacheKey(resolution.contentKey),
+        resolution,
+        resolution.isNegative ? POSTER_RESOLUTION_NEGATIVE_L1_TTL_SECONDS : POSTER_RESOLUTION_POSITIVE_L1_TTL_SECONDS,
+        {
+            type: 'poster_resolution',
+            accepted: !resolution.isNegative,
+            reason: resolution.reason || 'unknown'
+        }
+    );
+}
+
+function buildPosterResultFromResolution(resolution) {
+    if (!resolution || resolution.isNegative || !resolution.posterUrl) {
+        return null;
+    }
+
+    return {
+        posterUrl: resolution.posterUrl,
+        posterShape: resolution.posterShape || 'poster',
+        tmdbId: resolution.tmdbId,
+        imdbId: resolution.imdbId || null,
+        mediaType: resolution.mediaType,
+        matchedTitle: resolution.matchedTitle,
+        score: resolution.score,
+        reason: resolution.reason,
+        matchSource: resolution.matchSource
+    };
+}
+
+function buildAcceptedResolution(context, decision) {
+    const selected = decision.selectedCandidate;
+    const posterUrl = buildTMDbPosterUrl(selected.posterPath);
+
+    if (!posterUrl) {
+        return null;
+    }
+
+    return {
+        contentKey: context.contentKey,
+        normalizedTitle: context.normalizedTitle,
+        releaseYear: context.releaseYear,
+        mediaHint: context.inferredType,
+        tmdbId: selected.id,
+        imdbId: null,
+        mediaType: selected.mediaType,
+        matchedTitle: selected.displayTitle,
+        score: selected.score,
+        reason: decision.reason,
+        matchSource: selected.bestTitleMatch?.source || 'unknown',
+        posterUrl,
+        posterPath: selected.posterPath,
+        posterShape: 'poster',
+        isNegative: false
+    };
+}
+
+function buildNegativeResolution(context, decision) {
+    return {
+        contentKey: context.contentKey,
+        normalizedTitle: context.normalizedTitle,
+        releaseYear: context.releaseYear,
+        mediaHint: context.inferredType,
+        tmdbId: decision?.selectedCandidate?.id ?? null,
+        imdbId: null,
+        mediaType: decision?.selectedCandidate?.mediaType ?? null,
+        matchedTitle: decision?.selectedCandidate?.displayTitle ?? null,
+        score: decision?.selectedCandidate?.score ?? null,
+        reason: decision?.reason || 'rejected',
+        matchSource: decision?.selectedCandidate?.bestTitleMatch?.source || null,
+        posterUrl: null,
+        posterPath: null,
+        posterShape: 'poster',
+        isNegative: true
+    };
+}
+
+function persistResolution(persistentCache, resolution, context) {
+    if (!persistentCache || !resolution?.contentKey) {
+        return resolution;
+    }
+
+    const storedResolution = persistentCache.storeContentResolution(resolution);
+    if (context?.filenameAliasKey) {
+        persistentCache.storeAlias({
+            aliasKey: context.filenameAliasKey,
+            aliasType: 'filename',
+            contentKey: resolution.contentKey,
+            expiresAt: storedResolution?.expiresAt || resolution.expiresAt
+        });
+    }
+
+    return storedResolution || resolution;
+}
 
 function endpointToMediaType(endpoint) {
     return endpoint === 'tv' ? 'series' : 'movie';
@@ -724,21 +841,62 @@ export function createPosterLookupContext(torrent) {
     const inferredType = ignoredTitleSuffixAbsoluteEpisode
         ? 'series'
         : inferProvisionalType(filename, parsed);
-    const cacheKey = [normalizeTitle(parsedTitle), parsed?.year || 'none', inferredType].join('|');
+    const normalizedTitle = normalizeTitle(parsedTitle);
+    const releaseYear = String(parsed?.year || 'none');
+    const contentKey = buildContentKey({
+        normalizedTitle,
+        releaseYear,
+        mediaHint: inferredType
+    });
 
     return {
         filename,
         parsed,
         parsedTitle,
+        normalizedTitle,
+        releaseYear,
         inferredType,
         isClearlyEpisodic: isClearlyEpisodic(filename, parsed),
-        cacheKey
+        contentKey,
+        cacheKey: contentKey,
+        filenameAliasKey: buildFilenameAliasKey(filename)
     };
 }
 
-export async function resolvePosterFromContext(context) {
+export async function resolveContentFromContext(context) {
     if (!context) {
         return null;
+    }
+
+    const cachedResolution = readCachedResolution(context.contentKey);
+    if (cachedResolution) {
+        return cachedResolution;
+    }
+
+    const persistentCache = getEnrichmentCache();
+    if (persistentCache && context.filenameAliasKey) {
+        const aliasHit = persistentCache.getContentResolutionByAlias(context.filenameAliasKey);
+        if (aliasHit) {
+            writeCachedResolution(aliasHit);
+            return aliasHit;
+        }
+    }
+
+    if (persistentCache && context.contentKey) {
+        const persistentHit = persistentCache.getContentResolution(context.contentKey);
+        if (persistentHit) {
+            if (context.filenameAliasKey) {
+                persistentCache.storeAlias({
+                    aliasKey: context.filenameAliasKey,
+                    aliasType: 'filename',
+                    contentKey: context.contentKey,
+                    expiresAt: persistentHit.expiresAt
+                });
+            }
+
+            writeCachedResolution(persistentHit);
+            return persistentHit;
+        }
     }
 
     const [movieCandidates, tvCandidates] = await Promise.all([
@@ -751,30 +909,29 @@ export async function resolvePosterFromContext(context) {
         tv: tvCandidates
     });
 
-    if (!decision.accepted || !decision.selectedCandidate?.posterPath) {
-        logger.debug(`[poster-resolver] No poster accepted for "${context.filename}" (${decision.reason})`);
+    const resolution = decision.accepted && decision.selectedCandidate?.posterPath
+        ? buildAcceptedResolution(context, decision)
+        : buildNegativeResolution(context, decision);
+
+    if (!resolution) {
         return null;
     }
 
-    const selected = decision.selectedCandidate;
-    const posterUrl = buildTMDbPosterUrl(selected.posterPath);
+    const storedResolution = persistResolution(persistentCache, resolution, context);
+    writeCachedResolution(storedResolution);
 
-    if (!posterUrl) {
-        return null;
+    if (storedResolution.isNegative) {
+        logger.debug(`[poster-resolver] No poster accepted for "${context.filename}" (${storedResolution.reason})`);
+    } else {
+        logger.debug(`[poster-resolver] Poster resolved for "${context.filename}" -> ${storedResolution.matchedTitle} [${storedResolution.mediaType}] (${storedResolution.reason})`);
     }
 
-    logger.debug(`[poster-resolver] Poster resolved for "${context.filename}" -> ${selected.displayTitle} [${selected.mediaType}] (${decision.reason})`);
+    return storedResolution;
+}
 
-    return {
-        posterUrl,
-        posterShape: 'poster',
-        tmdbId: selected.id,
-        mediaType: selected.mediaType,
-        matchedTitle: selected.displayTitle,
-        score: selected.score,
-        reason: decision.reason,
-        matchSource: selected.bestTitleMatch?.source || 'unknown'
-    };
+export async function resolvePosterFromContext(context) {
+    const resolution = await resolveContentFromContext(context);
+    return buildPosterResultFromResolution(resolution);
 }
 
 export async function resolvePosterForTorrent(torrent) {

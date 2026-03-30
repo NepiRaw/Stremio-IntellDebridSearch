@@ -6,6 +6,7 @@ import requestIp from 'request-ip'
 import rateLimit from 'express-rate-limit'
 import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
+import { initializeEnrichmentCacheForStartup } from './src/catalog/enrichment-cache.js';
 
 import { logger } from './src/utils/logger.js';
 import { logApiStartupStatus } from './src/config/configuration.js';
@@ -84,6 +85,12 @@ app.listen(serverPort, () => {
     logger.info(`Configure page: ${process.env.ADDON_URL}/configure`);
     
     logApiStartupStatus();
+
+    try {
+        initializeEnrichmentCacheForStartup();
+    } catch (error) {
+        logger.error(`[enrichment-cache] Startup initialization failed: ${error.message}`);
+    }
 })
 
 export default app;

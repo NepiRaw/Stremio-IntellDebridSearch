@@ -34,6 +34,7 @@ Addon currently available at:
   - Better season parsing (catalogs may display anime as S01, instead of accurate season number)
   - Quality detection
 - 🧠 **Intelligent episode/title matching**: Uses Trakt and TMDb APIs for improved accuracy
+- 🖼️ **Optional poster + metadata enrichment**: Reuses TMDb/Cinemeta poster and metadata
 - 🌍 **Multi-provider support**: AllDebrid, RealDebrid, Premiumize, Torbox, Debrid-Link
 - 🗂️ **Content-agnostic**: Works for movies, series, anime, and more
 
@@ -102,6 +103,9 @@ services:
       - TVDB_API_KEY=
       - TRAKT_API_KEY=
       - LOG_LEVEL=info
+      - ENABLE_CATALOG_POSTERS=true
+      - CATALOG_ENRICHMENT_CACHE_ENABLED=true
+      - CATALOG_ENRICHMENT_CACHE_DB_PATH=./data/catalog-enrichment-cache.sqlite
       - VARIANT_SYSTEM_ENABLED=true
       - ENABLE_RELEASE_GROUP=true
       - ENABLE_MULTI_STREAM_PER_TORRENT=false
@@ -160,11 +164,27 @@ npm start
 |-------------------------|----------|-------------------|-----------------------------------------------------------------------------------------------|
 | `TRAKT_API_KEY`         | ❌ Recommended       | (empty)           | Trakt API key for improved episode matching (optional, get from trakt.tv)                     |
 | `TMDB_API_KEY`          | ❌ Recommended      | (empty)           | TMDb API key for enhanced title matching (optional, get from themoviedb.org)                  |
+| `ENABLE_CATALOG_POSTERS`| ❌       | false            | Enables catalog posters and clicked-item metadata enrichment for strong-confidence matches only |
+| `CATALOG_ENRICHMENT_CACHE_ENABLED` | ❌ | true | Enables the persistent SQLite cache for accepted/rejected poster + metadata enrichment decisions |
+| `CATALOG_ENRICHMENT_CACHE_DB_PATH` | ❌ | `./data/catalog-enrichment-cache.sqlite` | SQLite file used for persistent catalog enrichment cache |
+| `CATALOG_ENRICHMENT_RESOLUTION_POSITIVE_TTL_DAYS` | ❌ | 14 | Positive TTL for accepted poster/content-resolution matches |
+| `CATALOG_ENRICHMENT_RESOLUTION_NEGATIVE_TTL_HOURS` | ❌ | 12 | Negative TTL for rejected poster/content-resolution matches |
+| `CATALOG_ENRICHMENT_METADATA_POSITIVE_TTL_HOURS` | ❌ | 48 | Positive TTL for cached metadata enrichment payloads |
+| `CATALOG_ENRICHMENT_METADATA_NEGATIVE_TTL_HOURS` | ❌ | 6 | Negative TTL for metadata misses |
+| `CATALOG_ENRICHMENT_METADATA_SUSPECT_TTL_HOURS` | ❌ | 12 | Shorter TTL for suspicious upstream metadata that should be refreshed sooner |
+| `CATALOG_ENRICHMENT_CACHE_WAL_SIZE_LIMIT_MB` | ❌ | 32 | Caps the retained SQLite WAL file size after checkpoints to reduce disk churn |
+| `CATALOG_ENRICHMENT_CACHE_MAX_DB_MB` | ❌ | 0 (disabled) | Soft limit for the main SQLite cache file; set to a positive value to prune older entries before the DB grows too large |
+| `CATALOG_ENRICHMENT_CACHE_PRUNE_BATCH_SIZE` | ❌ | 100 | Number of cache entries pruned per maintenance batch when the soft DB limit is exceeded |
 | `VARIANT_SYSTEM_ENABLED`| ❌       | true             | True/False - Enables detection of content variants (Directors Cut, Extended Edition, OVA, title variants, etc.)                 |
 | `ENABLE_MULTI_STREAM_PER_TORRENT`| ❌       | false            | True/False - Controls stream processing mode. When false (default): single stream per torrent (ultra-fast). When true: multiple streams per torrent (comprehensive but slower) |
 | `ENABLE_RELEASE_GROUP`  | ❌       | false            | True/False - Controls release group extraction and display. When true: shows release group info (e.g. "👥 [RARBG]"). When false (default): skips release group processing for better performance |
 | `ADDON_URL`             | ❌       | http://127.0.0.1:3001 | Complete addon URL including port. Examples: `http://127.0.0.1:3002`, `https://my-addon.vercel.app` |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
+
+**Catalog enrichment cache behavior:**
+- The cache stores **final poster decisions** and **provider-agnostic metadata enrichment** (`background`, `logo`, synopsis tail, release info, IMDb rating, genres, runtime, links).
+- Exact torrent/release filenames are stored as alias keys so the **same release name can hit cache across different users/providers**.
+- A soft SQLite size guard can be enabled if you want it; when configured, it prunes the **oldest/least valuable entries first** instead of hard-failing writes.
 
 **API Key Scenarios:**
 - **TMDb API**: Improves search accuracy for international titles and alternate names
@@ -194,6 +214,7 @@ npm start
 ## 📚 Documentation
 
 - [Architecture document](docs/ARCHITECTURE.md) - Current architecture
+
 
 ---
 
