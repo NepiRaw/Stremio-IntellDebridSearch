@@ -1,6 +1,6 @@
 import express from 'express'
 import cors from 'cors'
-import 'dotenv/config'
+import dotenv from 'dotenv'
 import serverless from './serverless.js'
 import requestIp from 'request-ip'
 import rateLimit from 'express-rate-limit'
@@ -10,6 +10,8 @@ import { initializeEnrichmentCacheForStartup } from './src/catalog/enrichment-ca
 
 import { logger } from './src/utils/logger.js';
 import { logApiStartupStatus } from './src/config/configuration.js';
+
+dotenv.config({ quiet: true })
 
 const app = express()
 app.enable('trust proxy')

@@ -5,7 +5,7 @@
 <p>
   <img alt="GitHub Release" src="https://img.shields.io/github/v/release/nepiraw/Stremio-IntellDebridSearch">
   <img src="https://img.shields.io/badge/Stremio-Addon-purple" alt="Stremio" />
-  <img src="https://img.shields.io/badge/Node.js-20+-brightgreen" alt="Node.js" />
+  <img src="https://img.shields.io/badge/Node.js-24+-brightgreen" alt="Node.js" />
 </p>
 
 </div>
@@ -82,6 +82,8 @@ Addon currently available at:
 
 ## 🚀 Self-Hosting Installation
 
+> **Runtime target:** use **Node 24 LTS** for local self-hosting, CI, and container builds.
+
 ### 🐳 Docker Compose (Recommended)
 
 The easiest way to run the addon is using Docker Compose with image from Docker Hub.
@@ -132,7 +134,7 @@ Open `http://URL:PORT/configure` in your browser to configure the addon.
 git clone https://github.com/NepiRaw/Stremio-IntellDebridSearch.git
 cd Stremio-IntellDebridSearch
 ```
-2. **Install dependencies:**
+2. **Install dependencies (with Node 24 active):**
 ```bash
 npm install
 ```
@@ -146,6 +148,8 @@ cp .env.example .env
 npm start
 ```
 5. **Access your addon at `http://localhost:3001` (or your configured domain)**
+
+> **If you see a `NODE_MODULE_VERSION` mismatch for `better-sqlite3`:** you started the addon with a different Node version than the one used to install/rebuild dependencies. Switch back to Node 24 and run `npm install` or `npm rebuild better-sqlite3`.
 
 
 ### 🔺 Vercel Deployment
