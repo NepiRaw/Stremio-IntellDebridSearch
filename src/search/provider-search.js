@@ -74,7 +74,7 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
  * @returns {boolean} Whether the keyword matches the title with typo tolerance
  */
 function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
-    if (title.includes(keyword)) {
+    if (wordBoundaryIncludes(title, keyword)) {
         return true;
     }
     
@@ -103,6 +103,11 @@ function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
     return false;
 }
 
+function wordBoundaryIncludes(text, keyword) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+}
+
 /**
  * Pre-filter torrents by keyword inclusion with optimized performance
  * @param {Array} allTorrents - Array of all torrents
@@ -119,7 +124,8 @@ export async function preFilterTorrentsByKeywords(allTorrents, keywords) {
             const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
             const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
             
-            if (normalizedTorrentForRaw.includes(normalizedKeywordForRaw)) {
+            const wordMatch = wordBoundaryIncludes(normalizedTorrentForRaw, normalizedKeywordForRaw);
+            if (wordMatch) {
                 return true;
             }
             const normalizedKeyword = extractKeywords(keyword).toLowerCase();

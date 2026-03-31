@@ -13,6 +13,7 @@ import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping 
 import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
 import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
+import { hasObviousEpisodeIndicators, hasSeasonOnlyIndicators } from '../utils/media-patterns.js';
 
 /**
  * Create title variants for enhanced search matching.
@@ -139,8 +140,21 @@ export async function coordinateSearch(params) {
     
     if (!phase2Decision.shouldProceed) {
         if (phase2Decision.returnPhase1) {
+            let results = titleMatches.map(m => m.item);
+            
+            if (type === 'movie') { // For movies, filter out torrents that are clearly series (S01E01, S01, Season packs, etc.)
+                const beforeCount = results.length;
+                results = results.filter(item => {
+                    const name = item.name || '';
+                    return !hasObviousEpisodeIndicators(name) && !hasSeasonOnlyIndicators(name);
+                });
+                if (results.length < beforeCount) {
+                    logger.info(`[coordinator] Filtered ${beforeCount - results.length} series torrent(s) from movie results`);
+                }
+            }
+            
             return {
-                results: titleMatches.map(m => m.item),
+                results,
                 absoluteEpisode: null
             };
         }
