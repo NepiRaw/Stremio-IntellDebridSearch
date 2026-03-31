@@ -9,11 +9,11 @@ const API_BASE_URL = 'https://api.torbox.app'
 const API_VERSION = 'v1'
 const API_VALIDATION_OPTIONS = { responseValidation: false }
 
-// TorBox Rate Limiting Configuration (5/s max)
+// TorBox Rate Limiting Configuration (max per TB doc: 300/min )
 const TORBOX_RATE_LIMIT = {
-    maxCalls: 5,           // Max API calls before applying delay
-    delayMs: 1100,         // Delay in milliseconds (1.1 seconds to be safe)
-    enabled: true          // Enable/disable rate limiting
+    maxCalls: 10,         // Max API calls before applying delay
+    delayMs: 250,         // Delay in milliseconds
+    enabled: false        // Enable/disable rate limiting
 };
 
 class TorBoxProvider extends BaseProvider {
@@ -118,11 +118,12 @@ class TorBoxProvider extends BaseProvider {
         try {
             const response = await torboxApi.torrents.getTorrentList(API_VERSION, {
                 bypassCache: true,
-                limit: 2000 
+                id: String(id)
             });
 
             if (response.data?.success && response.data?.data) {
-                const torrent = response.data.data.find(t => t.id == id);
+                const data = response.data.data;
+                const torrent = Array.isArray(data) ? data.find(t => t.id == id) : data;
                 if (torrent && torrent.download_finished && torrent.download_present) {
                     return this.toTorrent(apiKey, torrent, context);
                 }
@@ -183,7 +184,7 @@ class TorBoxProvider extends BaseProvider {
         
         logger.debug(`[TorBox] Processing ${videoFiles.length} video files for torrent ${item.id}`);
         
-        for (let i = 0; i < Math.min(videoFiles.length, 10); i++) { // Limit to first 10 files to avoid excessive API calls
+        for (let i = 0; i < videoFiles.length; i++) {
             const file = videoFiles[i];
             try {
                 const url = this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` });
@@ -244,63 +245,50 @@ class TorBoxProvider extends BaseProvider {
     }
 
     async listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
-        await this.rateLimit();
-        
         const torboxApi = new TorboxApi({
             token: apiKey,
             baseUrl: API_BASE_URL,
             validation: API_VALIDATION_OPTIONS
         });
-        let offset = (page - 1) * pageSize
 
         try {
             if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS) {
-                return torboxApi.torrents
-                    .getTorrentList(API_VERSION, {
-                        bypassCache: true,
-                        offset,
-                        limit: pageSize
-                    })
-                    .then(res => res.data)
-                    .then(res => {
-                        if (res.success) {
-                            return res.data || []
-                        }
-                        return []
-                    })
-                    .then(files => files.filter(f => f.download_finished && f.download_present))
-                    .catch(err => {
-                        const status = err?.response?.status || err?.metadata?.status || err?.status;
-                        let errorCode = err?.response?.data?.error || err?.error;
+                const allFiles = [];
+                let offset = 0;
+                const maxPages = 50;
+
+                for (let i = 0; i < maxPages; i++) {
+                    await this.rateLimit();
+                    
+                    let batch;
+                    try {
+                        const res = await torboxApi.torrents.getTorrentList(API_VERSION, {
+                            bypassCache: true,
+                            offset: String(offset),
+                            limit: String(pageSize)
+                        });
                         
-                        // Try to parse raw body for SDK errors
-                        if (!errorCode && err?.raw) {
-                            try {
-                                const rawString = typeof err.raw === 'string' 
-                                    ? err.raw 
-                                    : new TextDecoder().decode(err.raw);
-                                const parsed = JSON.parse(rawString);
-                                errorCode = parsed?.error;
-                                if (parsed?.detail) {
-                                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
-                                }
-                            } catch (parseErr) {
-                                // Ignore parsing errors
-                            }
-                        }
-                        
-                        // Log specific error types
-                        if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
-                            logger.warn('[TorBox] Authentication failed: Invalid or expired API token');
-                        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
-                            logger.warn('[TorBox] Access denied: API feature not available on your plan');
+                        if (res.data?.success && res.data?.data) {
+                            batch = res.data.data;
                         } else {
-                            logger.warn('[TorBox] API call failed:', err?.message || errorCode || 'Unknown error');
+                            break;
                         }
-                        
-                        // Return empty array to allow addon to continue gracefully
-                        return []
-                    })
+                    } catch (err) {
+                        this._logTorboxApiError(err);
+                        break;
+                    }
+
+                    allFiles.push(...batch);
+
+                    if (batch.length < pageSize) break;
+                    offset += pageSize;
+                }
+
+                if (allFiles.length > pageSize) {
+                    logger.debug(`[TorBox] Fetched ${allFiles.length} torrents across ${Math.ceil(allFiles.length / pageSize)} pages`);
+                }
+
+                return allFiles.filter(f => f.download_finished && f.download_present);
             } else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS) {
                 return []
             }
@@ -308,6 +296,39 @@ class TorBoxProvider extends BaseProvider {
         } catch (error) {
             logger.warn('TorBox listFilesParallel failed:', error);
             return [];
+        }
+    }
+
+    /**
+     * Log TorBox API errors with structured error parsing
+     */
+    _logTorboxApiError(err) {
+        const status = err?.response?.status || err?.metadata?.status || err?.status;
+        let errorCode = err?.response?.data?.error || err?.error;
+        
+        if (!errorCode && err?.raw) {
+            try {
+                const rawString = typeof err.raw === 'string' 
+                    ? err.raw 
+                    : new TextDecoder().decode(err.raw);
+                const parsed = JSON.parse(rawString);
+                errorCode = parsed?.error;
+                if (parsed?.detail) {
+                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
+                }
+            } catch (parseErr) {
+            }
+        }
+        
+        // Log specific error types
+        if (status === 429) {
+            logger.warn('[TorBox] Rate limit exceeded (429) - consider enabling rate limit');
+        } else if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
+            logger.warn('[TorBox] Authentication failed: Invalid or expired API token');
+        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
+            logger.warn('[TorBox] Access denied: API feature not available on your plan');
+        } else {
+            logger.warn('[TorBox] API call failed:', err?.message || errorCode || 'Unknown error');
         }
     }
 
@@ -337,7 +358,9 @@ class TorBoxProvider extends BaseProvider {
         }
         
         // Log with appropriate message based on error type
-        if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
+        if (status === 429) {
+            logger.warn(`[TorBox] ${context}: Rate limit exceeded (429) - consider enabling rate limit`);
+        } else if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
             logger.warn(`[TorBox] ${context}: Authentication failed - Invalid or expired API token`);
         } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
             logger.warn(`[TorBox] ${context}: Access denied - API feature not available on your plan`);
@@ -384,6 +407,12 @@ class TorBoxProvider extends BaseProvider {
         }
         
         logger.debug(`[TorBox] handleError - status: ${status}, errorCode: ${errorCode}`);
+        
+        // Check for rate limiting
+        if (status === 429) {
+            logger.warn('[TorBox] Rate limit exceeded (429) - consider enabling rate limit');
+            return Promise.reject(err);
+        }
         
         // Check for authentication errors (invalid token, bad token)
         if (errorCode === 'invalid_token' || 
