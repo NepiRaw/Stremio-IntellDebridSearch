@@ -84,7 +84,9 @@ class DebridLinkProvider extends BaseProvider {
 
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id.split('-')[0],
-            name: torrent.name
+            name: torrent.name,
+            hash: torrent.hashString?.toLowerCase() || null,
+            size: torrent.size || null
         })) || []
     }
 

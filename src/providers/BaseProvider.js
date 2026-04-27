@@ -343,7 +343,9 @@ export class BaseProvider {
         return {
             id: `${this.providerName}:${torrent.id}`,
             name: torrent.name || torrent.filename,
-            type: 'other'
+            type: 'other',
+            hash: torrent.hash || null,
+            size: torrent.size || torrent.bytes || null
         };
     }
 

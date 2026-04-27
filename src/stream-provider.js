@@ -16,6 +16,8 @@ import { DebridLinkProvider } from './providers/debrid-link.js';
 import { TorBoxProvider } from './providers/torbox.js';
 import { PremiumizeProvider } from './providers/premiumize.js';
 
+import { getCacheRecorder } from './utils/cache-recorder.js';
+
 // Create provider instances once to avoid duplicate initialization logging
 const sharedProviders = { 
     // Migrated to clean class architecture (tested with API keys)
@@ -216,6 +218,20 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Movie search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId}`);
 
+            // Record cache data
+            try {
+                const recorder = getCacheRecorder();
+                recorder.recordStreamData({
+                    imdbId,
+                    season: null,
+                    episode: null,
+                    provider: config.DebridProvider,
+                    torrents: streamData.map(sd => sd.details)
+                });
+            } catch (recErr) {
+                logger.debug(`[stream-provider] Cache recording skipped: ${recErr.message}`);
+            }
+
             return sortedStreams;
 
         } catch (error) {
@@ -332,6 +348,7 @@ class StreamProvider {
             }
 
             let streamTasks = [];
+            const collectedTorrents = []; // Collect torrent details for cache recording
 
             StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'series');
 
@@ -359,6 +376,8 @@ class StreamProvider {
                         if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
                         }
+
+                        collectedTorrents.push(torrentDetails);
 
                         const knownSeasonEpisode = {
                             season: searchResponse.animeMapping ? filterSeason : season,
@@ -422,6 +441,8 @@ class StreamProvider {
                             return null;
                         }
 
+                        collectedTorrents.push(torrentDetails);
+
                         // Use mapped values for knownSeasonEpisode when anime mapping is active
                         const knownSeasonEpisode = {
                             season: searchResponse.animeMapping ? filterSeason : season,
@@ -483,6 +504,20 @@ class StreamProvider {
             
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
+
+            // Fire-and-forget: record cache data for DebridVault
+            try {
+                const recorder = getCacheRecorder();
+                recorder.recordStreamData({
+                    imdbId,
+                    season,
+                    episode,
+                    provider: config.DebridProvider,
+                    torrents: collectedTorrents
+                });
+            } catch (recErr) {
+                logger.debug(`[stream-provider] Cache recording skipped: ${recErr.message}`);
+            }
 
             const { formatStreamsForDisplay } = await import('./stream/stream-builder.js');
             const formattedOutput = formatStreamsForDisplay(sortedStreams);

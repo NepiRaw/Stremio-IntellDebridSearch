@@ -240,7 +240,9 @@ class TorBoxProvider extends BaseProvider {
         const torrents = await this.listFilesParallel(FILE_TYPES.TORRENTS, apiKey, 1);
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
-            name: torrent.name
+            name: torrent.name,
+            hash: torrent.hash || null,
+            size: torrent.size || torrent.total_bytes || null
         }));
     }
 

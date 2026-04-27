@@ -8,6 +8,7 @@ import { BadRequestError } from './utils/error-handler.js'
 import { getApiConfig } from './config/configuration.js'
 import { logger } from './utils/logger.js'
 import { createPosterLookupContext, isCatalogPosterEnabled, resolvePosterFromContext } from './catalog/poster-resolver.js'
+import { getCacheRecorder } from './utils/cache-recorder.js'
 
 // Create provider instances once for testable providers to avoid duplicate initialization logging
 const sharedProviders = {
@@ -63,6 +64,21 @@ async function toMetas(torrents = []) {
     return torrents.map((torrent, index) => {
         const context = contexts[index];
         const posterResult = context?.cacheKey ? posterByKey.get(context.cacheKey) || null : null;
+
+        // Record IMDB→hash mapping when poster resolution identifies content with high confidence
+        if (posterResult?.imdbId && torrent.hash) {
+            try {
+                const recorder = getCacheRecorder();
+                recorder.recordStreamData({
+                    imdbId: posterResult.imdbId,
+                    season: null,
+                    episode: null,
+                    provider: torrent.id?.split(':')[0] || 'unknown',
+                    torrents: [{ hash: torrent.hash, name: torrent.name, size: torrent.size || null, info: {}, videos: [] }]
+                });
+            } catch { /* ignore recording errors */ }
+        }
+
         return toMeta(torrent, { posterResult });
     });
 }

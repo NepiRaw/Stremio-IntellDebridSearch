@@ -446,7 +446,9 @@ class AllDebridProvider extends BaseProvider {
         const torrents = await this.listTorrentsParallel(apiKey);
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
-            name: torrent.filename
+            name: torrent.filename,
+            hash: torrent.hash || null,
+            size: torrent.size || null
         }));
     }
 }

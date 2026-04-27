@@ -177,7 +177,9 @@ class RealDebridProvider extends BaseProvider {
         }
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
-            name: torrent.filename
+            name: torrent.filename,
+            hash: torrent.hash || null,
+            bytes: torrent.bytes || null
         }));
     }
 
