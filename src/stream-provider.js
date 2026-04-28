@@ -505,7 +505,7 @@ class StreamProvider {
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
-            // Fire-and-forget: record cache data for DebridVault
+            // Fire-and-forget: record cache data
             try {
                 const recorder = getCacheRecorder();
                 recorder.recordStreamData({

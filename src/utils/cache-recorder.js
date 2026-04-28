@@ -56,7 +56,7 @@ export class CacheRecorder {
             return;
         }
 
-        this.dbPath = path.resolve(options.dbPath || './data/debridvault-cache.sqlite');
+        this.dbPath = path.resolve(options.dbPath || './data/debrid-cache.sqlite');
         this.stalenessHours = options.stalenessHours || STALENESS_HOURS_DEFAULT;
         this.dedup = new DedupCache();
         this.writeBuffer = [];
@@ -394,7 +394,7 @@ export function getCacheRecorder() {
     if (recorderSingleton) return recorderSingleton;
 
     const enabled = (process.env.CACHE_RECORDING_ENABLED || 'true').toLowerCase() !== 'false';
-    const dbPath = process.env.CACHE_DB_PATH || './data/debridvault-cache.sqlite';
+    const dbPath = process.env.CACHE_DB_PATH || './data/debrid-cache.sqlite';
     const stalenessHours = parseInt(process.env.CACHE_STALENESS_HOURS || String(STALENESS_HOURS_DEFAULT), 10);
 
     recorderSingleton = new CacheRecorder({
