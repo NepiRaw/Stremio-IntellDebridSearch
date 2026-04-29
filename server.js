@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit'
 import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 import { initializeEnrichmentCacheForStartup } from './src/catalog/enrichment-cache.js';
+import { getCacheRecorder } from './src/utils/cache-recorder.js';
 
 import { logger } from './src/utils/logger.js';
 import { logApiStartupStatus } from './src/config/configuration.js';
@@ -92,6 +93,12 @@ app.listen(serverPort, () => {
         initializeEnrichmentCacheForStartup();
     } catch (error) {
         logger.error(`[enrichment-cache] Startup initialization failed: ${error.message}`);
+    }
+
+    try {
+        getCacheRecorder();
+    } catch (error) {
+        logger.error(`[cache-recorder] Startup initialization failed: ${error.message}`);
     }
 })
 

@@ -407,10 +407,12 @@ function extractAdditionalMetadata(filename, baseResult) {
     // Enhanced technical details using PTT + custom patterns
     result.technicalDetails = extractTechnicalDetails(filename, baseResult);
     
+    if (!result.source && result.technicalDetails.source) {
+        result.source = result.technicalDetails.source;
+    }
+    
     // Enhanced language detection
     result.languages = extractLanguageInfo(filename, baseResult);
-    
-    return result;
     
     return result;
 }
@@ -422,10 +424,19 @@ function extractAdditionalMetadata(filename, baseResult) {
  * @returns {Object} Technical details
  */
 function extractTechnicalDetails(filename, baseResult) {
+    let source = baseResult.source;
+    if (!source) {
+        for (const pattern of SOURCE_PATTERNS) {
+            if (pattern.pattern.test(filename)) {
+                source = pattern.source;
+                break;
+            }
+        }
+    }
+
     // Fallback codec detection when PTT fails
     let codec = baseResult.codec;
     if (!codec) {
-        // Manual codec detection for cases where PTT fails
         for (const pattern of CODEC_PATTERNS) {
             if (pattern.pattern.test(filename)) {
                 codec = pattern.codec;
@@ -436,7 +447,7 @@ function extractTechnicalDetails(filename, baseResult) {
     
     return {
         // From PTT with fallback
-        source: baseResult.source,
+        source: source,
         codec: codec,
         resolution: baseResult.resolution,
         container: baseResult.container,

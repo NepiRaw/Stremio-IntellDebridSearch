@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Data files
+data/
+
+# Git
+.git/
+.gitignore
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests and docs
+tests/
+docs/
+frontend/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Docker files
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# CI/CD
+.github/
+
+# Logs and temp
+*.log
+*.pid
+*.seed

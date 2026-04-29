@@ -48,6 +48,8 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
 
     try {
         let resolvedTmdbId = tmdbId;
+        let originalName = null;
+        let originalLanguage = null;
         
         if (!resolvedTmdbId && imdbId && resolvedApiKey) {
             const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${resolvedApiKey}&external_source=imdb_id`;
@@ -55,9 +57,15 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
                 const resp = await fetch(findUrl);
                 const data = await resp.json();
                 if (type === 'movie' && data.movie_results && data.movie_results.length) {
-                    resolvedTmdbId = data.movie_results[0].id;
+                    const result = data.movie_results[0];
+                    resolvedTmdbId = result.id;
+                    originalName = result.original_title || null;
+                    originalLanguage = result.original_language || null;
                 } else if (type === 'series' && data.tv_results && data.tv_results.length) {
-                    resolvedTmdbId = data.tv_results[0].id;
+                    const result = data.tv_results[0];
+                    resolvedTmdbId = result.id;
+                    originalName = result.original_name || null;
+                    originalLanguage = result.original_language || null;
                 }
             } catch (err) {
                 logger.warn(`[tmdb-api] Failed to resolve TMDb ID from IMDb ID ${imdbId}:`, err.message);
@@ -76,9 +84,9 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
 
         const resp = await fetch(url);
         const data = await resp.json();
-        if (!data.results) return [];
+        const rawTitles = data.results || data.titles || [];
         
-        const titlesWithCountry = data.results
+        const titlesWithCountry = rawTitles
             .filter(t => t.title && t.title.trim()) 
             .map(t => ({
                 title: t.title,
@@ -86,6 +94,22 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
                 normalizedTitle: extractKeywords(t.title)
             }))
             .filter(t => t.normalizedTitle.length > 0); // Remove titles that normalize to empty
+        
+        if (originalName && originalName.trim()) {
+            const normalizedOriginal = extractKeywords(originalName);
+            const alreadyIncluded = titlesWithCountry.some(
+                t => t.title.toLowerCase() === originalName.toLowerCase()
+            );
+            if (!alreadyIncluded && normalizedOriginal.length > 0) {
+                const country = originalLanguage ? originalLanguage.toUpperCase() : 'XX';
+                titlesWithCountry.unshift({
+                    title: originalName,
+                    country,
+                    normalizedTitle: normalizedOriginal
+                });
+                logger.info(`[tmdb-api] Added original title "${originalName}" (${country}) to alternatives`);
+            }
+        }
         
     logger.info(`[tmdb-api] ✅ Found ${titlesWithCountry.length} alternative titles with countries.`);
     logger.debug(`[tmdb-api] Alternative titles list: [\n${titlesWithCountry.map(t => `"${t.title}" (${t.country})`).join(',\n')}\n]`);

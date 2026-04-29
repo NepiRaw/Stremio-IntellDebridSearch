@@ -25,14 +25,19 @@ class DedupCache {
     has(key) {
         const entry = this.map.get(key);
         if (!entry) return false;
-        if (Date.now() - entry > DEDUP_TTL_MS) {
+        if (Date.now() - entry.time > DEDUP_TTL_MS) {
             this.map.delete(key);
             return false;
         }
         return true;
     }
 
-    set(key) {
+    hasVideos(key) {
+        const entry = this.map.get(key);
+        return entry?.hasVideos === true;
+    }
+
+    set(key, hasVideos = false) {
         if (this.map.size >= this.maxSize) {
             // Evict oldest 20%
             const evictCount = Math.floor(this.maxSize * 0.2);
@@ -42,7 +47,7 @@ class DedupCache {
                 if (oldest !== undefined) this.map.delete(oldest);
             }
         }
-        this.map.set(key, Date.now());
+        this.map.set(key, { time: Date.now(), hasVideos });
     }
 }
 
@@ -206,9 +211,10 @@ export class CacheRecorder {
 
             const hash = torrent.hash.toLowerCase();
             const dedupKey = `${providerLower}:${hash}`;
+            const hasVideos = torrent.videos?.length > 0;
 
-            if (this.dedup.has(dedupKey)) continue;
-            this.dedup.set(dedupKey);
+            if (this.dedup.has(dedupKey) && (!hasVideos || this.dedup.hasVideos(dedupKey))) continue;
+            this.dedup.set(dedupKey, hasVideos);
 
             const info = torrent.info || {};
             const languages = info.languages?.length ? JSON.stringify(info.languages) : null;

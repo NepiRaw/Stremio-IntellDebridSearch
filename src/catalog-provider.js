@@ -9,6 +9,7 @@ import { getApiConfig } from './config/configuration.js'
 import { logger } from './utils/logger.js'
 import { createPosterLookupContext, isCatalogPosterEnabled, resolvePosterFromContext } from './catalog/poster-resolver.js'
 import { getCacheRecorder } from './utils/cache-recorder.js'
+import { parseUnified } from './utils/unified-torrent-parser.js'
 
 // Create provider instances once for testable providers to avoid duplicate initialization logging
 const sharedProviders = {
@@ -69,12 +70,29 @@ async function toMetas(torrents = []) {
         if (posterResult?.imdbId && torrent.hash) {
             try {
                 const recorder = getCacheRecorder();
+                const parsed = parseUnified(torrent.name);
+                const languages = parsed?.languages?.length ? parsed.languages : (parsed?.language ? [parsed.language] : []);
                 recorder.recordStreamData({
                     imdbId: posterResult.imdbId,
                     season: null,
                     episode: null,
                     provider: torrent.id?.split(':')[0] || 'unknown',
-                    torrents: [{ hash: torrent.hash, name: torrent.name, size: torrent.size || null, info: {}, videos: [] }]
+                    torrents: [{
+                        hash: torrent.hash,
+                        name: torrent.name,
+                        size: torrent.size || null,
+                        info: {
+                            resolution: parsed?.resolution || null,
+                            source: parsed?.source || null,
+                            codec: parsed?.codec || null,
+                            audio: parsed?.audio || null,
+                            languages: languages.length > 0 ? languages : null,
+                            group: parsed?.group || null,
+                            title: parsed?.title || null,
+                            year: parsed?.year || null
+                        },
+                        videos: []
+                    }]
                 });
             } catch { /* ignore recording errors */ }
         }
