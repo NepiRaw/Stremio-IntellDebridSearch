@@ -96,7 +96,7 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
             }
             
             if ((info.season === null || info.season === undefined) && targetSeason === 1 && info.episode) {
-                logger.warn(`[torrent-analyzer] SEASON FALLBACK: Setting season=1 for "${torrent.name}" with episode=${info.episode} (originally season=${info.season})`);
+                logger.debug(`[torrent-analyzer] SEASON FALLBACK: Setting season=1 for "${torrent.name}" with episode=${info.episode} (originally season=${info.season})`);
                 info.season = 1;
             }
         }
@@ -130,7 +130,7 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
                 }
                 
                 if ((videoInfo.season === null || videoInfo.season === undefined) && targetSeason === 1 && videoInfo.episode) {
-                    logger.warn(`[torrent-analyzer] SEASON FALLBACK (video): Setting season=1 for video "${video.name}" with episode=${videoInfo.episode} (originally season=${videoInfo.season})`);
+                    logger.debug(`[torrent-analyzer] SEASON FALLBACK (video): Setting season=1 for video "${video.name}" with episode=${videoInfo.episode} (originally season=${videoInfo.season})`);
                     videoInfo.season = 1;
                 }
                 

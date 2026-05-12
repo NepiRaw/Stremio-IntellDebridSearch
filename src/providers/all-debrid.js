@@ -238,7 +238,7 @@ class AllDebridProvider extends BaseProvider {
             }
 
             if (!magnetDetails) {
-                this.log('error', `No magnet details found for ID ${id}`);
+                this.log('warn', `No magnet details found for ID ${id}`);
                 return null;
             }
 

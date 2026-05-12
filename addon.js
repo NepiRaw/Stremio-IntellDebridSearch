@@ -161,7 +161,8 @@ builder.defineMetaHandler(async (args) => {
         const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId, 'meta');
         
         if (!torrentDetails) {
-            throw new Error('Torrent not found');
+            logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
+            return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
         }
         
         const videoFiles = torrentDetails.videos || [];
