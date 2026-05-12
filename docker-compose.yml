@@ -7,3 +7,18 @@ services:
       - 3001:3001
     env_file:
       - .env
+    # --- AllDebrid WARP proxy (uncomment all below to enable) ---
+    # environment:
+    #   - WARP_ENABLED=true
+    # cap_add:
+    #   - NET_ADMIN
+    # devices:
+    #   - /dev/net/tun:/dev/net/tun
+    # sysctls:
+    #   - net.ipv6.conf.all.disable_ipv6=0
+    #   - net.ipv4.conf.all.src_valid_mark=1
+    # volumes:
+    #   - warp-data:/var/lib/cloudflare-warp
+
+# volumes:
+#   warp-data:

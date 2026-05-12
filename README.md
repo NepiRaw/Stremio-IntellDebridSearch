@@ -119,7 +119,36 @@ services:
 docker-compose up -d
 ```
 
-3. **Access your addon:**
+#### AllDebrid Users: WARP Proxy (Optional)
+
+AllDebrid blocks `link/unlock` requests from datacenter IPs (returns `NO_SERVER` errors). The Docker image includes an embedded [Cloudflare WARP](https://one.one.one.one/) proxy that routes only `link/unlock` calls through a residential IP, solving this issue transparently.
+
+To enable it, add these settings to your `docker-compose.yml`:
+
+```yaml
+services:
+  stremio-intelldebridsearch:
+    environment:
+      - WARP_ENABLED=true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp-data:/var/lib/cloudflare-warp
+
+volumes:
+  warp-data:
+```
+
+> **📝 Notes:**
+> - WARP registration is automatic on first start. The `warp-data` volume persists registration across restarts.
+> - Only `link/unlock` requests are proxied — all other AllDebrid API calls use the direct connection.
+
+1. **Access your addon:**
 
 Open `http://URL:PORT/configure` in your browser to configure the addon.
 
@@ -184,6 +213,10 @@ npm start
 | `ENABLE_RELEASE_GROUP`  | ❌       | false            | True/False - Controls release group extraction and display. When true: shows release group info (e.g. "👥 [RARBG]"). When false (default): skips release group processing for better performance |
 | `ADDON_URL`             | ❌       | http://127.0.0.1:3001 | Complete addon URL including port. Examples: `http://127.0.0.1:3002`, `https://my-addon.vercel.app` |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
+| `WARP_ENABLED`          | ❌       | false             | Enables Cloudflare WARP proxy for AllDebrid `link/unlock` (Docker only, requires `NET_ADMIN` and `/dev/net/tun`) |
+| `WARP_LICENSE_KEY`      | ❌       | (empty)           | Optional WARP+ license key for upgraded bandwidth                                              |
+| `WARP_PORT`             | ❌       | 40000             | Internal SOCKS5 proxy port used by WARP (no need to expose)                                    |
+| `WARP_SLEEP`            | ❌       | 3                 | Seconds to wait for WARP daemon startup before registration                                    |
 
 **Catalog enrichment cache behavior:**
 - The cache stores **final poster decisions** and **provider-agnostic metadata enrichment** (`background`, `logo`, synopsis tail, release info, IMDb rating, genres, runtime, links).

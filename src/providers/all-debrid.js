@@ -2,6 +2,7 @@ import axios from 'axios';
 import Bottleneck from 'bottleneck';
 import querystring from 'querystring';
 import { encode } from 'urlencode';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { isVideo } from '../stream/metadata-extractor.js';
@@ -16,6 +17,20 @@ const limiter = new Bottleneck({
 });
 
 const ALL_DEBRID_CLIENT_NAME = 'intell-debridsearch';
+
+// WARP proxy for link/unlock to bypass AllDebrid datacenter IP blocking
+const WARP_PROXY_URL = process.env.ALLDEBRID_PROXY_URL || '';
+let warpAgent = null;
+if (WARP_PROXY_URL) {
+    try {
+        warpAgent = new SocksProxyAgent(WARP_PROXY_URL);
+        console.log(`[AllDebrid] WARP proxy configured: ${WARP_PROXY_URL}`);
+    } catch (e) {
+        console.warn(`[AllDebrid] Failed to configure WARP proxy: ${e.message}`);
+    }
+} else {
+    console.warn('[AllDebrid] No WARP proxy configured (ALLDEBRID_PROXY_URL). link/unlock may get NO_SERVER errors on datacenter IPs.');
+}
 
 class AllDebridProvider extends BaseProvider {
     constructor() {
@@ -98,7 +113,7 @@ class AllDebridProvider extends BaseProvider {
         
         while (retryCount <= maxRetries) {
             try {
-                const response = await limiter.schedule(() => axios({
+                const axiosConfig = {
                     method: 'POST',
                     url: requestUrl.toString(),
                     data: querystring.stringify(postData),
@@ -106,7 +121,15 @@ class AllDebridProvider extends BaseProvider {
                     timeout: 30000,
                     responseType: 'text',
                     decompress: true
-                }));
+                };
+
+                // Route link/unlock through WARP proxy to bypass datacenter IP blocking
+                if (endpoint === 'link/unlock' && warpAgent) {
+                    axiosConfig.httpAgent = warpAgent;
+                    axiosConfig.httpsAgent = warpAgent;
+                }
+
+                const response = await limiter.schedule(() => axios(axiosConfig));
 
                 // Handle HTTP error status codes
                 if (response.status < 200 || response.status >= 300) {
