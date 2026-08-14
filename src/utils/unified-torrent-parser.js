@@ -1,10 +1,11 @@
 /**
  * Unified Torrent Parser
- * Combines PTT (parse-torrent-title) with regex fallback for maximum accuracy.
- * Centralized parsing engine for all torrent/video filename parsing needs.
+ * Parsing is delegated to the adapter; what remains here is the display string builder
+ * and the previous engine, which is no longer reachable.
  */
 
 import PTT from 'parse-torrent-title';
+import { parseUnifiedCompat } from '../parsing/adapter.js';
 import { logger } from './logger.js';
 import { SOURCE_PATTERNS, LANGUAGE_PATTERNS, AUDIO_PATTERNS, QUALITY_PATTERNS, CODEC_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, hasObviousEpisodeIndicators } from './media-patterns.js';
 import { parseEpisodeFromTitle, parseSeasonFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
@@ -17,12 +18,19 @@ const PARSER_CACHE_TTL = 86400; // 24 hour TTL for parser results
 // ============ CORE PARSING ENGINE ============
 
 /**
- * Unified torrent parsing function that combines PTT with regex fallback
+ * Parse a torrent or video filename into the structured result the rest of the addon reads.
+ */
+export function parseUnified(filename) {
+    return parseUnifiedCompat(filename);
+}
+
+/**
+ * The previous PTT-and-regex engine. No longer called; TEMPORARY kept.
  * @param {string} filename - The torrent filename to parse
  * @param {Object} options - Parsing options
  * @returns {Object} Comprehensive parsing result
  */
-export function parseUnified(filename, options = {}) {
+function parseUnifiedWithLegacyEngine(filename, options = {}) {
     if (!filename || typeof filename !== 'string') {
         logger.debug('[unified-parser] Invalid filename provided:', filename);
         return createEmptyParseResult();
@@ -623,7 +631,7 @@ export function extractTechnicalDetailsLegacy(filename) {
 
 // ============ COMPATIBILITY EXPORTS ============
 
-// Replace extractAbsoluteEpisode from torrent-analyzer.js and episode-mapper.js
+// Absolute episode number, for callers that only need that one field.
 export function extractAbsoluteEpisodeLegacy(filename) {
     const result = parseUnified(filename);
     return result.absoluteEpisode;
