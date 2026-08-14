@@ -24,10 +24,7 @@ function getTmdbApiKey(userProvidedKey = null) {
 }
 
 export function isTmdbEnabled() {
-    const tmdbApiKey = process.env.TMDB_API_KEY;
-    const traktApiKey = process.env.TRAKT_API_KEY;
-    
-    return !!tmdbApiKey && (!!traktApiKey || !traktApiKey);
+    return !!process.env.TMDB_API_KEY;
 }
 
 export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null, imdbId = null) {

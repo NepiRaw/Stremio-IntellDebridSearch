@@ -33,7 +33,7 @@ Addon currently available at:
   - Absolute episode numbers (for anime)
   - Better season parsing (catalogs may display anime as S01, instead of accurate season number)
   - Quality detection
-- 🧠 **Intelligent episode/title matching**: Uses Trakt and TMDb APIs for improved accuracy
+- 🧠 **Intelligent episode/title matching**: Uses TheTVDB and TMDb APIs for improved accuracy
 - 🖼️ **Optional poster + metadata enrichment**: Reuses TMDb/Cinemeta poster and metadata
 - 🌍 **Multi-provider support**: AllDebrid, RealDebrid, Premiumize, Torbox, Debrid-Link
 - 🗂️ **Content-agnostic**: Works for movies, series, anime, and more
@@ -103,7 +103,6 @@ services:
       - ADDON_URL=https://your-domain.com
       - TMDB_API_KEY=
       - TVDB_API_KEY=
-      - TRAKT_API_KEY=
       - LOG_LEVEL=info
       - ENABLE_CATALOG_POSTERS=true
       - CATALOG_ENRICHMENT_CACHE_ENABLED=true
@@ -195,7 +194,7 @@ npm start
 
 | Variable                | Required | Default           | Description                                                                                   |
 |-------------------------|----------|-------------------|-----------------------------------------------------------------------------------------------|
-| `TRAKT_API_KEY`         | ❌ Recommended       | (empty)           | Trakt API key for improved episode matching (optional, get from trakt.tv)                     |
+| `TVDB_API_KEY`          | ❌ Recommended       | (empty)           | TheTVDB API key for absolute episode matching (optional, get from thetvdb.com)                |
 | `TMDB_API_KEY`          | ❌ Recommended      | (empty)           | TMDb API key for enhanced title matching (optional, get from themoviedb.org)                  |
 | `ENABLE_CATALOG_POSTERS`| ❌       | false            | Enables catalog posters and clicked-item metadata enrichment for strong-confidence matches only |
 | `CATALOG_ENRICHMENT_CACHE_ENABLED` | ❌ | true | Enables the persistent SQLite cache for accepted/rejected poster + metadata enrichment decisions |
@@ -225,10 +224,10 @@ npm start
 
 **API Key Scenarios:**
 - **TMDb API**: Improves search accuracy for international titles and alternate names
-- **Trakt API**: Enables absolute episode number matching for content with non-standard numbering
+- **TheTVDB API**: Enables absolute episode number matching for content with non-standard numbering
 - If you provide a TMDb API key, the addon will use international and alternate titles for better search accuracy.
-- If you provide ALSO a Trakt API key, the addon will use absolute episode numbers for improved matching, especially for anime and non-standard series.
-- If ONLY Trakt API key or neither key is provided, the addon will still work, but without advanced matching, hence will be way less accurate for some content (especially anime, international titles, or series with unusual episode numbering).
+- If you provide ALSO a TheTVDB API key, the addon will use absolute episode numbers for improved matching, especially for anime and non-standard series.
+- If ONLY a TheTVDB API key or neither key is provided, the addon will still work, but without advanced matching, hence will be way less accurate for some content (especially anime, international titles, or series with unusual episode numbering).
 
 
 ---

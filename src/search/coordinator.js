@@ -55,7 +55,7 @@ export function getSearchStrategy(type, season, episode, alternativeTitles) {
 }
 
 /**
- * Perform advanced search using TMDb/Trakt APIs when available.
+ * Perform advanced search using TMDb/TVDB APIs when available.
  * Uses a two-phase approach: fast title matching, then deep content analysis.
  */
 export async function coordinateSearch(params) {
@@ -66,12 +66,12 @@ export async function coordinateSearch(params) {
     } = params;
     
     // Implement fallback to environment variables for API keys when not provided by user
-    let { tmdbApiKey, traktApiKey } = params;
-    
+    let { tmdbApiKey, tvdbApiKey } = params;
+
     // Use centralized configuration manager for API key fallbacks
     const apiConfig = configManager.getApiConfig();
     tmdbApiKey = apiConfig.tmdbApiKey;
-    traktApiKey = apiConfig.traktApiKey;
+    tvdbApiKey = apiConfig.tvdbApiKey;
     
     logger.info('[coordinator] Starting two-phase search for:', searchKey);
 
@@ -81,7 +81,7 @@ export async function coordinateSearch(params) {
     // ========== PARALLEL PHASE EXECUTION: PHASE 0 + PROVIDER VALIDATION ==========
     const [preparationResult, validatedProvider] = await Promise.all([
         prepareSearchTerms({
-            searchKey, type, imdbId, season, episode, tmdbApiKey, traktApiKey
+            searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
         }),
         Promise.resolve().then(() => {
             const providerImplementation = providers[provider];
@@ -255,7 +255,7 @@ export async function coordinateSearch(params) {
                     if (animeMatches.length > 0) {
                         logger.info(`[coordinator] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
                         
-                        // Apply absolute episode post-processing if Trakt data available
+                        // Apply absolute episode post-processing if a mapping was resolved
                         // Convert anime matches to the expected format and apply absolute episode processing
                         const wrappedAnimeMatches = animeMatches.map(torrent => ({
                             item: torrent,
@@ -311,7 +311,7 @@ export async function coordinateSearch(params) {
 function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) {
     if (!absoluteEpisodeData || !absoluteEpisodeData.absoluteEpisode || !Array.isArray(searchResults)) {
         if (absoluteEpisodeData && !absoluteEpisodeData.absoluteEpisode) {
-            logger.debug(`[coordinator] ⚡ Skipping absolute episode processing - no absolute episode data from Trakt`);
+            logger.debug(`[coordinator] ⚡ Skipping absolute episode processing - no absolute episode data resolved`);
         }
         return searchResults; // No absolute episode data or invalid input
     }
@@ -323,8 +323,8 @@ function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) 
             return result; // No videos to process
         }
         
-        // Apply absolute episode processing only if Trakt API is enabled
-        const enhancedVideos = configManager.getIsTraktEnabled() 
+        // Apply absolute episode processing only if TVDB API is enabled
+        const enhancedVideos = configManager.getIsTvdbEnabled()
             ? AbsoluteEpisodeProcessor.processAbsoluteEpisodes(absoluteEpisodeData, result.torrentDetails.videos)
             : result.torrentDetails.videos;
         

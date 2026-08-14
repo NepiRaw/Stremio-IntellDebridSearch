@@ -73,7 +73,7 @@ builder.defineCatalogHandler(async (args) => {
                         searchKey: args.extra.search, 
                         provider: providerName, 
                         tmdbApiKey: apiConfig.tmdbApiKey, 
-                        traktApiKey: apiConfig.traktApiKey, 
+                        tvdbApiKey: apiConfig.tvdbApiKey, 
                         providers
                     };
                     const searchResult = await coordinateSearch(params);

@@ -16,44 +16,41 @@ export class AbsoluteEpisodeProcessor {
      * Process absolute episode matching for torrents
      * Called AFTER standard parsing is complete
      */
-    static processAbsoluteEpisodes(traktData, torrentVideos) {
-        if (!traktData || !traktData.absoluteEpisode) {
-            logger.debug('[AbsoluteEpisodeProcessor] No Trakt absolute episode data, skipping processing');
+    static processAbsoluteEpisodes(episodeMapping, torrentVideos) {
+        if (!episodeMapping || !episodeMapping.absoluteEpisode) {
+            logger.debug('[AbsoluteEpisodeProcessor] No absolute episode data, skipping processing');
             return torrentVideos; // No absolute episode, return as-is
         }
-        
-        const absoluteNumber = traktData.absoluteEpisode;
-        
+
+        const absoluteNumber = episodeMapping.absoluteEpisode;
+
         const enhancedVideos = [];
         let matchCount = 0;
-        
+
         for (const video of torrentVideos) {
             const enhanced = { ...video };
-            
-            // Check if this video matches the Trakt absolute episode
+
             if (this.matchesAbsoluteEpisode(video.name, absoluteNumber)) {
                 matchCount++;
                 logger.debug(`[AbsoluteEpisodeProcessor] ✅ Absolute episode ${absoluteNumber} match: "${video.name}"`);
-                
-                // Apply Trakt mapping (season/episode from Trakt)
+
                 enhanced.isAbsoluteMatch = true;
-                enhanced.traktMapping = {
-                    season: traktData.season,
-                    episode: traktData.episode,
+                enhanced.absoluteMapping = {
+                    season: episodeMapping.season,
+                    episode: episodeMapping.episode,
                     absoluteEpisode: absoluteNumber,
-                    title: traktData.title || 'Unknown Title'
+                    title: episodeMapping.title || 'Unknown Title'
                 };
-                
-                // Update season/episode from Trakt for absolute matches
-                // This ensures the stream shows the correct season/episode from Trakt
+
+                // Carry the mapped address onto the video so the stream shows the right episode.
                 if (enhanced.info) {
-                    enhanced.info.season = traktData.season;
-                    enhanced.info.episode = traktData.episode;
+                    enhanced.info.season = episodeMapping.season;
+                    enhanced.info.episode = episodeMapping.episode;
                     enhanced.info.absoluteEpisode = absoluteNumber;
                     enhanced.info.traktMapped = true;
                 }
-                
-                logger.debug(`[AbsoluteEpisodeProcessor] Applied Trakt mapping: absolute ${absoluteNumber} → S${traktData.season}E${traktData.episode}`);
+
+                logger.debug(`[AbsoluteEpisodeProcessor] Applied mapping: absolute ${absoluteNumber} → S${episodeMapping.season}E${episodeMapping.episode}`);
             }
             
             enhancedVideos.push(enhanced);
@@ -62,7 +59,7 @@ export class AbsoluteEpisodeProcessor {
     }
     
     /**
-     * Check if a filename contains the Trakt absolute episode number
+     * Check if a filename contains the resolved absolute episode number
      */
     static matchesAbsoluteEpisode(filename, absoluteEpisode) {
         if (!filename || !absoluteEpisode || typeof absoluteEpisode !== 'number') {
@@ -148,24 +145,24 @@ export class AbsoluteEpisodeProcessor {
      * Validate that absolute episode processing is working correctly
      * Used for testing and debugging
      */
-    static validateProcessing(traktData, results) {
-        if (!traktData || !traktData.absoluteEpisode) {
+    static validateProcessing(episodeMapping, results) {
+        if (!episodeMapping || !episodeMapping.absoluteEpisode) {
             return {
                 valid: true,
                 reason: 'No absolute episode to validate'
             };
         }
-        
+
         const absoluteMatches = results.filter(video => video.isAbsoluteMatch);
-        
+
         return {
             valid: absoluteMatches.length > 0,
-            absoluteEpisode: traktData.absoluteEpisode,
+            absoluteEpisode: episodeMapping.absoluteEpisode,
             matchCount: absoluteMatches.length,
             totalVideos: results.length,
             matches: absoluteMatches.map(video => ({
                 name: video.name,
-                traktMapping: video.traktMapping
+                absoluteMapping: video.absoluteMapping
             }))
         };
     }
@@ -193,15 +190,15 @@ export class AbsoluteEpisodeProcessor {
  * Utility function for backward compatibility
  * Processes absolute episodes for a single torrent result
  */
-export function processAbsoluteEpisodesForTorrent(torrentResult, traktData) {
+export function processAbsoluteEpisodesForTorrent(torrentResult, episodeMapping) {
     if (!torrentResult || !torrentResult.torrentDetails || !torrentResult.torrentDetails.videos) {
         return torrentResult;
     }
-    
+
     const enhanced = { ...torrentResult };
     enhanced.torrentDetails = { ...torrentResult.torrentDetails };
     enhanced.torrentDetails.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
-        traktData, 
+        episodeMapping,
         torrentResult.torrentDetails.videos
     );
     

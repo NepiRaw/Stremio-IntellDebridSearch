@@ -114,7 +114,7 @@ class StreamProvider {
                 threshold: 0.4,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                traktApiKey: apiConfig.traktApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey
             });
 
             const searchResults = searchResponse?.results || searchResponse || [];
@@ -297,7 +297,7 @@ class StreamProvider {
                 threshold: 0.3,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                traktApiKey: apiConfig.traktApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey
             });
 
             const searchResults = searchResponse.results || [];

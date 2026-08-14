@@ -123,7 +123,7 @@ async function searchTorrents(config, searchKey) {
             searchKey, 
             provider, 
             tmdbApiKey: apiConfig.tmdbApiKey, 
-            traktApiKey: apiConfig.traktApiKey, 
+            tvdbApiKey: apiConfig.tvdbApiKey, 
             providers
         }
         const searchResult = await coordinateSearch(params)
