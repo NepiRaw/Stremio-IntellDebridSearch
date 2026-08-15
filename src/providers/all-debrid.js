@@ -4,7 +4,6 @@ import querystring from 'querystring';
 import { encode } from 'urlencode';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js';
-import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { isVideo } from '../stream/metadata-extractor.js';
 
 // Rate limiter 
@@ -209,7 +208,6 @@ class AllDebridProvider extends BaseProvider {
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: null,
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields
@@ -218,7 +216,7 @@ class AllDebridProvider extends BaseProvider {
         return base;
     }
 
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         return this.makeApiCall(async () => {
             const statusResponse = await this.makeAllDebridRequest('magnet/status', { id }, apiKey);
             this.validateApiResponse(statusResponse, ['data']);
@@ -261,7 +259,7 @@ class AllDebridProvider extends BaseProvider {
                 }
             }
 
-            return await this.toTorrentDetails(apiKey, magnetDetails, context);
+            return await this.toTorrentDetails(apiKey, magnetDetails);
         }, 3, `getTorrentDetails(${id})`);
     }
 
@@ -305,29 +303,18 @@ class AllDebridProvider extends BaseProvider {
         return flattenedFiles;
     }
 
-    async toTorrentDetails(apiKey, item, context = 'stream') {
+    async toTorrentDetails(apiKey, item) {
         const flattenedFiles = this.flattenAllDebridFiles(item.files);
 
         const videoFiles = flattenedFiles.filter(file => isVideo(file.name));
         
-        const fileParsingPromises = videoFiles.map(async (file, index) => {
-            const url = this.buildSecureStreamUrl(apiKey, item.id, file.allDebridFile, index);
-            
-            const info = context === 'stream' 
-                ? parseUnified(file.name)
-                : { title: file.name };
-            
-            return {
-                id: `${item.id}:${index}`,
-                name: file.name,
-                url: url,
-                size: file.size,
-                created: this.parseDate(item.completionDate),
-                info: info
-            };
-        });
-        
-        const videos = await Promise.all(fileParsingPromises);
+        const videos = videoFiles.map((file, index) => ({
+            id: `${item.id}:${index}`,
+            name: file.name,
+            url: this.buildSecureStreamUrl(apiKey, item.id, file.allDebridFile, index),
+            size: file.size,
+            created: this.parseDate(item.completionDate)
+        }));
 
         return this.normalizeTorrentDetails(item, videos, {
             name: item.filename,

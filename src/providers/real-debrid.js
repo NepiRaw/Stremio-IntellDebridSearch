@@ -75,35 +75,25 @@ class RealDebridProvider extends BaseProvider {
         return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold);
     }
 
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         return this.makeApiCall(async () => {
             const RD = new RealDebridClient(apiKey);
             const response = await RD.torrents.info(id);
-            return this.toTorrentDetails(apiKey, response.data, context);
+            return this.toTorrentDetails(apiKey, response.data);
         }, 3, `getTorrentDetails(${id})`);
     }
 
-    async toTorrentDetails(apiKey, item, context = 'stream') {
+    async toTorrentDetails(apiKey, item) {
         const videos = item.files
             .filter(file => file.selected)
             .filter(file => isVideo(file.path))
-            .map((file, index) => {
-                const hostUrl = item.links.at(index);
-                const url = this.buildSecureStreamUrl(apiKey, item.id, { link: hostUrl });
-                
-                const info = context === 'stream' 
-                    ? this.parseTitle(file.path)
-                    : { title: file.path };
-                
-                return {
-                    id: `${item.id}:${file.id}`,
-                    name: file.path,
-                    url: url,
-                    size: file.bytes,
-                    created: this.parseDate(item.added),
-                    info: info
-                };
-            });
+            .map((file, index) => ({
+                id: `${item.id}:${file.id}`,
+                name: file.path,
+                url: this.buildSecureStreamUrl(apiKey, item.id, { link: item.links.at(index) }),
+                size: file.bytes,
+                created: this.parseDate(item.added)
+            }));
 
         return this.normalizeTorrentDetails(item, videos, {
             name: item.filename,
@@ -160,7 +150,6 @@ class RealDebridProvider extends BaseProvider {
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: null,
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields

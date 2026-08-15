@@ -158,7 +158,7 @@ builder.defineMetaHandler(async (args) => {
                 throw new Error(`Unsupported provider: ${providerName}`);
         }
         
-        const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId, 'meta');
+        const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId);
         
         if (!torrentDetails) {
             logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);

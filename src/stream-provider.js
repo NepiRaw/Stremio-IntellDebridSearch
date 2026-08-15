@@ -8,6 +8,7 @@ import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
+import { attachParsedInfo } from './parsing/adapter.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
@@ -148,8 +149,8 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = bulkDetails.get(result.id);
-                        
+                        const torrentDetails = attachParsedInfo(bulkDetails.get(result.id));
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             continue;
@@ -177,8 +178,10 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
-                        
+                        const torrentDetails = attachParsedInfo(
+                            await provider.getTorrentDetails(config.DebridApiKey, result.id)
+                        );
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             continue;
@@ -360,7 +363,7 @@ class StreamProvider {
 
                 const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
-                        const torrentDetails = result.torrentDetails ?? bulkDetails.get(result.id);
+                        const torrentDetails = result.torrentDetails ?? attachParsedInfo(bulkDetails.get(result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
@@ -411,7 +414,7 @@ class StreamProvider {
                 streamTasks = deduplicatedResults.map(result => async () => {
                     try {
                         const torrentDetails = result.torrentDetails
-                            ?? await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
+                            ?? attachParsedInfo(await provider.getTorrentDetails(config.DebridApiKey, result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);

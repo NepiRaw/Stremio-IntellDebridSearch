@@ -1,6 +1,5 @@
 ﻿import PremiumizeClient from 'premiumize-api'
 import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js'
-import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { isVideo } from '../stream/metadata-extractor.js'
 import { encode } from 'urlencode'
 
@@ -106,32 +105,27 @@ class PremiumizeProvider extends BaseProvider {
     /**
      * Get detailed torrent information
      */
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         return this.makeApiCall(async () => {
             const PM = new PremiumizeClient(apiKey);
             const result = await PM.item.details(id);
-            return this.toTorrentDetails(result, apiKey, context);
+            return this.toTorrentDetails(result, apiKey);
         }, 3, `getTorrentDetails(${id})`);
     }
 
     /**
      * Premiumize-specific torrent details processing
      */
-    toTorrentDetails(item, apiKey, context = 'stream') {
+    toTorrentDetails(item, apiKey) {
         let videos = [];
-        
+
         if (this.isVideo(item.name)) {
-            const info = context === 'stream' 
-                ? this.parseTitle(item.name)
-                : { title: item.name };
-            
             videos.push({
                 id: item.id,
                 name: item.name,
                 url: this.buildSecureStreamUrl(apiKey, item.id, item),
                 size: item.size,
-                created: this.parseDate(item.created_at),
-                info: info
+                created: this.parseDate(item.created_at)
             });
         }
 
@@ -178,9 +172,6 @@ class PremiumizeProvider extends BaseProvider {
     isVideo(filename) {
         return isVideo(filename);
     }
-    parseTitle(filename) {
-        return parseUnified(filename);
-    }
 
     normalizeTorrent(item, customFields = {}) {
         return {
@@ -188,7 +179,6 @@ class PremiumizeProvider extends BaseProvider {
             id: item.id,
             name: item.name,
             type: 'other',
-            info: null,
             size: item.size,
             created: this.parseDate(item.created_at),
             ...customFields

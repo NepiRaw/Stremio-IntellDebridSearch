@@ -1,6 +1,5 @@
 import DebridLinkClient from 'debrid-link-api'
 import { isVideo } from '../stream/metadata-extractor.js'
-import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 import { BaseProvider } from './BaseProvider.js'
@@ -158,7 +157,7 @@ class DebridLinkProvider extends BaseProvider {
                 );
                 
                 
-                const detailsPromises = filteredTorrents.map(torrent => this.toTorrentDetails(torrent, apiKey, 'stream'));
+                const detailsPromises = filteredTorrents.map(torrent => this.toTorrentDetails(torrent, apiKey));
                 const detailsArray = await Promise.all(detailsPromises);
                 
                 return Array.isArray(ids) ? detailsArray : (detailsArray[0] || null);
@@ -179,34 +178,22 @@ class DebridLinkProvider extends BaseProvider {
             id: item.id.split('-')[0],
             name: item.name,
             type: 'other',
-            info: parseUnified(item.name),
             size: item.size,
             created: new Date(item.created * 1000),
         }
     }
 
-    async toTorrentDetails(item, apiKey, context = 'stream') {
+    async toTorrentDetails(item, apiKey) {
         const videoFiles = item.files.filter(file => isVideo(file.name));
-        
-        const videoParsingPromises = videoFiles.map(async (file) => {
-            const url = this.buildSecureStreamUrl(apiKey, item.id, { link: file.downloadUrl });
-            
-            const info = context === 'stream' 
-                ? parseUnified(file.name)
-                : { title: file.name };
-            
-            return {
-                id: file.id,
-                name: file.name,
-                url: url,
-                size: file.size,
-                created: new Date(item.created * 1000),
-                info: info
-            };
-        });
-        
-        const videos = await Promise.all(videoParsingPromises);
-        
+
+        const videos = videoFiles.map(file => ({
+            id: file.id,
+            name: file.name,
+            url: this.buildSecureStreamUrl(apiKey, item.id, { link: file.downloadUrl }),
+            size: file.size,
+            created: new Date(item.created * 1000)
+        }));
+
         return {
             source: 'DebridLink',
             id: item.id,
@@ -235,7 +222,6 @@ class DebridLinkProvider extends BaseProvider {
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: null,
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields

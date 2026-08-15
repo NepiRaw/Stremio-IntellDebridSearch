@@ -4,8 +4,6 @@
  */
 
 import Fuse from 'fuse.js';
-import { isVideo } from '../stream/metadata-extractor.js';
-import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { encode } from 'urlencode';
 import { logger } from '../utils/logger.js';
 import { configManager } from '../config/configuration.js';
@@ -210,7 +208,6 @@ export class BaseProvider {
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: parseUnified(item.name || item.filename),
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields
@@ -230,48 +227,11 @@ export class BaseProvider {
             name: item.name || item.filename,
             type: 'other',
             hash: item.hash,
-            info: parseUnified(item.name || item.filename),
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             videos: videos || [],
             ...customFields
         };
-    }
-
-    /**
-     * Standard video file extraction and URL building
-     */
-    async extractVideoFiles(item, apiKey, urlBuilder) {
-        if (!item || !urlBuilder) {
-            return [];
-        }
-        
-        // Handle different provider file structures
-        const files = item.files || item.links || [];
-        
-        const videoFiles = files.filter(file => {
-            const filename = file.path || file.filename || file.name;
-            return filename && isVideo(filename);
-        });
-        
-        const fileParsingPromises = videoFiles.map(async (file, index) => {
-            const filename = file.path || file.filename || file.name;
-            const [url, info] = await Promise.all([
-                Promise.resolve(urlBuilder(apiKey, item.id, file, index)),
-                Promise.resolve(parseUnified(filename))
-            ]);
-            
-            return {
-                id: `${item.id}:${file.id || index}`,
-                name: filename,
-                url: url,
-                size: file.size || file.bytes,
-                created: this.parseDate(item.created || item.added || item.completionDate),
-                info: info
-            };
-        });
-        
-        return await Promise.all(fileParsingPromises);
     }
 
     /**

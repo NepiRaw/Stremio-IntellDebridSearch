@@ -28,6 +28,7 @@ import { logger } from '../utils/logger.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName } from '../parsing/parser.js';
+import { attachParsedInfo } from '../parsing/adapter.js';
 import { AbsoluteEpisodeProcessor } from '../utils/absolute-episode-processor.js';
 
 /**
@@ -59,8 +60,8 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
         await Promise.all(
             batch.map(async match => {
                 try {
-                    const details = await provider.getTorrentDetails(apiKey, match.item.id, 'stream');
-                    Object.assign(match.item, details);
+                    const details = await provider.getTorrentDetails(apiKey, match.item.id);
+                    Object.assign(match.item, attachParsedInfo(details));
                 } catch (e) {
                     logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);
                 }

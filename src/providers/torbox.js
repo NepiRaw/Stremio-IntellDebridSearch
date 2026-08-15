@@ -92,7 +92,7 @@ class TorBoxProvider extends BaseProvider {
         const files = await this.listFilesParallel(fileType, apiKey)
         let results = []
         if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS)
-            results = files.map(result => this.toTorrent(apiKey, result, 'stream'))
+            results = files.map(result => this.toTorrent(apiKey, result))
         else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS)
             results = files.map(result => this.toDownload(result, 'stream'))
 
@@ -107,7 +107,7 @@ class TorBoxProvider extends BaseProvider {
         return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
     }
 
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         await this.rateLimit();
         const torboxApi = new TorboxApi({
             token: apiKey,
@@ -125,7 +125,7 @@ class TorBoxProvider extends BaseProvider {
                 const data = response.data.data;
                 const torrent = Array.isArray(data) ? data.find(t => t.id == id) : data;
                 if (torrent && torrent.download_finished && torrent.download_present) {
-                    return this.toTorrent(apiKey, torrent, context);
+                    return this.toTorrent(apiKey, torrent);
                 }
             }
             return null;
@@ -177,29 +177,22 @@ class TorBoxProvider extends BaseProvider {
             })
     }
 
-    async toTorrent(apiKey, item, context = 'stream') {
+    async toTorrent(apiKey, item) {
         const videoFiles = item.files.filter(file => isVideo(file.short_name));
-        
+
         const videos = [];
-        
+
         logger.debug(`[TorBox] Processing ${videoFiles.length} video files for torrent ${item.id}`);
-        
+
         for (let i = 0; i < videoFiles.length; i++) {
             const file = videoFiles[i];
             try {
-                const url = this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` });
-                
-                const info = context === 'stream' 
-                    ? parseUnified(file.short_name)
-                    : { title: file.short_name };
-                
                 videos.push({
                     id: `${item.id}:${file.id}`,
                     name: file.short_name,
-                    url: url,
+                    url: this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` }),
                     size: file.size,
-                    created: new Date(item.created_at),
-                    info: info
+                    created: new Date(item.created_at)
                 });
             } catch (error) {
                 logger.warn(`[TorBox] Failed to process file ${file.id}:`, error.message);
@@ -215,7 +208,6 @@ class TorBoxProvider extends BaseProvider {
             type: 'other',
             fileType: FILE_TYPES.TORRENTS,
             hash: item.hash,
-            info: context === 'stream' ? parseUnified(item.name) : null,
             size: item.size,
             created: new Date(item.created_at),
             videos: videos || []
