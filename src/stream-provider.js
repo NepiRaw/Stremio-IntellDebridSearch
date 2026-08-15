@@ -353,14 +353,16 @@ class StreamProvider {
             StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'series');
 
             if (provider.bulkGetTorrentDetails) {
-                
-                const torrentIds = deduplicatedResults.map(result => result.id);
-                const bulkDetails = await provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds);
-                
+
+                const missingIds = deduplicatedResults.filter(result => !result.torrentDetails).map(result => result.id);
+                const bulkDetails = missingIds.length
+                    ? await provider.bulkGetTorrentDetails(config.DebridApiKey, missingIds)
+                    : new Map();
+
                 const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
-                        const torrentDetails = bulkDetails.get(result.id);
-                        
+                        const torrentDetails = result.torrentDetails ?? bulkDetails.get(result.id);
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
                         }
@@ -421,8 +423,9 @@ class StreamProvider {
             } else {
                 streamTasks = deduplicatedResults.map(result => async () => {
                     try {
-                        const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
-                        
+                        const torrentDetails = result.torrentDetails
+                            ?? await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             return null;

@@ -142,13 +142,15 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
                         containerName: result.torrent.name,
                         isExtractedVideo: true,
                         videos: [video],
-                        matchedTerm: result.matchedTerm
+                        matchedTerm: result.matchedTerm,
+                        torrentDetails: result.torrent
                     }));
                 } else {
                     // For direct files, return as is
                     return [{
                         ...result.torrent,
-                        matchedTerm: result.matchedTerm
+                        matchedTerm: result.matchedTerm,
+                        torrentDetails: result.torrent
                     }];
                 }
             });
@@ -212,15 +214,17 @@ export function reAnalyzeWithMapping(titleMatches, episodeMapping) {
                     containerName: result.torrent.name,
                     isExtractedVideo: true,
                     animeMapping: episodeMapping,
-                    videos: [video]
+                    videos: [video],
+                    torrentDetails: result.torrent
                 }));
-                
+
                 return extractedVideos;
             }
             // For direct files, return as is with anime mapping info
             return [{
                 ...result.torrent,
-                animeMapping: episodeMapping
+                animeMapping: episodeMapping,
+                torrentDetails: result.torrent
             }];
         });
     
