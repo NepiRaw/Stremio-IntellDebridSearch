@@ -8,7 +8,6 @@ import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.j
 import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
 import { extractQuality } from './quality-processor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
-import { AVOID_EPISODE_PATTERNS } from '../utils/episode-patterns.js';
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
 import { configManager } from '../config/configuration.js';
@@ -93,25 +92,9 @@ export function toStreamSingle(details, type, parsedMetadataOrKnownSeasonEpisode
     } else {
         icon = '💾';
         
-        // For series content with episode filtering, apply pattern priority sorting
-        if (type === 'series' && finalKnownSeasonEpisode?.season && finalKnownSeasonEpisode?.episode) {
-            const season = finalKnownSeasonEpisode.season;
-            const episode = finalKnownSeasonEpisode.episode;
-            
-            // Apply episode filtering with pattern priority sorting
-            const filteredResult = filterEpisode(details, season, episode);
-            if (filteredResult && details.videos?.length > 0) {
-                video = details.videos[0]; // filterEpisode sorts videos by priority, so take first
-                logger.debug(`[toStreamSingle] Selected video after pattern priority filtering: "${video.name}"`);
-            } else {
-                logger.debug(`[toStreamSingle] No episode matches found, falling back to first video`);
-                video = details.videos?.[0];
-            }
-        } else {
-            // For non-series or when no episode info, use first video
-            video = details.videos?.[0];
-        }
-        
+        // Phase 2 selected and ranked the files, so the first one is the one to show.
+        video = details.videos?.[0];
+
         if (!video) {
             logger.debug(`[toStreamSingle] No video found in torrent details`);
             return null;
@@ -501,80 +484,6 @@ export function filterYear(torrent, cinemetaDetails) {
     if (!torrentYear) return true; // No year info in torrent
     
     return Math.abs(torrentYear - cinemetaDetails.year) <= 1; // Allow 1 year difference
-}
-
-/**
- * Filter videos for a specific episode.
- * 
- * Uses pre-processed absolute episode matches from AbsoluteEpisodeProcessor.
- * Also applies AVOID_EPISODE_PATTERNS to filter out false positives like (1).mkv files.
- */
-export function filterEpisode(torrentDetails, season, episode) {
-    if (!torrentDetails || !torrentDetails.videos) {
-        torrentDetails.videos = [];
-        return false;
-    }
-    
-    const matches = [];
-    
-    torrentDetails.videos.forEach(video => {
-        const shouldAvoid = AVOID_EPISODE_PATTERNS.some(pattern => pattern.test(video.name));
-        if (shouldAvoid) {
-            logger.debug(`[filterEpisode] ❌ Avoided file matching avoidance pattern "...(1)": "${video.name}"`);
-            return; 
-        }
-        
-        if (video.isAbsoluteMatch) {
-            logger.debug(`[filterEpisode] ✅ Pre-processed absolute match: "${video.name}"`);
-            matches.push(video);
-            return;
-        }
-        
-        const videoSeason = video.info?.season;
-        const videoEpisode = video.info?.episode;
-
-        if (season == videoSeason && episode == videoEpisode) {
-            logger.debug(`[filterEpisode] ✅ Classic match: S${videoSeason}E${videoEpisode} matches S${season}E${episode}`);
-            matches.push(video);
-        }
-    });
-    
-    if (matches.length > 0) {
-        // Sort matches by pattern priority: classic patterns before absolute/converted patterns
-        if (matches.length > 1) {
-            matches.sort((a, b) => {
-                const aNative = !a.isAbsoluteMatch && !a.info?.traktMapped;
-                const bNative = !b.isAbsoluteMatch && !b.info?.traktMapped;
-                
-                if (aNative !== bNative) {
-                    return aNative ? -1 : 1; // Native classic patterns first
-                }
-                return (a.isAbsoluteMatch ? 1 : 0) - (b.isAbsoluteMatch ? 1 : 0);
-            });
-            logger.debug(`[filterEpisode] 🔄 Sorted ${matches.length} matches by pattern priority (native classic first, then converted absolute)`);
-        }
-        
-        const absoluteMatches = matches.filter(v => v.isAbsoluteMatch).length;
-        const traktMappedMatches = matches.filter(v => v.info?.traktMapped).length;
-        const nativeClassicMatches = matches.filter(v => !v.isAbsoluteMatch && !v.info?.traktMapped).length;
-        
-        if (nativeClassicMatches > 0 && (absoluteMatches > 0 || traktMappedMatches > 0)) {
-            logger.debug(`[filterEpisode] ✅ Mixed matches: ${nativeClassicMatches} native classic + ${traktMappedMatches} Trakt converted + ${absoluteMatches} absolute = ${matches.length} total`);
-        } else if (nativeClassicMatches > 0) {
-            logger.debug(`[filterEpisode] ✅ Using ${nativeClassicMatches} native classic matches only`);
-        } else if (traktMappedMatches > 0) {
-            logger.debug(`[filterEpisode] ✅ Using ${traktMappedMatches} Trakt-converted matches only`);
-        } else {
-            logger.debug(`[filterEpisode] ✅ Using ${absoluteMatches} absolute matches only`);
-        }
-        
-        torrentDetails.videos = matches;
-        return true;
-    } else {
-        logger.debug(`[filterEpisode] ❌ No matches found for S${season}E${episode}`);
-        torrentDetails.videos = [];
-        return false;
-    }
 }
 
 // ================================================================================================

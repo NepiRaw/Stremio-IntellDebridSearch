@@ -41,6 +41,54 @@ export function checkSeasonMatch(foundSeason, targetSeason) {
     return false;
 }
 
+// A debrid re-download keeps the original name and adds "(1)" before the extension.
+const REDOWNLOAD_COPY = /\([1-3]\)\.[a-z0-9]{2,4}$/i;
+
+export function isRedownloadCopy(filename) {
+    return REDOWNLOAD_COPY.test(filename || '');
+}
+
+/**
+ * Order matching files so a release that states the episode comes before one recognized
+ * only by its absolute number: the stated address is the more reliable of the two.
+ */
+export function selectEpisodeFiles(videos = [], targetSeason, targetEpisode, absoluteEpisode = null) {
+    const matches = videos.filter(video => {
+        if (!video || isRedownloadCopy(video.name)) {
+            return false;
+        }
+
+        if (video.isAbsoluteMatch === true) {
+            return true;
+        }
+
+        if (checkSeasonMatch(video.info?.season, targetSeason) &&
+            parseInt(video.info?.episode, 10) === parseInt(targetEpisode, 10)) {
+            return true;
+        }
+
+        return absoluteEpisode?.absoluteEpisode
+            ? AbsoluteEpisodeProcessor.matchesAbsoluteEpisode(video.name, absoluteEpisode.absoluteEpisode)
+            : false;
+    });
+
+    return rankEpisodeFiles(matches, targetSeason, targetEpisode, absoluteEpisode);
+}
+
+export function rankEpisodeFiles(videos, targetSeason, targetEpisode, absoluteEpisode = null) {
+    if (videos.length < 2) {
+        return videos;
+    }
+
+    const derived = video =>
+        video.isAbsoluteMatch === true ||
+        video.info?.traktMapped === true ||
+        !(checkSeasonMatch(video.info?.season, targetSeason) &&
+          parseInt(video.info?.episode, 10) === parseInt(targetEpisode, 10));
+
+    return [...videos].sort((a, b) => Number(derived(a)) - Number(derived(b)));
+}
+
 /**
  * Analyze a torrent for episode matching - PHASE 2: Deep content analysis
  * @param {Object} torrent - The torrent to analyze
@@ -139,10 +187,12 @@ export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpi
 
             return isEpisodeMatch(videoInfo, video.name);
         });
-        
-        if (matchingVideos.length > 0) {
+
+        const selected = selectEpisodeFiles(matchingVideos, targetSeason, targetEpisode, absoluteEpisode);
+
+        if (selected.length > 0) {
             result.hasMatchingEpisode = true;
-            result.matchingFiles = matchingVideos;
+            result.matchingFiles = selected;
         }
     } else {
         logger.info(`[torrent-analyzer] Container has no processed videos:`, torrent.name);

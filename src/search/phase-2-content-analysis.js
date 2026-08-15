@@ -25,9 +25,10 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { analyzeTorrent } from './torrent-analyzer.js';
+import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName } from '../parsing/parser.js';
+import { AbsoluteEpisodeProcessor } from '../utils/absolute-episode-processor.js';
 
 /**
  * Batch fetch torrent details for torrents that need them
@@ -96,9 +97,15 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
         
         const batchPromises = batch.map(async (match) => {
             try {
-                const analysis = analyzeTorrent(match.item, parseInt(season), parseInt(episode), absoluteEpisode);
+                const torrent = match.item;
+
+                if (absoluteEpisode?.absoluteEpisode && torrent.videos?.length) {
+                    torrent.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(absoluteEpisode, torrent.videos);
+                }
+
+                const analysis = analyzeTorrent(torrent, parseInt(season), parseInt(episode), absoluteEpisode);
                 return {
-                    torrent: match.item,
+                    torrent,
                     analysis,
                     score: match.score,
                     matchedTerm: match.matchedTerm,
@@ -126,6 +133,17 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
                         return [];
                     }
                 }
+
+                const streamFiles = result.analysis.isContainer
+                    ? result.analysis.matchingFiles
+                    : selectEpisodeFiles(result.torrent.videos, parseInt(season), parseInt(episode), absoluteEpisode);
+
+                if (!streamFiles.length) {
+                    logger.debug(`[phase-2] No usable file for ${result.torrent.name}`);
+                    return [];
+                }
+
+                result.torrent.videos = streamFiles;
 
                 // For containers, return each matching video as a separate result
                 if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
