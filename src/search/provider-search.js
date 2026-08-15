@@ -6,6 +6,8 @@
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { configManager } from '../config/configuration.js';
+import { isSameWork } from './phase-1-title-matching.js';
+import { parseName } from '../parsing/parser.js';
 
 /**
  * Fetch all torrents from provider using optimized bulk methods
@@ -108,35 +110,48 @@ function wordBoundaryIncludes(text, keyword) {
     return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
 }
 
+function matchesAnyKeyword(torrentName, keywords) {
+    const normalizedTitle = extractKeywords(torrentName).toLowerCase();
+    const normalizedTorrentForRaw = torrentName.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+
+    return keywords.some(keyword => {
+        const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+
+        if (wordBoundaryIncludes(normalizedTorrentForRaw, normalizedKeywordForRaw)) {
+            return true;
+        }
+
+        return ultraFastFuzzyMatch(normalizedTitle, extractKeywords(keyword).toLowerCase(), 0.85);
+    });
+}
+
 /**
  * Pre-filter torrents by keyword inclusion with optimized performance
  * @param {Array} allTorrents - Array of all torrents
  * @param {Array} keywords - Keywords to filter by
+ * @param {Array<Set<string>>} aliasVocabularies - Alias vocabularies for the identity lane
  * @returns {Promise<Array>} Filtered torrents
  */
-export async function preFilterTorrentsByKeywords(allTorrents, keywords) {
+export async function preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies = []) {
     const startTime = Date.now();
-    
+    let rescued = 0;
+
     const relevantTorrents = allTorrents.filter(torrent => {
-        const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
-        
-        return keywords.some(keyword => {
-            const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-            const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-            
-            const wordMatch = wordBoundaryIncludes(normalizedTorrentForRaw, normalizedKeywordForRaw);
-            if (wordMatch) {
-                return true;
-            }
-            const normalizedKeyword = extractKeywords(keyword).toLowerCase();
-            
-            return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);
-        });
+        if (matchesAnyKeyword(torrent.name, keywords)) {
+            return true;
+        }
+
+        if (!aliasVocabularies.length || !isSameWork(parseName(torrent.name)?.title, aliasVocabularies)) {
+            return false;
+        }
+
+        rescued++;
+        return true;
     });
-    
+
     const endTime = Date.now();
-    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${endTime - startTime}ms)`);
-    
+    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${rescued} by title identity, ${endTime - startTime}ms)`);
+
     return relevantTorrents;
 }
 

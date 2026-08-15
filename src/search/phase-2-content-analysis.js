@@ -26,6 +26,8 @@
 
 import { logger } from '../utils/logger.js';
 import { analyzeTorrent } from './torrent-analyzer.js';
+import { isSameWorkStrict } from './phase-1-title-matching.js';
+import { parseName } from '../parsing/parser.js';
 
 /**
  * Batch fetch torrent details for torrents that need them
@@ -76,7 +78,7 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
  * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Array} Array of matching episodes
  */
-export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null) {
+export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null, aliasVocabularies = []) {
     logger.info('[phase-2] Starting optimized parallel content analysis for episode matching');
     
     // Process torrents in parallel batches for optimal performance
@@ -99,7 +101,8 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
                     torrent: match.item,
                     analysis,
                     score: match.score,
-                    matchedTerm: match.matchedTerm
+                    matchedTerm: match.matchedTerm,
+                    identityMatch: match.identityMatch === true
                 };
             } catch (error) {
                 logger.warn(`[phase-2] Failed to analyze torrent ${match.item.name}:`, error);
@@ -113,6 +116,17 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
         const batchMatches = batchResults
             .filter(result => result !== null && result.analysis.hasMatchingEpisode)
             .flatMap(result => {
+                if (result.identityMatch) {
+                    const names = result.analysis.isContainer
+                        ? result.analysis.matchingFiles.map(video => video.name)
+                        : [result.torrent.name];
+
+                    if (!names.some(name => isSameWorkStrict(parseName(name)?.title, aliasVocabularies))) {
+                        logger.debug(`[phase-2] Identity check rejected ${result.torrent.name}`);
+                        return [];
+                    }
+                }
+
                 // For containers, return each matching video as a separate result
                 if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
                     return result.analysis.matchingFiles.map(video => ({

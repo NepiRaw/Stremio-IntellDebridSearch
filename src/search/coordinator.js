@@ -8,7 +8,7 @@
 import { logger } from '../utils/logger.js';
 import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparation.js';
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
-import { performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
+import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
 import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
 import { configManager } from '../config/configuration.js';
@@ -119,10 +119,12 @@ export async function coordinateSearch(params) {
         return [];
     }
 
+    const aliasVocabularies = buildAliasVocabularies([searchKey, ...alternativeTitles.map(alt => alt.title || alt)]);
+
     // Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
     logger.info(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
-    const relevantTorrents = await preFilterTorrentsByKeywords(allTorrents, keywords);
+    const relevantTorrents = await preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies);
     
     if (relevantTorrents.length === 0) {
         logger.info('❌ [coordinator] No relevant torrents found after pre-filtering');
@@ -133,8 +135,8 @@ export async function coordinateSearch(params) {
     const allRawResults = relevantTorrents;
     
     // ========== PHASE 1: FAST TITLE MATCHING ==========
-    const titleMatches = await performTitleMatching(allRawResults, uniqueSearchTerms, threshold);
-    
+    const titleMatches = await performTitleMatching(allRawResults, uniqueSearchTerms, threshold, aliasVocabularies);
+
     // Check if we should proceed to Phase 2 or return early
     const phase2Decision = shouldProceedToPhase2(titleMatches, type, season, episode);
     
@@ -183,7 +185,7 @@ export async function coordinateSearch(params) {
         ]);
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
-        matches = await performContentAnalysis(titleMatches, season, episode, absoluteEpisode);
+        matches = await performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies);
         
         logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);
     } else {

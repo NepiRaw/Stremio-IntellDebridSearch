@@ -26,16 +26,76 @@
 
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
+import { parseName } from '../parsing/parser.js';
 import Fuse from 'fuse.js';
+
+export function tokenizeTitle(value) {
+    if (!value) {
+        return [];
+    }
+
+    return String(value)
+        .normalize('NFKD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
+        .trim()
+        .split(' ')
+        .filter(Boolean);
+}
+
+export function buildAliasVocabularies(aliases = []) {
+    const vocabularies = [];
+
+    for (const alias of aliases) {
+        const tokens = tokenizeTitle(alias);
+        if (tokens.length) {
+            vocabularies.push(new Set(tokens));
+        }
+    }
+
+    return vocabularies;
+}
+
+/**
+ * Identity by alias vocabulary: every word of the release title must belong to ONE alias
+ */
+export function isSameWork(parsedTitle, vocabularies = []) {
+    const candidate = tokenizeTitle(parsedTitle);
+    if (!candidate.length) {
+        return false;
+    }
+
+    return vocabularies.some(vocabulary => candidate.every(token => vocabulary.has(token)));
+}
+
+export function isSameWorkStrict(parsedTitle, vocabularies = []) {
+    const candidate = tokenizeTitle(parsedTitle);
+    if (!candidate.length) {
+        return false;
+    }
+
+    const stated = new Set(candidate);
+
+    return vocabularies.some(vocabulary => {
+        if (!candidate.every(token => vocabulary.has(token))) {
+            return false;
+        }
+
+        const omitted = [...vocabulary].filter(token => !stated.has(token)).length;
+        return omitted <= candidate.length;
+    });
+}
 
 /**
  * Perform fast fuzzy title matching using Fuse.js
  * @param {Array} allRawResults - Raw torrent results to search through
  * @param {Array} uniqueSearchTerms - Unique search terms to match against
  * @param {number} threshold - Fuse.js matching threshold (0.0 = exact, 1.0 = match anything)
+ * @param {Array<Set<string>>} aliasVocabularies - Alias vocabularies for the identity lane
  * @returns {Promise<Array>} Array of matched torrents with scores
  */
-export async function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3) {
+export async function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3, aliasVocabularies = []) {
     logger.debug('[phase-1] Starting fast title matching');
     
     const normalizedResults = allRawResults.map(result => ({ // Normalize results for Fuse.js processing
@@ -90,10 +150,23 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
         });
     });
     
+    let identityMatches = 0;
+    if (aliasVocabularies.length) {
+        for (const result of allRawResults) {
+            if (seenMatches.has(result.id) || !isSameWork(parseName(result.name)?.title, aliasVocabularies)) {
+                continue;
+            }
+
+            seenMatches.add(result.id);
+            identityMatches++;
+            titleMatches.push({ item: result, score: null, matchedTerm: null, identityMatch: true });
+        }
+    }
+
     const parallelDuration = Date.now() - startTime;
-    
-    logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results`);
-    
+
+    logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results (${identityMatches} by title identity)`);
+
     return titleMatches;
 }
 
