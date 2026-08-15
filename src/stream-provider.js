@@ -8,6 +8,7 @@ import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
+import { createTracker } from './utils/perf-tracker.js';
 import { attachParsedInfo } from './parsing/adapter.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
@@ -76,6 +77,7 @@ class StreamProvider {
     
     static async getMovieStreams(config, type, id) {
         const startTime = Date.now();
+        const tracker = createTracker(id);
         logger.info(`[stream-provider] Starting movie stream search for ${id}`);
 
         try {
@@ -92,8 +94,8 @@ class StreamProvider {
             }
 
             const imdbId = id.startsWith('imdb:') ? id.replace('imdb:', '') : id;
-            
-            const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
+
+            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
@@ -114,7 +116,8 @@ class StreamProvider {
                 threshold: 0.4,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                tvdbApiKey: apiConfig.tvdbApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey,
+                tracker
             });
 
             const searchResults = searchResponse?.results || searchResponse || [];
@@ -130,8 +133,7 @@ class StreamProvider {
             }
 
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
-            const streamProcessingStart = Date.now();
-            
+
             const provider = providers[config.DebridProvider];
             if (!provider || !provider.getTorrentDetails) {
                 logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
@@ -145,7 +147,8 @@ class StreamProvider {
             if (provider.bulkGetTorrentDetails) {
                 
                 const torrentIds = deduplicatedResults.map(result => result.id);
-                const bulkDetails = await provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds);
+                const bulkDetails = await tracker.span('fetch', () =>
+                    provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds));
                 
                 for (const result of deduplicatedResults) {
                     try {
@@ -207,16 +210,14 @@ class StreamProvider {
                 }
             }
 
-            const streams = await sequentialStreamFormatting(streamData);
-            
-            const streamProcessingEnd = Date.now();
-            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
+            const streams = await tracker.span('build', () => sequentialStreamFormatting(streamData));
 
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
             const deduplicatedStreams = deduplicateStreams(streams);
 
             const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
-            
+            tracker.note('streams', sortedStreams.length);
+
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Movie search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId}`);
 
@@ -239,13 +240,16 @@ class StreamProvider {
         } catch (error) {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}:`, error);
-            
+
             return [];
+        } finally {
+            logger.debug(`[perf] ${tracker.summary()}`);
         }
     }
 
     static async getSeriesStreams(config, type, id) {
         const startTime = Date.now();
+        const tracker = createTracker(id);
         logger.info(`[stream-provider] Starting series stream search for ${id}`);
 
         try {
@@ -278,7 +282,7 @@ class StreamProvider {
                 throw new ValidationError(`Invalid episode: ${episodeStr}`, 'episode', 'INVALID_EPISODE');
             }
 
-            const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
+            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
@@ -299,7 +303,8 @@ class StreamProvider {
                 threshold: 0.3,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                tvdbApiKey: apiConfig.tvdbApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey,
+                tracker
             });
 
             const searchResults = searchResponse.results || [];
@@ -337,8 +342,7 @@ class StreamProvider {
             }
 
             logger.debug(`[stream-provider] Starting controlled concurrent stream processing for ${deduplicatedResults.length} series results`);
-            const streamProcessingStart = Date.now();
-            
+
             // Use controlled concurrency to prevent debrid API overwhelm
             // Limit concurrent debrid API calls to prevent rate limiting issues
             const { executeWithControlledConcurrency } = await import('./utils/debrid-processor.js');
@@ -408,7 +412,7 @@ class StreamProvider {
                     }
                 });
                 
-                const allStreamResults = await Promise.all(streamPromises);
+                const allStreamResults = await tracker.span('build', () => Promise.all(streamPromises));
                 streamTasks = allStreamResults.filter(result => result !== null).flat();
             } else {
                 streamTasks = deduplicatedResults.map(result => async () => {
@@ -466,22 +470,21 @@ class StreamProvider {
                 const concurrencyLimit = config.ConcurrencyLimit || 6;
                 logger.info(`[stream-provider] Processing ${streamTasks.length} streams with max ${concurrencyLimit} concurrent individual operations`);
                 
-                const streamResults = await executeWithControlledConcurrency(streamTasks, concurrencyLimit);
-                
+                const streamResults = await tracker.span('build', () =>
+                    executeWithControlledConcurrency(streamTasks, concurrencyLimit));
+
                 streamTasks = streamResults
                     .filter(result => result.status === 'fulfilled' && result.value !== null)
                     .map(result => result.value)
                     .flat();
             }
             
-            const streamProcessingEnd = Date.now();
-            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
-
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
             const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
 
             const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreamTasks);
-            
+            tracker.note('streams', sortedStreams.length);
+
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
@@ -506,8 +509,10 @@ class StreamProvider {
         } catch (error) {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}:`, error);
-            
+
             return [];
+        } finally {
+            logger.debug(`[perf] ${tracker.summary()}`);
         }
     }
 

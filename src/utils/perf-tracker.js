@@ -6,7 +6,8 @@
  * where it costs one object and no clock reads.
  */
 
-const NOOP = {
+/** Shared inert tracker, for stages reached by a caller that tracks nothing. */
+export const disabledTracker = {
     async span(name, fn) {
         return fn();
     },
@@ -26,7 +27,7 @@ function debugLoggingEnabled() {
  */
 export function createTracker(label, options = {}) {
     const enabled = options.enabled ?? debugLoggingEnabled();
-    if (!enabled) return NOOP;
+    if (!enabled) return disabledTracker;
 
     const started = performance.now();
     const entries = [];

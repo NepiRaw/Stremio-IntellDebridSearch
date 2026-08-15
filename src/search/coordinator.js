@@ -11,6 +11,7 @@ import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-s
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
 import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
+import { disabledTracker } from '../utils/perf-tracker.js';
 import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { hasObviousEpisodeIndicators, hasSeasonOnlyIndicators } from '../utils/media-patterns.js';
@@ -61,8 +62,9 @@ export function getSearchStrategy(type, season, episode, alternativeTitles) {
 export async function coordinateSearch(params) {
     const {
         apiKey, provider, searchKey, type, imdbId,
-        season, episode, 
-        threshold = 0.3, providers
+        season, episode,
+        threshold = 0.3, providers,
+        tracker = disabledTracker
     } = params;
     
     // Implement fallback to environment variables for API keys when not provided by user
@@ -80,9 +82,9 @@ export async function coordinateSearch(params) {
     
     // ========== PARALLEL PHASE EXECUTION: PHASE 0 + PROVIDER VALIDATION ==========
     const [preparationResult, validatedProvider] = await Promise.all([
-        prepareSearchTerms({
+        tracker.span('phase0', () => prepareSearchTerms({
             searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
-        }),
+        })),
         Promise.resolve().then(() => {
             const providerImplementation = providers[provider];
             if (!providerImplementation) {
@@ -108,11 +110,14 @@ export async function coordinateSearch(params) {
     // Get ALL torrents once
     let allTorrents = [];
     try {
-        allTorrents = await fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold);
+        allTorrents = await tracker.span('list', () =>
+            fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold));
     } catch (error) {
         logger.warn(`[coordinator] Failed to fetch torrents: ${error.message}`);
         return [];
     }
+
+    tracker.note('torrents', allTorrents.length);
 
     if (allTorrents.length === 0) {
         logger.info('❌ [coordinator] No torrents found');
@@ -124,8 +129,11 @@ export async function coordinateSearch(params) {
     // Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
     logger.info(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
-    const relevantTorrents = await preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies);
-    
+    const relevantTorrents = await tracker.span('prefilter', () =>
+        preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies));
+
+    tracker.note('candidates', relevantTorrents.length);
+
     if (relevantTorrents.length === 0) {
         logger.info('❌ [coordinator] No relevant torrents found after pre-filtering');
         return [];
@@ -135,7 +143,10 @@ export async function coordinateSearch(params) {
     const allRawResults = relevantTorrents;
     
     // ========== PHASE 1: FAST TITLE MATCHING ==========
-    const titleMatches = await performTitleMatching(allRawResults, uniqueSearchTerms, threshold, aliasVocabularies);
+    const titleMatches = await tracker.span('phase1', () =>
+        performTitleMatching(allRawResults, uniqueSearchTerms, threshold, aliasVocabularies));
+
+    tracker.note('matches', titleMatches.length);
 
     // Check if we should proceed to Phase 2 or return early
     const phase2Decision = shouldProceedToPhase2(titleMatches, type, season, episode);
@@ -176,17 +187,14 @@ export async function coordinateSearch(params) {
     if (titleMatches.length > 0) {
         logger.info('[coordinator] Phase 2: Deep content analysis for episode matching');
         
-        // Run batch fetch and content analysis preparation in parallel
-        await Promise.all([
-            // Parallel task 1: Batch fetch torrent details
-            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey),
-            // Parallel task 2: Any other preparation that can be done concurrently
-            Promise.resolve() 
-        ]);
+        await tracker.span('fetch', () =>
+            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey));
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
-        matches = await performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies);
-        
+        matches = await tracker.span('phase2', () =>
+            performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies));
+
+        tracker.note('selected', matches.length);
         logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);
     } else {
         logger.debug('[coordinator] Phase 2 skipped: No title matches from Phase 1');
@@ -226,20 +234,22 @@ export async function coordinateSearch(params) {
             let animeSeasons = [];
             let successfulTitle = null;
             
-            for (const titleVariation of titleVariations) {
-                logger.info(`[coordinator] Trying anime search with: "${titleVariation}"`);
-                animeSeasons = await fetchAnimeSeasonInfo(titleVariation);
-                
-                if (animeSeasons.length > 0) {
-                    successfulTitle = titleVariation;
-                    logger.info(`[coordinator] ✅ Found anime seasons with country-prioritized title: "${titleVariation}"`);
-                    logger.info(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`, 
-                        animeSeasons.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
-                    break;
-                } else {
-                    logger.info(`[coordinator] ❌ No anime found for: "${titleVariation}"`);
+            await tracker.span('phase3', async () => {
+                for (const titleVariation of titleVariations) {
+                    logger.info(`[coordinator] Trying anime search with: "${titleVariation}"`);
+                    animeSeasons = await fetchAnimeSeasonInfo(titleVariation);
+
+                    if (animeSeasons.length > 0) {
+                        successfulTitle = titleVariation;
+                        logger.info(`[coordinator] ✅ Found anime seasons with country-prioritized title: "${titleVariation}"`);
+                        logger.info(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`,
+                            animeSeasons.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
+                        break;
+                    } else {
+                        logger.info(`[coordinator] ❌ No anime found for: "${titleVariation}"`);
+                    }
                 }
-            }
+            });
             
             if (animeSeasons.length > 0) {
                 // Try to map the episode to correct season
