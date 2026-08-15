@@ -79,7 +79,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.filename,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.completionDate)
                 })
@@ -91,7 +90,6 @@ class ConfigurationManager {
                     id: item.id.split('-')[0],
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created * 1000)
                 })
@@ -104,7 +102,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.filename,
                     type: 'other',
-                    info: null,
                     size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
                     created: new Date(item.added) // RealDebrid uses 'added' field
                 })
@@ -117,7 +114,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created_at)
                 })
@@ -129,7 +125,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
                 })
