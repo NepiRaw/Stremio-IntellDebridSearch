@@ -4,9 +4,9 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { isVideo } from '../stream/metadata-extractor.js';
-import { AbsoluteEpisodeProcessor } from '../utils/absolute-episode-processor.js';
+import { frozenParse } from '../parsing/adapter.js';
+import { matchEpisodeAddress, keepBestTier } from '../utils/episode-address.js';
 
 /**
  * Check if two season numbers match, handling various formats and edge cases
@@ -48,43 +48,31 @@ export function isRedownloadCopy(filename) {
     return REDOWNLOAD_COPY.test(filename || '');
 }
 
-/**
- * Order matching files so a release that states the episode comes before one recognized
- * only by its absolute number: the stated address is the more reliable of the two.
- */
-export function selectEpisodeFiles(videos = [], targetSeason, targetEpisode, absoluteEpisode = null) {
-    const matches = videos.filter(video => {
+/** Records how each file matched, then keeps only those that matched at the strongest tier. */
+export function selectEpisodeFiles(videos = [], addresses) {
+    const candidates = [];
+
+    for (const video of videos) {
         if (!video || isRedownloadCopy(video.name)) {
-            return false;
+            continue;
         }
 
-        if (video.isAbsoluteMatch === true) {
-            return true;
+        video.match = matchEpisodeAddress(video.parsed ?? frozenParse(video.name), addresses);
+        if (video.match) {
+            candidates.push(video);
         }
+    }
 
-        if (checkSeasonMatch(video.info?.season, targetSeason) &&
-            parseInt(video.info?.episode, 10) === parseInt(targetEpisode, 10)) {
-            return true;
-        }
-
-        return absoluteEpisode?.absoluteEpisode
-            ? AbsoluteEpisodeProcessor.matchesAbsoluteEpisode(video.name, absoluteEpisode.absoluteEpisode)
-            : false;
-    });
-
-    return rankEpisodeFiles(matches, targetSeason, targetEpisode, absoluteEpisode);
+    return rankEpisodeFiles(keepBestTier(candidates));
 }
 
-export function rankEpisodeFiles(videos, targetSeason, targetEpisode, absoluteEpisode = null) {
+/** A release that names the episode outranks one recognized through its absolute number. */
+export function rankEpisodeFiles(videos) {
     if (videos.length < 2) {
         return videos;
     }
 
-    const derived = video =>
-        video.isAbsoluteMatch === true ||
-        video.info?.traktMapped === true ||
-        !(checkSeasonMatch(video.info?.season, targetSeason) &&
-          parseInt(video.info?.episode, 10) === parseInt(targetEpisode, 10));
+    const derived = video => video.match?.source === 'absolute' || video.match?.source === 'remap';
 
     return [...videos].sort((a, b) => Number(derived(a)) - Number(derived(b)));
 }
@@ -97,105 +85,41 @@ export function rankEpisodeFiles(videos, targetSeason, targetEpisode, absoluteEp
  * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Object} - Analysis result
  */
-export function analyzeTorrent(torrent, targetSeason, targetEpisode, absoluteEpisode = null) {
+export function analyzeTorrent(torrent, addresses) {
     const result = {
         isDirect: false,
         isContainer: false,
         hasMatchingEpisode: false,
         matchingFiles: [],
         details: null,
-        seasonInfo: { found: null, target: targetSeason }
+        seasonInfo: { found: null, target: addresses?.season ?? null }
     };
 
-    const info = torrent.info || {};
-    
-    const isEpisodeMatch = (videoInfo, videoName = '') => {
-        if (!videoInfo) return false;
-        
-        if (checkSeasonMatch(videoInfo.season, targetSeason) && 
-            parseInt(videoInfo.episode, 10) === parseInt(targetEpisode, 10)) {
-            logger.info(`[torrent-analyzer] ✅ Classic S${targetSeason}E${targetEpisode} match (found S${videoInfo.season}E${videoInfo.episode}) for: ${videoName}`);
-            return true;
-        }
-        
-        if (absoluteEpisode && absoluteEpisode.absoluteEpisode) { // Check for absolute episode match if Trakt data is available
-            if (AbsoluteEpisodeProcessor.matchesAbsoluteEpisode(videoName, absoluteEpisode.absoluteEpisode)) {
-                logger.info(`[torrent-analyzer] ✅ Absolute episode ${absoluteEpisode.absoluteEpisode} match for: ${videoName}`);
-                return true;
-            }
-        }
-        
-        return false;
-    };
-    
     if (isVideo(torrent.name)) {
         result.isDirect = true;
-        
-        if (!info.season || !info.episode) {
-            const parsed = parseUnified(torrent.name);
-            logger.info(`[torrent-analyzer] parseUnified for "${torrent.name}": season=${parsed.season}, episode=${parsed.episode}`);
-            info.season = info.season || parsed.season;
-            info.episode = info.episode || parsed.episode;
-            info.absoluteEpisode = info.absoluteEpisode || parsed.absoluteEpisode;
-            
-            if (!info.season && parsed.season) {
-                info.season = parsed.season;
-                info.episode = info.episode || parsed.episode;
-            }
-            
-            if ((info.season === null || info.season === undefined) && targetSeason === 1 && info.episode) {
-                logger.debug(`[torrent-analyzer] SEASON FALLBACK: Setting season=1 for "${torrent.name}" with episode=${info.episode} (originally season=${info.season})`);
-                info.season = 1;
-            }
-        }
-        
-        if (isEpisodeMatch(info, torrent.name)) {
+        torrent.match = matchEpisodeAddress(torrent.parsed ?? frozenParse(torrent.name), addresses);
+
+        if (torrent.match) {
+            logger.info(`[torrent-analyzer] ✅ ${torrent.match.source} match for: ${torrent.name}`);
             result.hasMatchingEpisode = true;
             result.matchingFiles = [torrent];
         }
 
         return result;
     }
-    
+
     result.isContainer = true;
-    if (torrent.videos?.length) {
-        
-        const matchingVideos = torrent.videos.filter(video => {
-            const videoInfo = video.info || {};
-            
-            if (!videoInfo.season || !videoInfo.episode) {
-                const parsed = parseUnified(video.name);
-                if (parsed.season || parsed.episode || parsed.absoluteEpisode) {
-                    logger.debug(`[torrent-analyzer] parseUnified for video "${video.name}": season=${parsed.season}, episode=${parsed.episode}, absolute=${parsed.absoluteEpisode}`);
-                } 
-                videoInfo.season = videoInfo.season || parsed.season;
-                videoInfo.episode = videoInfo.episode || parsed.episode;
-                videoInfo.absoluteEpisode = videoInfo.absoluteEpisode || parsed.absoluteEpisode;
-                
-                if (!videoInfo.season && parsed.season) {
-                    videoInfo.season = parsed.season;
-                    videoInfo.episode = videoInfo.episode || parsed.episode;
-                }
-                
-                if ((videoInfo.season === null || videoInfo.season === undefined) && targetSeason === 1 && videoInfo.episode) {
-                    logger.debug(`[torrent-analyzer] SEASON FALLBACK (video): Setting season=1 for video "${video.name}" with episode=${videoInfo.episode} (originally season=${videoInfo.season})`);
-                    videoInfo.season = 1;
-                }
-                
-                video.info = videoInfo;
-            }
 
-            return isEpisodeMatch(videoInfo, video.name);
-        });
-
-        const selected = selectEpisodeFiles(matchingVideos, targetSeason, targetEpisode, absoluteEpisode);
-
-        if (selected.length > 0) {
-            result.hasMatchingEpisode = true;
-            result.matchingFiles = selected;
-        }
-    } else {
+    if (!torrent.videos?.length) {
         logger.info(`[torrent-analyzer] Container has no processed videos:`, torrent.name);
+        return result;
+    }
+
+    const selected = selectEpisodeFiles(torrent.videos, addresses);
+
+    if (selected.length > 0) {
+        result.hasMatchingEpisode = true;
+        result.matchingFiles = selected;
     }
 
     return result;

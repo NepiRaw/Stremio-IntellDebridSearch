@@ -193,6 +193,14 @@ export async function getEpisodeByAbsolute(imdbId, absoluteEpisode) {
     return { ...match };
 }
 
+/** Episode count for a season, which tells an absolute number from that season's own episode. */
+export async function getSeasonLength(imdbId, season) {
+    const wanted = Number(season);
+    const episodes = await getEpisodes(imdbId);
+
+    return episodes.filter(episode => episode.season === wanted).length;
+}
+
 export function clearCache() {
     const entries = cache.getByPattern('^tvdb_');
     entries.forEach(entry => cache.delete(entry.key));

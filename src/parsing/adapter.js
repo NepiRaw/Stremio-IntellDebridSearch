@@ -50,6 +50,7 @@ function extensionOf(filename) {
  * Attaches the parse to what a provider returned. Providers hand back raw torrent details
  * and the pipeline decorates them here, so a name is parsed where the pipeline needs it
  * rather than at fetch time.
+ *
  */
 export function attachParsedInfo(details) {
     if (!details) {
@@ -57,14 +58,28 @@ export function attachParsedInfo(details) {
     }
 
     details.info = parseUnifiedCompat(details.name);
+    details.parsed = frozenParse(details.name);
 
     for (const video of details.videos ?? []) {
         if (video) {
             video.info = parseUnifiedCompat(video.name);
+            video.parsed = frozenParse(video.name);
         }
     }
 
     return details;
+}
+
+/**
+ * The parser's own result, frozen so a later stage records its decisions in `match` instead of
+ * writing them back onto what the filename said.
+ */
+export function frozenParse(filename) {
+    if (!filename || typeof filename !== 'string') {
+        return null;
+    }
+
+    return Object.freeze({ ...parseName(filename) });
 }
 
 export function parseUnifiedCompat(filename) {

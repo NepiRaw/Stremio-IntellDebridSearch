@@ -94,7 +94,7 @@ export async function coordinateSearch(params) {
         })
     ]);
     
-    let { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode } = preparationResult;
+    let { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode, seasonOneLength } = preparationResult;
     const providerImpl = validatedProvider;
     
     // Add both raw and normalized variants from title variant creation
@@ -192,7 +192,7 @@ export async function coordinateSearch(params) {
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
         matches = await tracker.span('phase2', () =>
-            performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies));
+            performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies, seasonOneLength));
 
         tracker.note('selected', matches.length);
         logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);

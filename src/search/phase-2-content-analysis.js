@@ -29,7 +29,7 @@ import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName } from '../parsing/parser.js';
 import { attachParsedInfo } from '../parsing/adapter.js';
-import { AbsoluteEpisodeProcessor } from '../utils/absolute-episode-processor.js';
+import { buildEpisodeAddresses } from '../utils/episode-address.js';
 
 /**
  * Batch fetch torrent details for torrents that need them
@@ -80,9 +80,16 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
  * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Array} Array of matching episodes
  */
-export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null, aliasVocabularies = []) {
+export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null, aliasVocabularies = [], seasonOneLength = 0) {
     logger.info('[phase-2] Starting optimized parallel content analysis for episode matching');
-    
+
+    const addresses = buildEpisodeAddresses({
+        season: parseInt(season),
+        episode: parseInt(episode),
+        absoluteEpisode: absoluteEpisode?.absoluteEpisode ?? null,
+        seasonOneLength
+    });
+
     // Process torrents in parallel batches for optimal performance
     const PARALLEL_BATCH_SIZE = 15; // Process 15 torrents in parallel at a time
     const batches = [];
@@ -99,12 +106,7 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
         const batchPromises = batch.map(async (match) => {
             try {
                 const torrent = match.item;
-
-                if (absoluteEpisode?.absoluteEpisode && torrent.videos?.length) {
-                    torrent.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(absoluteEpisode, torrent.videos);
-                }
-
-                const analysis = analyzeTorrent(torrent, parseInt(season), parseInt(episode), absoluteEpisode);
+                const analysis = analyzeTorrent(torrent, addresses);
                 return {
                     torrent,
                     analysis,
@@ -137,7 +139,7 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
 
                 const streamFiles = result.analysis.isContainer
                     ? result.analysis.matchingFiles
-                    : selectEpisodeFiles(result.torrent.videos, parseInt(season), parseInt(episode), absoluteEpisode);
+                    : selectEpisodeFiles(result.torrent.videos, addresses);
 
                 if (!streamFiles.length) {
                     logger.debug(`[phase-2] No usable file for ${result.torrent.name}`);
@@ -197,11 +199,10 @@ export function reAnalyzeWithMapping(titleMatches, episodeMapping) {
     
     // Re-analyze the same torrents we already found with the new season/episode
     const reAnalyzedResults = titleMatches.map(match => {
-        const analysis = analyzeTorrent(
-            match.item, 
-            parseInt(episodeMapping.mappedSeason), 
-            parseInt(episodeMapping.mappedEpisode)
-        );
+        const analysis = analyzeTorrent(match.item, buildEpisodeAddresses({
+            season: parseInt(episodeMapping.mappedSeason),
+            episode: parseInt(episodeMapping.mappedEpisode)
+        }));
         return {
             torrent: match.item,
             analysis,

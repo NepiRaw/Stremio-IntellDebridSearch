@@ -6,7 +6,7 @@
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { fetchTMDbAlternativeTitles } from '../api/tmdb.js';
-import { getEpisodeMapping } from '../api/tvdb.js';
+import { getEpisodeMapping, getSeasonLength } from '../api/tvdb.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -134,11 +134,14 @@ export async function prepareSearchTerms(params) {
     
     logger.info(`[phase-0] Deduplicated search terms: ${allSearchTerms.length} → ${uniqueSearchTerms.length} unique terms`);
 
+    const seasonOneLength = absoluteEpisode?.absoluteEpisode ? await getSeasonLength(imdbId, 1) : 0;
+
     return {
         normalizedSearchKey,
         alternativeTitles,
         uniqueSearchTerms,
-        absoluteEpisode
+        absoluteEpisode,
+        seasonOneLength
     };
 }
 
