@@ -1,4 +1,6 @@
 import fetch from 'node-fetch';
+import http from 'node:http';
+import https from 'node:https';
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
 
@@ -6,6 +8,48 @@ import cache from '../utils/cache-manager.js';
  * Cinemeta API client - fetches metadata from Stremio's Cinemeta service
  * Handles movie and series metadata with caching support
  */
+
+// Reusing the connection means one name lookup per host instead of one per request.
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16 });
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 16 });
+const agentFor = url => (url.startsWith('https:') ? httpsAgent : httpAgent);
+
+const TRANSIENT_CODES = new Set([
+    'ENOTFOUND', 'ENOENT', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'
+]);
+const ATTEMPTS = 3;
+const RETRY_DELAY_MS = 150;
+
+/** A name lookup or a dropped socket says nothing about the answer, so it is worth asking again. */
+export function isTransientNetworkError(error) {
+    return TRANSIENT_CODES.has(error?.code ?? error?.cause?.code);
+}
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Fetches JSON, retrying only what a retry can fix. An HTTP status is an answer, not a failure. */
+export async function fetchJson(url) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        try {
+            const response = await fetch(url, { agent: agentFor(url) });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return await response.json();
+        } catch (error) {
+            if (!isTransientNetworkError(error)) throw error;
+            lastError = error;
+            if (attempt < ATTEMPTS) {
+                logger.debug(`[cinemeta] ${error.code ?? error.message} on attempt ${attempt}, retrying`);
+                await wait(RETRY_DELAY_MS * attempt);
+            }
+        }
+    }
+
+    throw lastError;
+}
 
 /**
  * Get metadata from Cinemeta service
@@ -31,13 +75,7 @@ async function getMeta(type, imdbId) {
 
     try {
         const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const body = await response.json();
+        const body = await fetchJson(url);
         const meta = body && body.meta;
 
         if (!meta) {
