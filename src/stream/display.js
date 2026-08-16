@@ -84,6 +84,17 @@ function appendTechnical(segments, parsed) {
     }
 }
 
+/** Full-width comma, which looks the same but does not break Stremio's own field splitting. */
+function safeText(text) {
+    return text.replace(/,/g, '，');
+}
+
+/** The 📺 line, empty when the release states no episode title. */
+export function episodeTitleLine(parsed) {
+    const title = parsed?.episodeTitle;
+    return title ? `📺 "${safeText(title)}"` : '';
+}
+
 /** The ⚙️ segment: languages, source, codec, audio, then the technical flags. */
 export function technicalLine(parsed) {
     if (!parsed) return '';

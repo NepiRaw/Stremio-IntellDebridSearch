@@ -5,7 +5,7 @@
 import { extractSeriesInfo, extractMovieInfo, FILE_TYPES } from './metadata-extractor.js';
 import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
-import { technicalLine } from './display.js';
+import { technicalLine, episodeTitleLine } from './display.js';
 import { extractQuality } from './quality-processor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { logger } from '../utils/logger.js';
@@ -329,11 +329,9 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, detectedVariant, variantInfo);
     
-    // Line 3 or 4: Episode name (if found)
-    if (seriesInfo.episodeName || seriesInfo.episodeTitle) {
-        const episodeName = seriesInfo.episodeName || seriesInfo.episodeTitle;
-        const safeEpisodeName = episodeName.replace(/,/g, '，'); // Full-width comma (U+FF0C) looks identical but different character (prevent Stremio display issues)
-        lines.push(`📺 "${safeEpisodeName}"`);
+    const episodeLine = episodeTitleLine(parsed);
+    if (episodeLine) {
+        lines.push(episodeLine);
     }
     
     const techDetails = technicalLine(parsed);
