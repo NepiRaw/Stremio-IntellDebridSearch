@@ -226,7 +226,8 @@ function extractBasicInfo(details, video) {
         videoName: video.name || '',
         size: formatSize(video?.size || 0),
         matchedTerm: details.matchedTerm || null, // Preserve the search term that matched this torrent
-        parsed: (video.name ? video.parsed : null) ?? details.parsed ?? null
+        parsed: (video.name ? video.parsed : null) ?? details.parsed ?? null,
+        containerParsed: details.parsed ?? null
     };
 }
 
@@ -307,7 +308,7 @@ function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
  * @returns {string} Formatted series title
  */
 function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
-    const { containerName, videoName, size, matchedTerm, parsed } = basicInfo;
+    const { containerName, videoName, size, matchedTerm, parsed, containerParsed } = basicInfo;
     const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
     const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
         (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
@@ -334,7 +335,7 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
         lines.push(episodeLine);
     }
     
-    const techDetails = technicalLine(parsed);
+    const techDetails = technicalLine(parsed, containerParsed);
     if (techDetails) {
         lines.push(`⚙️ ${techDetails}`);
     }
@@ -347,7 +348,7 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
 
 /** Formats stream title for movie content */
 function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
-    const { containerName, videoName, size, parsed } = basicInfo;
+    const { containerName, videoName, size, parsed, containerParsed } = basicInfo;
     const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
     const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
         (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
@@ -365,7 +366,7 @@ function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, null, variantInfo);
     
-    const techDetails = technicalLine(parsed);
+    const techDetails = technicalLine(parsed, containerParsed);
     if (techDetails) {
         lines.push(`⚙️ ${techDetails}`);
     }

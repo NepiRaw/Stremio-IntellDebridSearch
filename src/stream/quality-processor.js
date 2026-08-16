@@ -3,24 +3,11 @@
  * Handles quality extraction, scoring, and display formatting
  */
 
-import { extractQualityDisplay, extractQualityInfo } from '../utils/media-patterns.js';
+import { qualityLine, qualityRank } from './display.js';
 import { logger } from '../utils/logger.js';
 
 export function extractQuality(video, details) {
-    const videoName = video.name || '';
-    const torrentName = details.name || '';
-    const combinedName = `${torrentName} ${videoName}`;
-    
-    logger.debug(`[extractQuality] Analyzing: "${combinedName}"`);
-    
-    const fallbackInfo = {
-        resolution: video.info?.resolution || details.info?.resolution
-    };
-    
-    const quality = extractQualityDisplay(combinedName, fallbackInfo);
-    logger.debug(`[extractQuality] Found quality: ${quality}`);
-    
-    return quality;
+    return qualityLine(video?.parsed, details?.parsed);
 }
 
 export function sortMovieStreamsByQuality(streams) {
@@ -28,11 +15,8 @@ export function sortMovieStreamsByQuality(streams) {
         const aQualityLine = a.name.split('\n')[1] || '';
         const bQualityLine = b.name.split('\n')[1] || '';
         
-        const aQualityInfo = extractQualityInfo(aQualityLine);
-        const bQualityInfo = extractQualityInfo(bQualityLine);
-        
-        const aScore = aQualityInfo.score || -1;
-        const bScore = bQualityInfo.score || -1;
+        const aScore = qualityRank(aQualityLine);
+        const bScore = qualityRank(bQualityLine);
         
         if (aScore !== bScore) {
             return bScore - aScore;

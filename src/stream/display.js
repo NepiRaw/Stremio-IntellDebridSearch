@@ -84,6 +84,31 @@ function appendTechnical(segments, parsed) {
     }
 }
 
+const RESOLUTION_DISPLAY = {
+    '2160p': '💎 4K UHD', '1440p': '💍 1440p', '1080p': '⭐ 1080p',
+    '720p': '✨ 720p', '576p': '🔘 576p', '480p': '⚫ 480p'
+};
+
+/** Best first. Ranking reads this rather than re-parsing the line it just built. */
+const QUALITY_ORDER = ['💎 4K UHD', '💍 1440p', '⭐ 1080p', '✨ 720p', '🔘 576p', '⚫ 480p', '📀 DVD'];
+
+export function qualityRank(line) {
+    const index = QUALITY_ORDER.indexOf(line);
+    return index === -1 ? -1 : QUALITY_ORDER.length - index;
+}
+
+function resolutionDisplay(parsed) {
+    if (parsed?.resolution) return RESOLUTION_DISPLAY[parsed.resolution] ?? `📺 ${parsed.resolution}`;
+    if (parsed?.source === 'DVD' || parsed?.source === 'DVDR') return '📀 DVD';
+    return null;
+}
+
+/** The quality line beside the provider name. A bare filename often states no resolution, so the
+ *  container answers for it. */
+export function qualityLine(parsed, containerParsed = null) {
+    return resolutionDisplay(parsed) ?? resolutionDisplay(containerParsed) ?? '❓ Unknown';
+}
+
 /** Full-width comma, which looks the same but does not break Stremio's own field splitting. */
 function safeText(text) {
     return text.replace(/,/g, '，');
@@ -95,8 +120,25 @@ export function episodeTitleLine(parsed) {
     return title ? `📺 "${safeText(title)}"` : '';
 }
 
+const SINGLE_VALUE = ['source', 'codec', 'bitDepth', 'frameRate'];
+const LIST_VALUE = ['languages', 'subtitleLanguages', 'audio', 'channels', 'hdr', 'editions'];
+const FLAG_VALUE = ['isMultiLanguage', 'isDualAudio', 'isMultiSubtitle', 'isRemux', 'isRepack', 'isProper'];
+
+/** A file inside a pack often states almost nothing, so the container fills what it left out. */
+function inherit(file, container) {
+    if (!container) return file;
+    if (!file) return container;
+
+    const merged = { ...file };
+    for (const field of SINGLE_VALUE) merged[field] = file[field] ?? container[field];
+    for (const field of LIST_VALUE) merged[field] = file[field]?.length ? file[field] : container[field];
+    for (const field of FLAG_VALUE) merged[field] = file[field] || container[field];
+    return merged;
+}
+
 /** The ⚙️ segment: languages, source, codec, audio, then the technical flags. */
-export function technicalLine(parsed) {
+export function technicalLine(fileParsed, containerParsed = null) {
+    const parsed = inherit(fileParsed, containerParsed);
     if (!parsed) return '';
 
     const segments = [];
