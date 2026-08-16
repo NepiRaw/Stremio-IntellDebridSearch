@@ -10,7 +10,6 @@ import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparati
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
-import AbsoluteEpisodeProcessor from '../utils/absolute-episode-processor.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
 import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
@@ -267,16 +266,8 @@ export async function coordinateSearch(params) {
                     if (animeMatches.length > 0) {
                         logger.info(`[coordinator] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
                         
-                        // Apply absolute episode post-processing if a mapping was resolved
-                        // Convert anime matches to the expected format and apply absolute episode processing
-                        const wrappedAnimeMatches = animeMatches.map(torrent => ({
-                            item: torrent,
-                            torrentDetails: torrent
-                        }));
-                        const finalAnimeMatches = applyAbsoluteEpisodePostProcessing(wrappedAnimeMatches, absoluteEpisode);
-                        
                         return {
-                            results: finalAnimeMatches.map(r => r.item), // Extract back to flat format
+                            results: animeMatches,
                             absoluteEpisode: absoluteEpisode,
                             animeMapping: episodeMapping, // Pass the complete mapping object instead of just true
                             mappedSeason: episodeMapping.mappedSeason,
@@ -296,17 +287,8 @@ export async function coordinateSearch(params) {
         }
     }
     
-    // Apply absolute episode post-processing to all final results
-    // Convert flat torrent results to the expected format with torrentDetails
-    const wrappedMatches = matches.map(torrent => ({
-        item: torrent,
-        torrentDetails: torrent // The torrent already has videos array from phase-2
-    }));
-    
-    const finalResults = applyAbsoluteEpisodePostProcessing(wrappedMatches, absoluteEpisode);
-    
     return {
-        results: finalResults.map(r => r.item), // Extract back to flat format
+        results: matches,
         absoluteEpisode: absoluteEpisode,
         searchContext: {
             searchTitle: normalizedSearchKey,
@@ -317,38 +299,3 @@ export async function coordinateSearch(params) {
     };
 }
 
-/**
- * Apply absolute episode post-processing to search results
- */
-function applyAbsoluteEpisodePostProcessing(searchResults, absoluteEpisodeData) {
-    if (!absoluteEpisodeData || !absoluteEpisodeData.absoluteEpisode || !Array.isArray(searchResults)) {
-        if (absoluteEpisodeData && !absoluteEpisodeData.absoluteEpisode) {
-            logger.debug(`[coordinator] ⚡ Skipping absolute episode processing - no absolute episode data resolved`);
-        }
-        return searchResults; // No absolute episode data or invalid input
-    }
-    
-    logger.debug(`[coordinator] Applying absolute episode post-processing to ${searchResults.length} results`);
-    
-    const processedResults = searchResults.map(result => {
-        if (!result.torrentDetails || !result.torrentDetails.videos) {
-            return result; // No videos to process
-        }
-        
-        // Apply absolute episode processing only if TVDB API is enabled
-        const enhancedVideos = configManager.getIsTvdbEnabled()
-            ? AbsoluteEpisodeProcessor.processAbsoluteEpisodes(absoluteEpisodeData, result.torrentDetails.videos)
-            : result.torrentDetails.videos;
-        
-        // Return enhanced result with processed videos
-        return {
-            ...result,
-            torrentDetails: {
-                ...result.torrentDetails,
-                videos: enhancedVideos
-            }
-        };
-    });
-    
-    return processedResults;
-}
