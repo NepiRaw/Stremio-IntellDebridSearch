@@ -10,6 +10,7 @@ import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparati
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
+import { buildEpisodeAddresses } from '../utils/episode-address.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
 import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
@@ -186,12 +187,19 @@ export async function coordinateSearch(params) {
     if (titleMatches.length > 0) {
         logger.info('[coordinator] Phase 2: Deep content analysis for episode matching');
         
+        const addresses = buildEpisodeAddresses({
+            season: parseInt(season),
+            episode: parseInt(episode),
+            absoluteEpisode: absoluteEpisode?.absoluteEpisode ?? null,
+            seasonOneLength
+        });
+
         await tracker.span('fetch', () =>
-            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey));
+            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey, addresses));
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
         matches = await tracker.span('phase2', () =>
-            performContentAnalysis(titleMatches, season, episode, absoluteEpisode, aliasVocabularies, seasonOneLength));
+            performContentAnalysis(titleMatches, addresses, aliasVocabularies));
 
         tracker.note('selected', matches.length);
         logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);

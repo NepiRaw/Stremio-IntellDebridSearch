@@ -28,8 +28,8 @@ import { logger } from '../utils/logger.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName } from '../parsing/parser.js';
-import { attachParsedInfo } from '../parsing/adapter.js';
-import { buildEpisodeAddresses } from '../utils/episode-address.js';
+import { attachParsedInfo, frozenParse } from '../parsing/adapter.js';
+import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js';
 
 /**
  * Batch fetch torrent details for torrents that need them
@@ -38,9 +38,11 @@ import { buildEpisodeAddresses } from '../utils/episode-address.js';
  * @param {string} apiKey - API key
  * @returns {Promise} Promise that resolves when all details are fetched
  */
-export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
-    const torrentsNeedingDetails = titleMatches.filter(match => 
-        provider?.getTorrentDetails && !match.item.videos
+export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, addresses = null) {
+    const torrentsNeedingDetails = titleMatches.filter(match =>
+        provider?.getTorrentDetails &&
+        !match.item.videos &&
+        couldContain(match.item.parsed ?? frozenParse(match.item.name), addresses)
     );
 
     if (torrentsNeedingDetails.length === 0) {
@@ -80,15 +82,8 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
  * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Array} Array of matching episodes
  */
-export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null, aliasVocabularies = [], seasonOneLength = 0) {
+export async function performContentAnalysis(titleMatches, addresses, aliasVocabularies = []) {
     logger.info('[phase-2] Starting optimized parallel content analysis for episode matching');
-
-    const addresses = buildEpisodeAddresses({
-        season: parseInt(season),
-        episode: parseInt(episode),
-        absoluteEpisode: absoluteEpisode?.absoluteEpisode ?? null,
-        seasonOneLength
-    });
 
     // Process torrents in parallel batches for optimal performance
     const PARALLEL_BATCH_SIZE = 15; // Process 15 torrents in parallel at a time

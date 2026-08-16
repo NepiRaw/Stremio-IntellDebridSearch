@@ -59,6 +59,24 @@ export function matchEpisodeAddress(parsed, addresses) {
     return null;
 }
 
+/**
+ * Whether a torrent is worth fetching a file list for, judged on its own name only.
+ * Anything a name leaves open is fetched, including every pack: a pack's name describes its
+ * main content, not everything inside it.
+ */
+export function couldContain(parsed, addresses) {
+    if (!parsed || !addresses) {
+        return true;
+    }
+
+    if (parsed.isCompleteSeries || parsed.isSeasonPack || !parsed.seasons?.length) {
+        return true;
+    }
+
+    return parsed.seasons.includes(addresses.season) ||
+        (addresses.absoluteEpisode != null && parsed.seasons.includes(1));
+}
+
 /** Tier 2 exists only for the case where nothing was found at tier 1. */
 export function keepBestTier(entries) {
     const matched = entries.filter(entry => entry.match);
