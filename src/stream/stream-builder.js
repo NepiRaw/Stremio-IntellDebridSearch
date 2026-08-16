@@ -5,11 +5,10 @@
 import { extractSeriesInfo, extractMovieInfo, FILE_TYPES } from './metadata-extractor.js';
 import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
-import { extractTechnicalDetailsLegacy } from '../utils/unified-torrent-parser.js';
+import { technicalLine } from './display.js';
 import { extractQuality } from './quality-processor.js';
 import { detectSimpleVariant } from '../utils/variant-detector.js';
 import { logger } from '../utils/logger.js';
-import cache from '../utils/cache-manager.js';
 import { configManager } from '../config/configuration.js';
 
 // ================================================================================================
@@ -226,75 +225,9 @@ function extractBasicInfo(details, video) {
         containerName: details.containerName || details.name || 'Unknown',
         videoName: video.name || '',
         size: formatSize(video?.size || 0),
-        matchedTerm: details.matchedTerm || null // Preserve the search term that matched this torrent
+        matchedTerm: details.matchedTerm || null, // Preserve the search term that matched this torrent
+        parsed: (video.name ? video.parsed : null) ?? details.parsed ?? null
     };
-}
-
-// ================================================================================================
-// PERFORMANCE OPTIMIZATION: Technical Details Caching
-// ================================================================================================
-
-/**
- * Cache key prefix for technical details to avoid conflicts with other cached data
- */
-const TECH_DETAILS_CACHE_PREFIX = 'tech_details_';
-const TECH_DETAILS_TTL = 24 * 3600; // 24 hours
-
-/**
- * Gets technical details from metadata, unified cache, or extracts them fresh
- */
-function getTechnicalDetails(parsedMetadata, videoName) {
-    if (parsedMetadata?.technicalDetails) {
-        return parsedMetadata.technicalDetails;
-    }
-    
-    const cacheKey = TECH_DETAILS_CACHE_PREFIX + removeExtension(videoName);
-    const cachedDetails = cache.get(cacheKey);
-    
-    if (cachedDetails !== null) {
-        logger.debug(`[getTechnicalDetails] Cache hit for: ${videoName}`);
-        return cachedDetails;
-    }
-    
-    const cleanedFilename = removeExtension(videoName);
-    const techDetails = extractTechnicalDetailsLegacy(cleanedFilename);
-    
-    cache.set(cacheKey, techDetails, TECH_DETAILS_TTL, {
-        type: 'technical_details',
-        filename: cleanedFilename,
-        extractedAt: Date.now()
-    });
-    
-    return techDetails;
-}
-
-/** Gets cache statistics for performance monitoring */
-function getCacheStats() {
-    const unifiedStats = cache.getStats();
-    const techDetailsEntries = cache.getByPattern(`^${TECH_DETAILS_CACHE_PREFIX}`);
-    
-    return {
-        hits: unifiedStats.stats.hits,
-        misses: unifiedStats.stats.misses,
-        hitRate: unifiedStats.hitRate * 100,
-        cacheSize: techDetailsEntries.length,
-        totalCacheSize: unifiedStats.size,
-        maxCacheSize: unifiedStats.maxSize,
-        techDetailsCacheContents: techDetailsEntries.reduce((acc, entry) => {
-            acc[entry.key.replace(TECH_DETAILS_CACHE_PREFIX, '')] = entry.value;
-            return acc;
-        }, {})
-    };
-}
-
-/**
- * Clears technical details from unified cache (useful for testing)
- */
-function clearTechnicalDetailsCache() {
-    const techDetailsEntries = cache.getByPattern(`^${TECH_DETAILS_CACHE_PREFIX}`);
-    techDetailsEntries.forEach(entry => {
-        cache.delete(entry.key);
-    });
 }
 
 /**
@@ -374,7 +307,7 @@ function buildSizeLine(icon, size, releaseGroup, seasonEpisode = null) {
  * @returns {string} Formatted series title
  */
 function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpisode, variantInfo, searchContext) {
-    const { containerName, videoName, size, matchedTerm } = basicInfo;
+    const { containerName, videoName, size, matchedTerm, parsed } = basicInfo;
     const seriesInfo = parsedMetadata?.seriesInfo || extractSeriesInfo(videoName, containerName);
     const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
         (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
@@ -403,12 +336,11 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
         lines.push(`📺 "${safeEpisodeName}"`);
     }
     
-    // Line 4 or 5: Technical details
-    const techDetails = getTechnicalDetails(parsedMetadata, videoName || containerName);
-    if (techDetails && techDetails.length > 0) {
+    const techDetails = technicalLine(parsed);
+    if (techDetails) {
         lines.push(`⚙️ ${techDetails}`);
     }
-    
+
     // Final line: Season/Episode + Size + Release Group
     lines.push(buildSizeLine(icon, size, releaseGroup, seasonEpisode));
     
@@ -417,7 +349,7 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
 
 /** Formats stream title for movie content */
 function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
-    const { containerName, videoName, size } = basicInfo;
+    const { containerName, videoName, size, parsed } = basicInfo;
     const movieInfo = parsedMetadata?.movieInfo || extractMovieInfo(removeExtension(videoName || containerName));
     const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
         (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
@@ -435,12 +367,11 @@ function formatMovieStreamTitle(basicInfo, icon, parsedMetadata, variantInfo) {
     // Line 3: Variant information (if applicable)
     addVariantLine(lines, null, variantInfo);
     
-    // Line 3 or 4: Technical details
-    const techDetails = getTechnicalDetails(parsedMetadata, videoName || containerName);
-    if (techDetails && techDetails.length > 0) {
+    const techDetails = technicalLine(parsed);
+    if (techDetails) {
         lines.push(`⚙️ ${techDetails}`);
     }
-    
+
     // Final line: Size + Release Group
     lines.push(buildSizeLine(icon, size, releaseGroup));
     
@@ -510,4 +441,3 @@ export function formatStreamsForDisplay(streams) {
     }).join('\n\n');
 }
 
-export { getCacheStats, clearTechnicalDetailsCache };
