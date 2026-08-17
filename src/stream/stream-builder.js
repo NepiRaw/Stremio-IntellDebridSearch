@@ -234,19 +234,14 @@ function extractBasicInfo(details, video) {
 /**
  * Detects variant information for series content
  */
-function detectVariantForSeries(searchContext, seriesInfo, containerName) {
+function detectVariantForSeries(searchContext, parsed, containerParsed) {
     const variantSystemEnabled = process.env.VARIANT_SYSTEM_ENABLED !== 'false';
-    
+
     if (!variantSystemEnabled || !searchContext?.searchTitle || !searchContext?.alternativeTitles) {
         return null;
     }
-    
-    return detectSimpleVariant(
-        seriesInfo.title,
-        searchContext.searchTitle, 
-        searchContext.alternativeTitles, 
-        seriesInfo.episodeTitle || seriesInfo.episodeName
-    );
+
+    return detectSimpleVariant(parsed, containerParsed, searchContext);
 }
 
 /**
@@ -313,7 +308,7 @@ function formatSeriesStreamTitle(basicInfo, icon, parsedMetadata, knownSeasonEpi
     const releaseGroup = configManager.getIsReleaseGroupEnabled() ? 
         (parsedMetadata?.releaseGroup || extractReleaseGroup(videoName || containerName)) : null;
     
-    const detectedVariant = detectVariantForSeries(searchContext, seriesInfo, containerName);
+    const detectedVariant = detectVariantForSeries(searchContext, parsed, containerParsed);
     const seasonEpisode = formatSeasonEpisode(knownSeasonEpisode, seriesInfo);
     
     const lines = [];
