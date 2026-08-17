@@ -1,6 +1,5 @@
 import { parseUnified } from '../utils/unified-torrent-parser.js';
-import { isTechnicalTerm } from '../utils/media-patterns.js';
-import { parseName } from '../parsing/parser.js';
+import { parseName, statesReleaseFields } from '../parsing/parser.js';
 import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 import cache from '../utils/cache-manager.js';
@@ -214,7 +213,7 @@ function isLikelyAliasSegment(value) {
         return false;
     }
 
-    if (isTechnicalTerm(trimmed)) {
+    if (statesReleaseFields(trimmed)) {
         return false;
     }
 

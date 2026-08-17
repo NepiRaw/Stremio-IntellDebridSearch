@@ -378,10 +378,6 @@ export class BaseProvider {
     async unrestrictUrl(apiKey, hostUrl, ...args) {
         throw new Error(`BaseProvider-${this.constructor.name} does not support URL unrestriction`);
     }
-
-    async searchDownloads(apiKey, searchKey, threshold) {
-        throw new Error(`BaseProvider-${this.constructor.name} does not support download search`);
-    }
 }
 
 export { BaseProvider as default, ApiKeySecurityManager };

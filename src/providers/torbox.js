@@ -1,6 +1,5 @@
 ﻿import { TorboxApi } from '@torbox/torbox-api'
 import { isVideo, FILE_TYPES } from '../utils/file-types.js'
-import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { logger } from '../utils/logger.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { BaseProvider } from './BaseProvider.js'
@@ -93,18 +92,12 @@ class TorBoxProvider extends BaseProvider {
         let results = []
         if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS)
             results = files.map(result => this.toTorrent(apiKey, result))
-        else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS)
-            results = files.map(result => this.toDownload(result, 'stream'))
 
         return this.performFuzzySearch(results, searchKey, threshold)
     }
 
     async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
         return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
-    }
-
-    async searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
-        return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
     }
 
     async getTorrentDetails(apiKey, id) {
@@ -214,20 +207,6 @@ class TorBoxProvider extends BaseProvider {
         }
     }
 
-    toDownload(item, context = 'stream') {
-        return {
-            source: 'TorBox',
-            id: item.id,
-            url: item.name,
-            name: item.filename,
-            type: 'other',
-            fileType: FILE_TYPES.DOWNLOADS,
-            info: context === 'stream' ? parseUnified(item.name) : null,
-            size: item.size,
-            created: new Date(item.created_at),
-        }
-    }
-
     async listTorrents(apiKey, skip = 0) {
         const torrents = await this.listFilesParallel(FILE_TYPES.TORRENTS, apiKey, 1);
         return torrents.map(torrent => this.extractCatalogMeta({
@@ -283,9 +262,8 @@ class TorBoxProvider extends BaseProvider {
                 }
 
                 return allFiles.filter(f => f.download_finished && f.download_present);
-            } else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS) {
-                return []
             }
+
             return []
         } catch (error) {
             logger.warn('TorBox listFilesParallel failed:', error);

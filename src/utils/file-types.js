@@ -8,7 +8,6 @@
 
 export const FILE_TYPES = Object.freeze({
     TORRENTS: Symbol('torrents'),
-    DOWNLOADS: Symbol('downloads')
 });
 
 export const FILE_EXTENSIONS = Object.freeze({
