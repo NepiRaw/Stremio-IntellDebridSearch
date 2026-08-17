@@ -3,7 +3,6 @@ import { isTechnicalTerm } from '../utils/media-patterns.js';
 import { parseName } from '../parsing/parser.js';
 import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
-import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import cache from '../utils/cache-manager.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -147,13 +146,33 @@ function mediaTypeToEndpoint(mediaType) {
     return mediaType === 'series' ? 'tv' : 'movie';
 }
 
+const ROMAN_SEQUENCE = [['L', 50], ['XL', 40], ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]];
+const ROMAN_TOKEN = /^(?=[IVXL]{2})(XL|L|X{0,3})(IX|IV|V?I{0,3})$/;
+
+function romanTokenToNumber(roman) {
+    if (!ROMAN_TOKEN.test(roman)) {
+        return null;
+    }
+
+    let value = 0;
+    let at = 0;
+    for (const [symbol, amount] of ROMAN_SEQUENCE) {
+        while (roman.startsWith(symbol, at)) {
+            value += amount;
+            at += symbol.length;
+        }
+    }
+
+    return value <= 50 ? value : null;
+}
+
 function normalizeToken(token) {
     const trimmed = (token || '').trim();
     if (!trimmed) {
         return '';
     }
 
-    const romanValue = romanToNumber(trimmed.toUpperCase());
+    const romanValue = romanTokenToNumber(trimmed.toUpperCase());
     if (romanValue !== null) {
         return String(romanValue);
     }
