@@ -8,7 +8,7 @@ import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
 import { createTracker } from './utils/perf-tracker.js';
-import { attachParsedInfo } from './parsing/adapter.js';
+import { attachParse } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
@@ -151,7 +151,7 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = attachParsedInfo(bulkDetails.get(result.id));
+                        const torrentDetails = attachParse(bulkDetails.get(result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
@@ -159,7 +159,7 @@ class StreamProvider {
                         }
 
                         if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.info?.year;
+                            const torrentYear = torrentDetails?.parsed?.year;
                             const movieYear = cinemetaDetails?.year;
                             logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
                             continue;
@@ -179,7 +179,7 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = attachParsedInfo(
+                        const torrentDetails = attachParse(
                             await provider.getTorrentDetails(config.DebridApiKey, result.id)
                         );
 
@@ -189,7 +189,7 @@ class StreamProvider {
                         }
 
                         if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.info?.year;
+                            const torrentYear = torrentDetails?.parsed?.year;
                             const movieYear = cinemetaDetails?.year;
                             logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
                             continue;
@@ -364,7 +364,7 @@ class StreamProvider {
 
                 const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
-                        const torrentDetails = result.torrentDetails ?? attachParsedInfo(bulkDetails.get(result.id));
+                        const torrentDetails = result.torrentDetails ?? attachParse(bulkDetails.get(result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
@@ -401,7 +401,7 @@ class StreamProvider {
                 streamTasks = deduplicatedResults.map(result => async () => {
                     try {
                         const torrentDetails = result.torrentDetails
-                            ?? attachParsedInfo(await provider.getTorrentDetails(config.DebridApiKey, result.id));
+                            ?? attachParse(await provider.getTorrentDetails(config.DebridApiKey, result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);

@@ -122,12 +122,13 @@ function createStream(details, video, type, icon, knownSeasonEpisode, searchCont
  * Filter torrents by year for movies.
  */
 export function filterYear(torrent, cinemetaDetails) {
-    if (!cinemetaDetails?.year) return true; // No year to filter against
+    if (!cinemetaDetails?.year) return true;
 
-    const torrentYear = torrent?.info?.year;
-    if (!torrentYear) return true; // No year info in torrent
+    const torrentYear = torrent?.parsed?.year;
+    if (!torrentYear) return true;
 
-    return Math.abs(torrentYear - cinemetaDetails.year) <= 1; // Allow 1 year difference
+    // A release is often dated a year either side of the listed release.
+    return Math.abs(torrentYear - cinemetaDetails.year) <= 1;
 }
 
 // ================================================================================================

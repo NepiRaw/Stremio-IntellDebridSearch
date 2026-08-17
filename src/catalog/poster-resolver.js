@@ -1,5 +1,4 @@
-import { parseUnified } from '../utils/unified-torrent-parser.js';
-import { parseName, statesReleaseFields } from '../parsing/parser.js';
+import { parseName, frozenParse, statesReleaseFields } from '../parsing/parser.js';
 import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 import cache from '../utils/cache-manager.js';
@@ -418,7 +417,7 @@ function statesSeriesMarkers(filename) {
 }
 
 function inferProvisionalType(filename, parsed) {
-    if (parsed?.episode || parsed?.absoluteEpisode) {
+    if (parsed?.episodes?.[0] || parsed?.absoluteEpisode) {
         return 'series';
     }
 
@@ -430,7 +429,7 @@ function inferProvisionalType(filename, parsed) {
 }
 
 function isClearlyEpisodic(filename, parsed) {
-    return Boolean(statesSeriesMarkers(filename) || parsed?.episode || parsed?.absoluteEpisode);
+    return Boolean(statesSeriesMarkers(filename) || parsed?.episodes?.[0] || parsed?.absoluteEpisode);
 }
 
 function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
@@ -438,7 +437,7 @@ function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
         return false;
     }
 
-    if (statesSeriesMarkers(filename) || parsed?.season) {
+    if (statesSeriesMarkers(filename) || parsed?.seasons?.[0]) {
         return false;
     }
 
@@ -465,7 +464,7 @@ function sanitizeParsedForPosterLookup(filename, parsed) {
     if (shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed)) {
         sanitized = {
             ...sanitized,
-            episode: parsed.episode === parsed.absoluteEpisode ? null : parsed.episode,
+            episodes: parsed.episodes?.[0] === parsed.absoluteEpisode ? null : parsed.episodes,
             absoluteEpisode: null
         };
     }
@@ -479,8 +478,8 @@ function sanitizeParsedForPosterLookup(filename, parsed) {
     return {
         ...sanitized,
         title: cleanedTitle || sanitized.title,
-        season: sanitized.season || flexibleSeriesPartInfo.season,
-        episode: null,
+        seasons: sanitized.seasons?.[0] ? sanitized.seasons : [flexibleSeriesPartInfo.season],
+        episodes: null,
         absoluteEpisode: null
     };
 }
@@ -508,7 +507,7 @@ function isJunkParsedTitle(title) {
 }
 
 function seasonSupportScore(context, candidate) {
-    const parsedSeason = context.parsed?.season;
+    const parsedSeason = context.parsed?.seasons?.[0];
     if (!parsedSeason) {
         return 0.6;
     }
@@ -526,7 +525,7 @@ function seasonSupportScore(context, candidate) {
 }
 
 function episodeSupportScore(context, candidate) {
-    const parsedEpisode = context.parsed?.episode || context.parsed?.absoluteEpisode;
+    const parsedEpisode = context.parsed?.episodes?.[0] || context.parsed?.absoluteEpisode;
     if (!parsedEpisode) {
         return 0.6;
     }
@@ -628,7 +627,7 @@ function applySeriesAmbiguityTieBreak(context, candidates) {
         return candidates;
     }
 
-    if (!(context.parsed?.season || context.parsed?.episode || context.parsed?.absoluteEpisode)) {
+    if (!(context.parsed?.seasons?.[0] || context.parsed?.episodes?.[0] || context.parsed?.absoluteEpisode)) {
         return candidates;
     }
 
@@ -843,7 +842,7 @@ export function createPosterLookupContext(torrent) {
         return null;
     }
 
-    const rawParsed = parseUnified(filename);
+    const rawParsed = frozenParse(filename);
     const ignoredTitleSuffixAbsoluteEpisode = shouldIgnoreTitleSuffixAbsoluteEpisode(filename, rawParsed);
     const parsed = sanitizeParsedForPosterLookup(filename, rawParsed);
     const parsedTitle = parsed?.title?.trim() || '';

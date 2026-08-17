@@ -5,7 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { isVideo } from '../utils/file-types.js';
-import { frozenParse } from '../parsing/adapter.js';
+import { frozenParse } from '../parsing/parser.js';
 import { matchEpisodeAddress, keepBestTier } from '../utils/episode-address.js';
 
 /**

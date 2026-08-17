@@ -44,6 +44,37 @@ export function statesReleaseFields(text) {
     });
 }
 
+/**
+ * A frozen copy of the parse, so no consumer writes back onto what the filename said.
+ * The copy is what keeps the cached entry itself reusable.
+ */
+export function frozenParse(filename) {
+    if (!filename || typeof filename !== 'string') {
+        return null;
+    }
+
+    return Object.freeze({ ...parseName(filename) });
+}
+
+/**
+ * The pipeline's single decoration point: a torrent and its files are parsed here
+ */
+export function attachParse(details) {
+    if (!details) {
+        return details;
+    }
+
+    details.parsed = frozenParse(details.name);
+
+    for (const video of details.videos ?? []) {
+        if (video) {
+            video.parsed = frozenParse(video.name);
+        }
+    }
+
+    return details;
+}
+
 export function parserCacheSize() {
     return cached.size;
 }

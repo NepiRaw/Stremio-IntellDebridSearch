@@ -183,7 +183,7 @@ export class BaseProvider {
         }
         
         const fuse = new Fuse(items, {
-            keys: ['info.title', 'name', 'filename'],
+            keys: ['name', 'filename'],
             threshold: threshold,
             minMatchCharLength: 2,
             includeScore: true

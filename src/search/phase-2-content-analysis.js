@@ -25,8 +25,7 @@
 import { logger } from '../utils/logger.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
-import { parseName } from '../parsing/parser.js';
-import { attachParsedInfo, frozenParse } from '../parsing/adapter.js';
+import { parseName, frozenParse, attachParse } from '../parsing/parser.js';
 import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js';
 
 /**
@@ -61,7 +60,7 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, a
             batch.map(async match => {
                 try {
                     const details = await provider.getTorrentDetails(apiKey, match.item.id);
-                    Object.assign(match.item, attachParsedInfo(details));
+                    Object.assign(match.item, attachParse(details));
                 } catch (e) {
                     logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);
                 }
@@ -149,10 +148,6 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                         name: video.name,
                         size: video.size,
                         url: video.url,
-                        info: {
-                            ...(result.torrent.info || {}),
-                            ...(video.info || {})
-                        },
                         containerName: result.torrent.name,
                         isExtractedVideo: true,
                         videos: [video],
