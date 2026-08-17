@@ -186,11 +186,19 @@ function releaseGroupOf(basicInfo) {
     return (basicInfo.videoName ? basicInfo.parsed : basicInfo.containerParsed)?.releaseGroup ?? null;
 }
 
-function variantLine(basicInfo, searchContext) {
-    if (process.env.VARIANT_SYSTEM_ENABLED === 'false') return '';
-    if (!searchContext?.searchTitle || !searchContext?.alternativeTitles) return '';
+/**
+ * A release whose title names a different work than the one asked for. Ranking reads this too, so
+ * it is exported rather than computed only for the line.
+ */
+export function detectVariant(details, video, searchContext) {
+    if (process.env.VARIANT_SYSTEM_ENABLED === 'false') return null;
+    if (!searchContext?.searchTitle || !searchContext?.alternativeTitles) return null;
 
-    const variant = detectSimpleVariant(basicInfo.parsed, basicInfo.containerParsed, searchContext);
+    const { parsed, containerParsed } = extractBasicInfo(details, video);
+    return detectSimpleVariant(parsed, containerParsed, searchContext);
+}
+
+function variantLine(variant) {
     return variant?.isVariant && variant.variantName ? `🔄 Variant: ${variant.variantName}` : '';
 }
 
@@ -212,13 +220,13 @@ function sizeLine(icon, size, releaseGroup, seasonEpisode = null) {
     return line;
 }
 
-function seriesTitle(basicInfo, icon, knownSeasonEpisode, searchContext) {
+function seriesTitle(basicInfo, icon, knownSeasonEpisode, variant) {
     const { containerName, videoName, size, matchedTerm, parsed, containerParsed } = basicInfo;
 
     const lines = [`📁 ${safeText(videoName || containerName)}`];
     lines.push(safeText(matchedTerm?.trim() ? matchedTerm : titleOf(parsed, containerParsed)));
 
-    for (const line of [variantLine(basicInfo, searchContext), episodeTitleLine(parsed)]) {
+    for (const line of [variantLine(variant), episodeTitleLine(parsed)]) {
         if (line) lines.push(line);
     }
 
@@ -246,10 +254,10 @@ function movieTitle(basicInfo, icon) {
 }
 
 /** The multi-line title Stremio shows under the provider name. */
-export function streamTitle(details, video, type, icon, knownSeasonEpisode = null, searchContext = null) {
+export function streamTitle(details, video, type, icon, knownSeasonEpisode = null, variant = null) {
     const basicInfo = extractBasicInfo(details, video);
 
     return type === 'series'
-        ? seriesTitle(basicInfo, icon, knownSeasonEpisode, searchContext)
+        ? seriesTitle(basicInfo, icon, knownSeasonEpisode, variant)
         : movieTitle(basicInfo, icon);
 }

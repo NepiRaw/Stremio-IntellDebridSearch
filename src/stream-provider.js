@@ -3,7 +3,7 @@
  */
 import { coordinateSearch } from './search/coordinator.js';
 import { filterYear, optimizedStreamCreation } from './stream/stream-builder.js';
-import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
+import { sortStreamsByRank, deduplicateStreams } from './stream/quality-processor.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
@@ -219,7 +219,7 @@ class StreamProvider {
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
             const deduplicatedStreams = deduplicateStreams(streams);
 
-            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
+            const sortedStreams = sortStreamsByRank(deduplicatedStreams);
             tracker.note('streams', sortedStreams.length);
 
             const duration = Date.now() - startTime;
@@ -450,7 +450,7 @@ class StreamProvider {
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
             const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
 
-            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreamTasks);
+            const sortedStreams = sortStreamsByRank(deduplicatedStreamTasks);
             tracker.note('streams', sortedStreams.length);
 
             const duration = Date.now() - startTime;

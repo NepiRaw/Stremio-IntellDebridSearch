@@ -3,9 +3,15 @@
  */
 
 import { FILE_TYPES } from '../utils/file-types.js';
-import { streamTitle } from './display.js';
+import { streamTitle, detectVariant, qualityRank } from './display.js';
 import { extractQuality } from './quality-processor.js';
 import { logger } from '../utils/logger.js';
+
+/**
+ * How well the file's own name answers the requested address. Ranking prefers a release that states
+ * the address outright over one matched through a fallback or a cross-season remap.
+ */
+const MATCH_RANK = { stated: 4, absolute: 3, 'season-fallback': 2, remap: 1 };
 
 // ================================================================================================
 // CONFIGURATION
@@ -91,9 +97,12 @@ export function toStreams(details, type, knownSeasonEpisode = null, searchContex
 function createStream(details, video, type, icon, knownSeasonEpisode, searchContext) {
     if (!video?.name || !video?.url) return null;
 
-    return {
-        name: (STREAM_NAME_MAP[details.source] || 'Unknown') + '\n' + extractQuality(video, details),
-        title: streamTitle(details, video, type, icon, knownSeasonEpisode, searchContext),
+    const variant = type === 'series' ? detectVariant(details, video, searchContext) : null;
+    const quality = extractQuality(video, details);
+
+    const stream = {
+        name: (STREAM_NAME_MAP[details.source] || 'Unknown') + '\n' + quality,
+        title: streamTitle(details, video, type, icon, knownSeasonEpisode, variant),
         url: video.url,
         behaviorHints: {
             bingeGroup: details.source + '|' + details.id,
@@ -101,6 +110,18 @@ function createStream(details, video, type, icon, knownSeasonEpisode, searchCont
             videoSize: video.size || null,
         }
     };
+
+    Object.defineProperty(stream, 'rank', {
+        value: {
+            isVariant: Boolean(variant?.isVariant),
+            match: MATCH_RANK[video.match?.source] ?? 0,
+            quality: qualityRank(quality),
+            size: video.size || 0
+        },
+        enumerable: false
+    });
+
+    return stream;
 }
 
 // ================================================================================================
