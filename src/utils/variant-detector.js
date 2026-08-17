@@ -3,7 +3,8 @@
  * Can be disabled from environment variable
  */
 
-import { AUTO_TECHNICAL_PATTERNS, FILE_EXTENSIONS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, isTechnicalTerm, isMeaningfulVariant } from './media-patterns.js';
+import { AUTO_TECHNICAL_PATTERNS, CLEANUP_PATTERNS, COMPREHENSIVE_TECH_PATTERNS, isTechnicalTerm, isMeaningfulVariant } from './media-patterns.js';
+import { FILE_EXTENSIONS } from './file-types.js';
 import { parseSeasonFromTitle, parseEpisodeFromTitle, parseAbsoluteEpisode } from './episode-patterns.js';
 import { romanToNumber } from './roman-numeral-utils.js';
 import { isKnownReleaseGroup } from './groups-util.js';

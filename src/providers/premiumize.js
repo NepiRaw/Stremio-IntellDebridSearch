@@ -1,6 +1,6 @@
 ﻿import PremiumizeClient from 'premiumize-api'
 import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js'
-import { isVideo } from '../stream/metadata-extractor.js'
+import { isVideo } from '../utils/file-types.js'
 import { encode } from 'urlencode'
 
 class PremiumizeProvider extends BaseProvider {

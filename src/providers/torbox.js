@@ -1,5 +1,5 @@
 ﻿import { TorboxApi } from '@torbox/torbox-api'
-import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
+import { isVideo, FILE_TYPES } from '../utils/file-types.js'
 import { parseUnified } from '../utils/unified-torrent-parser.js'
 import { logger } from '../utils/logger.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'

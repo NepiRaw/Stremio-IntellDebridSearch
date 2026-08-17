@@ -2,9 +2,8 @@
  * Provides movie and series streams
  */
 import { coordinateSearch } from './search/coordinator.js';
-import { filterYear } from './stream/stream-builder.js';
+import { filterYear, optimizedStreamCreation } from './stream/stream-builder.js';
 import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
-import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
@@ -210,7 +209,14 @@ class StreamProvider {
                 }
             }
 
-            const streams = await tracker.span('build', () => sequentialStreamFormatting(streamData));
+            const streams = await tracker.span('build', () => streamData.flatMap(data => {
+                try {
+                    return optimizedStreamCreation(data.details, data.type, null, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
+                } catch (error) {
+                    logger.warn(`[stream-provider] Failed to build streams for ${data.details?.name}: ${error.message}`);
+                    return [];
+                }
+            }).filter(Boolean));
 
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
             const deduplicatedStreams = deduplicateStreams(streams);
@@ -329,13 +335,6 @@ class StreamProvider {
 
             const deduplicatedResults = StreamHelpers.performDeduplication(searchResults, 'series');
 
-            const filterSeason = searchResponse.animeMapping ? searchResponse.mappedSeason : season;
-            const targetEpisode = searchResponse.animeMapping ? searchResponse.mappedEpisode : episode;
-            
-            if (searchResponse.animeMapping) {
-                logger.info(`[stream-provider] Using anime mapping: S${season}E${episode} → S${filterSeason}E${targetEpisode}`);
-            }
-
             if (!deduplicatedResults || deduplicatedResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for series ${imdbId} S${season}E${episode}`);
                 return [];
@@ -376,8 +375,8 @@ class StreamProvider {
                         collectedTorrents.push(torrentDetails);
 
                         const knownSeasonEpisode = {
-                            season: searchResponse.animeMapping ? filterSeason : season,
-                            episode: searchResponse.animeMapping ? targetEpisode : episode,
+                            season,
+                            episode,
                             absoluteEpisode: searchResponse.absoluteEpisode
                         };
 
@@ -389,23 +388,10 @@ class StreamProvider {
                             type: 'series',
                             knownSeasonEpisode,
                             variantInfo: result.variantInfo,
-                            searchContext: searchContext,
-                            animeMapping: searchResponse.animeMapping
+                            searchContext: searchContext
                         };
 
-                        const { optimizedStreamCreation } = await import('./stream/stream-builder.js');
-                        const streams = optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
-                        
-                        if (searchResponse.animeMapping && streams && streams.length > 0) {
-                            const mapping = searchResponse.animeMapping;
-                            streams.forEach(stream => {
-                                if (stream && stream.url) {
-                                    stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
-                                }
-                            });
-                        }
-
-                        return streams;
+                        return optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
 
                     } catch (error) {
                         return null;
@@ -429,8 +415,8 @@ class StreamProvider {
 
                         // Use mapped values for knownSeasonEpisode when anime mapping is active
                         const knownSeasonEpisode = {
-                            season: searchResponse.animeMapping ? filterSeason : season,
-                            episode: searchResponse.animeMapping ? targetEpisode : episode,
+                            season,
+                            episode,
                             absoluteEpisode: searchResponse.absoluteEpisode
                         };
 
@@ -442,24 +428,10 @@ class StreamProvider {
                             type: 'series',
                             knownSeasonEpisode,
                             variantInfo: result.variantInfo,
-                            searchContext: searchContext,
-                            animeMapping: searchResponse.animeMapping
+                            searchContext: searchContext
                         };
 
-                        const { optimizedStreamCreation } = await import('./stream/stream-builder.js');
-                        const streams = optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
-                        
-                        // Add anime mapping annotation if applicable
-                        if (searchResponse.animeMapping && streams && streams.length > 0) {
-                            const mapping = searchResponse.animeMapping;
-                            streams.forEach(stream => {
-                                if (stream && stream.url) {
-                                    stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
-                                }
-                            });
-                        }
-
-                        return streams; // Return array of streams instead of single stream
+                        return optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
 
                     } catch (error) {
                         logger.warn(`[stream-provider] Failed to build stream for ${result.id}: ${error.message}`);

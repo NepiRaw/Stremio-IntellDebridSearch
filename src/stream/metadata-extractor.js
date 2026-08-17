@@ -6,41 +6,10 @@
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
 import { logger } from '../utils/logger.js';
-import { FILE_EXTENSIONS, detectContentType as detectContentTypeUtil, extractLanguageFromFilename } from '../utils/media-patterns.js';
+import { detectContentType as detectContentTypeUtil, extractLanguageFromFilename } from '../utils/media-patterns.js';
+import { FILE_EXTENSIONS } from '../utils/file-types.js';
 import { extractEpisodeTitleFromFilename } from '../utils/episode-patterns.js';
 import { configManager } from '../config/configuration.js';
-
-export const FILE_TYPES = Object.freeze({
-    TORRENTS: Symbol("torrents"),
-    DOWNLOADS: Symbol("downloads")
-});
-
-const VIDEO_EXTENSIONS = FILE_EXTENSIONS.video;
-const SUBTITLE_EXTENSIONS = FILE_EXTENSIONS.subtitle;
-const DISK_EXTENSIONS = FILE_EXTENSIONS.disk;
-const ARCHIVE_EXTENSIONS = FILE_EXTENSIONS.archive;
-
-export function isVideo(filename) {
-    return isExtension(filename, VIDEO_EXTENSIONS);
-}
-
-export function isSubtitle(filename) {
-    return isExtension(filename, SUBTITLE_EXTENSIONS);
-}
-
-export function isDisk(filename) {
-    return isExtension(filename, DISK_EXTENSIONS);
-}
-
-export function isArchive(filename) {
-    return isExtension(filename, ARCHIVE_EXTENSIONS);
-}
-
-export function isExtension(filename, extensions) {
-    if (!filename || typeof filename !== 'string') return false;
-    const extensionMatch = filename.match(/\.(\w{2,4})$/);
-    return extensionMatch && extensions.includes(extensionMatch[1].toLowerCase());
-}
 
 export function parseVideoInfoEnhanced(filename) {
     const unifiedResult = parseUnified(filename);

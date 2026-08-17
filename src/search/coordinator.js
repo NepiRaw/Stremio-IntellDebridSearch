@@ -2,14 +2,13 @@
  * Search Coordinator Module
  * Orchestrates multi-phase search across different providers and APIs
  * Two-phase approach: fast title matching, then deep content analysis
- * Also handles anime season mapping as a final fallback (phase 3)
  */
 
 import { logger } from '../utils/logger.js';
 import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparation.js';
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
-import { batchFetchTorrentDetails, performContentAnalysis, reAnalyzeWithMapping } from './phase-2-content-analysis.js';
+import { batchFetchTorrentDetails, performContentAnalysis } from './phase-2-content-analysis.js';
 import { buildEpisodeAddresses } from '../utils/episode-address.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
 import { configManager } from '../config/configuration.js';
@@ -172,13 +171,8 @@ export async function coordinateSearch(params) {
             };
         }
         
-        if (!phase2Decision.shouldTryAnime) {
-            logger.info(`[coordinator] Stopping search: ${phase2Decision.reason}`);
-            return [];
-        }
-        
-        // Continue to Phase 3 anime fallback
-        logger.info(`[coordinator] No Phase 1 matches - proceeding to Phase 3 anime fallback`);
+        logger.info(`[coordinator] Stopping search: ${phase2Decision.reason}`);
+        return [];
     }
 
     // ========== PHASE 2: DEEP CONTENT ANALYSIS ==========
@@ -208,93 +202,7 @@ export async function coordinateSearch(params) {
     }
     
     logger.debug(`[coordinator] Performance summary: ${allRawResults.length} total → ${titleMatches.length} title matches → ${matches.length} final results`);
-    
-    // ========== PHASE 3: ANIME SEASON CHECK (Final fallback) ==========
-    if (matches.length === 0 && type === 'series' && season && episode) {
-        // Check if this is Season 0 (specials/OVA) - don't do anime mapping for S00
-        if (parseInt(season) === 0) {
-            logger.info('[coordinator] Season 0 (specials/OVA) detected - skipping anime mapping phase');
-            logger.info('[coordinator] For S00 episodes, we only look for direct S00E{episode} matches');
-            
-            return {
-                results: [],
-                absoluteEpisode: absoluteEpisode
-            };
-        }
-        
-        logger.info('[coordinator] Phase 3: Trying anime season mapping as final fallback');
-        
-        try {
-            // Import anime functions from jikan.js
-            const { fetchAnimeSeasonInfo, mapAnimeEpisode, selectTitleVariationsForAnime } = await import('../api/jikan.js');
-            
-            // Use country-aware title selection for anime searches
-            const titleVariations = selectTitleVariationsForAnime(
-                searchKey, 
-                alternativeTitles, 
-                'anime'
-            );
-            
-            logger.info(`[coordinator] Country-prioritized anime search with ${titleVariations.length} title variations`);
-            
-            // Try each title variation until we find anime seasons
-            let animeSeasons = [];
-            let successfulTitle = null;
-            
-            await tracker.span('phase3', async () => {
-                for (const titleVariation of titleVariations) {
-                    logger.info(`[coordinator] Trying anime search with: "${titleVariation}"`);
-                    animeSeasons = await fetchAnimeSeasonInfo(titleVariation);
 
-                    if (animeSeasons.length > 0) {
-                        successfulTitle = titleVariation;
-                        logger.info(`[coordinator] ✅ Found anime seasons with country-prioritized title: "${titleVariation}"`);
-                        logger.info(`[anime-search] ✅ Found ${animeSeasons.length} anime seasons for "${titleVariation}":`,
-                            animeSeasons.map(r => `${r.season_number} (${r.episodes} eps) - ${r.title}`));
-                        break;
-                    } else {
-                        logger.info(`[coordinator] ❌ No anime found for: "${titleVariation}"`);
-                    }
-                }
-            });
-            
-            if (animeSeasons.length > 0) {
-                // Try to map the episode to correct season
-                const episodeMapping = mapAnimeEpisode(animeSeasons, parseInt(season), parseInt(episode));
-                
-                if (episodeMapping) {
-                    logger.info(`[coordinator] Anime mapping found using "${successfulTitle}": S${season}E${episode} → S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
-                    
-                    // Instead of full recursive search, reuse existing data and only re-analyze
-                    logger.info('[coordinator] Optimized anime retry: Re-analyzing existing torrents with new season/episode');
-                    
-                    // Re-analyze the same torrents we already found with the new season/episode
-                    const animeMatches = reAnalyzeWithMapping(titleMatches, episodeMapping);
-                    
-                    if (animeMatches.length > 0) {
-                        logger.info(`[coordinator] ✅ Optimized anime retry successful: Found ${animeMatches.length} results (no additional API calls needed)`);
-                        
-                        return {
-                            results: animeMatches,
-                            absoluteEpisode: absoluteEpisode,
-                            animeMapping: episodeMapping, // Pass the complete mapping object instead of just true
-                            mappedSeason: episodeMapping.mappedSeason,
-                            mappedEpisode: episodeMapping.mappedEpisode
-                        };
-                    } else {
-                        logger.info('[coordinator] ❌ Optimized anime retry failed: No results found with mapped season/episode');
-                    }
-                } else {
-                    logger.info('[coordinator] No anime episode mapping found');
-                }
-            } else {
-                logger.info('[coordinator] No anime seasons found for any country-prioritized title variation');
-            }
-        } catch (error) {
-            logger.warn('[coordinator] Anime season check failed:', error);
-        }
-    }
-    
     return {
         results: matches,
         absoluteEpisode: absoluteEpisode,

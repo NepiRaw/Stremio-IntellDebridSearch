@@ -1,5 +1,5 @@
 import DebridLinkClient from 'debrid-link-api'
-import { isVideo } from '../stream/metadata-extractor.js'
+import { isVideo } from '../utils/file-types.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 import { BaseProvider } from './BaseProvider.js'

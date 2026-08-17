@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
+import { FILE_TYPES } from '../utils/file-types.js';
 
 function validateConfig(config) {
     if (!config || typeof config !== 'object') {
@@ -19,11 +20,6 @@ function validateConfig(config) {
     logger.debug('[CONFIG] Config keys:', Object.keys(config));
     return false;
 }
-
-const FILE_TYPES = Object.freeze({
-    TORRENTS: Symbol("torrents"),
-    DOWNLOADS: Symbol("downloads")
-});
 
 /**
  * Centralized Configuration Manager

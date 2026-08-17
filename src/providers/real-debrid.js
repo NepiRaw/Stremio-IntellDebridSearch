@@ -1,5 +1,5 @@
 import RealDebridClient from 'real-debrid-api';
-import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js';
+import { isVideo, FILE_TYPES } from '../utils/file-types.js';
 import BaseProvider from './BaseProvider.js';
 import { parseUnified } from '../utils/unified-torrent-parser.js';
 

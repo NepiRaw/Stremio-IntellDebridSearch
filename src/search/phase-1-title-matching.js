@@ -175,37 +175,18 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
 export function shouldProceedToPhase2(titleMatches, type, season, episode) {
     if (titleMatches.length === 0) {
         logger.info('[phase-1] ❌ No title matches found in Phase 1');
-        
-        if (type === 'movie') {
-            return {
-                shouldProceed: false,
-                reason: 'movie-no-matches',
-                shouldTryAnime: false
-            };
-        }
-        
-        // For series, continue to Phase 3 (anime fallback) if we have season/episode info
-        if (type === 'series' && season && episode) {
-            return {
-                shouldProceed: false,
-                reason: 'series-no-matches-try-anime',
-                shouldTryAnime: true
-            };
-        } else {
-            return {
-                shouldProceed: false,
-                reason: 'series-no-episode-info',
-                shouldTryAnime: false
-            };
-        }
+
+        return {
+            shouldProceed: false,
+            reason: type === 'movie' ? 'movie-no-matches' : 'series-no-matches'
+        };
     }
-    
+
     // For movies or when no episode info needed, skip Phase 2
     if (type === 'movie' || (!season && !episode)) {
         return {
             shouldProceed: false,
             reason: 'movie-or-no-episode-filtering',
-            shouldTryAnime: false,
             returnPhase1: true
         };
     }

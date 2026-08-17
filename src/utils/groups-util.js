@@ -74,9 +74,9 @@ import {
     CODEC_PATTERNS, 
     LANGUAGE_PATTERNS, 
     AUDIO_PATTERNS,
-    COMPREHENSIVE_TECH_PATTERNS,
-    FILE_EXTENSIONS
+    COMPREHENSIVE_TECH_PATTERNS
 } from './media-patterns.js';
+import { FILE_EXTENSIONS } from './file-types.js';
 
 /**
  * Patterns for extracting release groups from filenames

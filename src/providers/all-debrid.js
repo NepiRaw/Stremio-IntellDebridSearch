@@ -4,7 +4,7 @@ import querystring from 'querystring';
 import { encode } from 'urlencode';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js';
-import { isVideo } from '../stream/metadata-extractor.js';
+import { isVideo } from '../utils/file-types.js';
 
 // Rate limiter 
 const limiter = new Bottleneck({

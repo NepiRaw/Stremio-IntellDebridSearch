@@ -208,13 +208,6 @@ const MEANINGFUL_VARIANT_PATTERNS = [
     /making\s*of/i
 ];
 
-const FILE_EXTENSIONS = {
-    video: ["3g2", "3gp", "avi", "flv", "mkv", "mk3d", "mov", "mp2", "mp4", "m4v", "mpe", "mpeg", "mpg", "mpv", "webm", "wmv", "ogm", "ts", "m2ts"],
-    subtitle: ["aqt", "gsub", "jss", "sub", "ttxt", "pjs", "psb", "rt", "smi", "slt", "ssf", "srt", "ssa", "ass", "usf", "idx", "vtt"],
-    disk: ["iso", "m2ts", "ts", "vob"],
-    archive: ["rar", "zip"]
-};
-
 
 function extractQualityInfo(name) {
     const quality = {
@@ -384,7 +377,6 @@ export {
     CONTENT_TYPE_PATTERNS,
     CLEANUP_PATTERNS,
     MEANINGFUL_VARIANT_PATTERNS,
-    FILE_EXTENSIONS,
     extractQualityInfo,
     extractQualityDisplay,
     detectContentType,

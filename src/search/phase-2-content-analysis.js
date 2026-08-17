@@ -17,9 +17,7 @@
  *    - For direct files, returns the torrent as-is.
  *
  * 4. Supports anime and non-standard episode numbering via episode remapping:
- *    - If anime fallback (Phase 3) is triggered, an episodeMapping object is provided (e.g., { mappedSeason, mappedEpisode }).
  *    - Re-analyzes torrents using the mapped season/episode to find the correct episode.
- *    - Annotates results with animeMapping for traceability.
  *
  * 5. Returns an array of matching episodes, each with detailed info and, if applicable, anime mapping metadata.
  */
@@ -181,67 +179,4 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
     
     logger.debug(`[phase-2] TRUE parallel content analysis complete: ${allMatches.length} matching episodes found`);
     return allMatches;
-}
-
-/**
- * Re-analyze existing torrents with new season/episode criteria (for anime mapping)
- * @param {Array} titleMatches - Original title matches
- * @param {Object} episodeMapping - Anime episode mapping
- * @returns {Array} Array of matching episodes with anime mapping
- */
-export function reAnalyzeWithMapping(titleMatches, episodeMapping) {
-    logger.info('[phase-2] Re-analyzing existing torrents with anime mapping');
-    
-    // Re-analyze the same torrents we already found with the new season/episode
-    const reAnalyzedResults = titleMatches.map(match => {
-        const analysis = analyzeTorrent(match.item, buildEpisodeAddresses({
-            season: parseInt(episodeMapping.mappedSeason),
-            episode: parseInt(episodeMapping.mappedEpisode)
-        }));
-        return {
-            torrent: match.item,
-            analysis,
-            score: match.score
-        };
-    });
-    
-    // Extract matching episodes with new criteria
-    const animeMatches = reAnalyzedResults
-        .filter(result => {
-            const hasMatch = result.analysis.hasMatchingEpisode;
-            if (hasMatch) {
-                logger.info(`[phase-2] ✅ ANIME MATCH: ${result.torrent.name} - Found S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
-            }
-            return hasMatch;
-        })
-        .flatMap(result => {
-            // For containers, return each matching video as a separate result
-            if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
-                const extractedVideos = result.analysis.matchingFiles.map(video => ({
-                    ...result.torrent,
-                    name: video.name,
-                    size: video.size,
-                    info: {
-                        ...(result.torrent.info || {}),
-                        ...(video.info || {})
-                    },
-                    // Keep track that this is from a container and anime mapping was used
-                    containerName: result.torrent.name,
-                    isExtractedVideo: true,
-                    animeMapping: episodeMapping,
-                    videos: [video],
-                    torrentDetails: result.torrent
-                }));
-
-                return extractedVideos;
-            }
-            // For direct files, return as is with anime mapping info
-            return [{
-                ...result.torrent,
-                animeMapping: episodeMapping,
-                torrentDetails: result.torrent
-            }];
-        });
-    
-    return animeMatches;
 }

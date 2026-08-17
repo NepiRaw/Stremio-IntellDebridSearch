@@ -2,8 +2,8 @@
  * Stream Builder Module - Constructs stream objects with detailed titles and quality information.
  */
 
-import { extractSeriesInfo, extractMovieInfo, FILE_TYPES } from './metadata-extractor.js';
-import { FILE_EXTENSIONS} from '../utils/media-patterns.js';
+import { extractSeriesInfo, extractMovieInfo } from './metadata-extractor.js';
+import { FILE_TYPES, FILE_EXTENSIONS } from '../utils/file-types.js';
 import { extractReleaseGroup, isValidReleaseGroup } from '../utils/groups-util.js';
 import { technicalLine, episodeTitleLine } from './display.js';
 import { extractQuality } from './quality-processor.js';

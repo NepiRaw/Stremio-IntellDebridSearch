@@ -8,7 +8,7 @@
  * - Season/episode validation and matching
  */
 
-import { FILE_EXTENSIONS } from './media-patterns.js';
+import { FILE_EXTENSIONS } from './file-types.js';
 import { logger } from './logger.js';
 import { romanToNumber, parseRomanSeasons } from './roman-numeral-utils.js';
 
