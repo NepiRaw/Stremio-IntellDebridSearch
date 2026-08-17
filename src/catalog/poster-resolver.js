@@ -1,5 +1,7 @@
 import { parseUnified } from '../utils/unified-torrent-parser.js';
-import { hasObviousEpisodeIndicators, hasSeasonOnlyIndicators, isTechnicalTerm } from '../utils/media-patterns.js';
+import { isTechnicalTerm } from '../utils/media-patterns.js';
+import { parseName } from '../parsing/parser.js';
+import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import cache from '../utils/cache-manager.js';
@@ -392,32 +394,25 @@ function yearDistanceScore(parsedYear, candidateDate) {
     return 0;
 }
 
-function inferProvisionalType(filename, parsed) {
-    const hasEpisodeMarkers = hasObviousEpisodeIndicators(filename);
-    const hasSeasonMarkers = hasSeasonOnlyIndicators(filename);
-    const flexibleSeriesPartInfo = extractFlexibleSeriesPartInfo(filename);
+function statesSeriesMarkers(filename) {
+    const parsed = parseName(filename);
+    return statesEpisode(parsed) || statesSeasonWithoutEpisode(parsed);
+}
 
+function inferProvisionalType(filename, parsed) {
     if (parsed?.episode || parsed?.absoluteEpisode) {
         return 'series';
     }
 
-    if (flexibleSeriesPartInfo) {
+    if (extractFlexibleSeriesPartInfo(filename)) {
         return 'series';
     }
 
-    if (parsed?.season && (hasEpisodeMarkers || hasSeasonMarkers)) {
-        return 'series';
-    }
-
-    if (hasEpisodeMarkers || hasSeasonMarkers) {
-        return 'series';
-    }
-
-    return 'movie';
+    return statesSeriesMarkers(filename) ? 'series' : 'movie';
 }
 
 function isClearlyEpisodic(filename, parsed) {
-    return Boolean(hasObviousEpisodeIndicators(filename) || hasSeasonOnlyIndicators(filename) || parsed?.episode || parsed?.absoluteEpisode);
+    return Boolean(statesSeriesMarkers(filename) || parsed?.episode || parsed?.absoluteEpisode);
 }
 
 function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
@@ -425,7 +420,7 @@ function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
         return false;
     }
 
-    if (hasObviousEpisodeIndicators(filename) || hasSeasonOnlyIndicators(filename) || parsed?.season) {
+    if (statesSeriesMarkers(filename) || parsed?.season) {
         return false;
     }
 

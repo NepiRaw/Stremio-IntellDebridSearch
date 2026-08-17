@@ -59,6 +59,21 @@ export function matchEpisodeAddress(parsed, addresses) {
     return null;
 }
 
+/** Whether a name states an episode of its own, in any form a release writes one. */
+export function statesEpisode(parsed) {
+    return Boolean(parsed?.episodes?.length || parsed?.episodeRange || parsed?.absoluteEpisode != null);
+}
+
+/**
+ * Whether a name describes a season or a whole series rather than a single episode.
+ * The last clause carries the case where a season is stated and no episode is, which no pack
+ * flag covers.
+ */
+export function statesSeasonWithoutEpisode(parsed) {
+    return Boolean(parsed?.isSeasonPack || parsed?.isCompleteSeries ||
+        (parsed?.seasons?.length && !parsed?.episodes?.length));
+}
+
 /**
  * Whether a torrent is worth fetching a file list for, judged on its own name only.
  * Anything a name leaves open is fetched, including every pack: a pack's name describes its

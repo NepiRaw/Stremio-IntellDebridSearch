@@ -328,43 +328,7 @@ function isMeaningfulVariant(text) {
     return MEANINGFUL_VARIANT_PATTERNS.some(pattern => pattern.test(text));
 }
 
-/**
- * Check if filename has obvious episode indicators
- */
-function hasObviousEpisodeIndicators(filename) {
-    if (!filename) return false;
-    
-    // Check for explicit episode patterns
-    for (const pattern of CONTENT_TYPE_PATTERNS.series) {
-        if (pattern.test(filename)) {
-            return true;
-        }
-    }
-    
-    // Check for number followed by release info (like "028 MULTI")
-    if (/\d{2,4}\s*(?:multi|bluray)/i.test(filename)) {
-        return true;
-    }
-    
-    return false;
-}
 
-/**
- * Check if filename has season-only indicators without an explicit episode number.
- */
-function hasSeasonOnlyIndicators(filename) {
-    if (!filename) return false;
-
-    const seasonOnlyPatterns = [
-        /\bS\d{1,2}\b/i,
-        /\bSeason\s*\d{1,2}\b/i,
-        /\bSaison\s*\d{1,2}\b/i,
-        /\bTemporada\s*\d{1,2}\b/i,
-        /\bStagione\s*\d{1,2}\b/i
-    ];
-
-    return seasonOnlyPatterns.some(pattern => pattern.test(filename));
-}
 
 export {
     QUALITY_PATTERNS,
@@ -382,7 +346,5 @@ export {
     detectContentType,
     extractLanguageFromFilename,
     isTechnicalTerm,
-    isMeaningfulVariant,
-    hasObviousEpisodeIndicators,
-    hasSeasonOnlyIndicators
+    isMeaningfulVariant
 };
