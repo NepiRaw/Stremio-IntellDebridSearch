@@ -169,7 +169,6 @@ class StreamProvider {
                             details: torrentDetails,
                             type: 'movie',
                             knownSeasonEpisode: null,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         });
                     } catch (error) {
@@ -200,7 +199,6 @@ class StreamProvider {
                             details: torrentDetails,
                             type: 'movie',
                             knownSeasonEpisode: null,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         });
                     } catch (error) {
@@ -211,7 +209,7 @@ class StreamProvider {
 
             const streams = await tracker.span('build', () => streamData.flatMap(data => {
                 try {
-                    return optimizedStreamCreation(data.details, data.type, null, data.knownSeasonEpisode, data.variantInfo, data.searchContext);
+                    return optimizedStreamCreation(data.details, data.type, data.knownSeasonEpisode, data.searchContext);
                 } catch (error) {
                     logger.warn(`[stream-provider] Failed to build streams for ${data.details?.name}: ${error.message}`);
                     return [];
@@ -387,11 +385,10 @@ class StreamProvider {
                             },
                             type: 'series',
                             knownSeasonEpisode,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         };
 
-                        return optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
+                        return optimizedStreamCreation(streamData.details, streamData.type, streamData.knownSeasonEpisode, streamData.searchContext);
 
                     } catch (error) {
                         return null;
@@ -427,11 +424,10 @@ class StreamProvider {
                             },
                             type: 'series',
                             knownSeasonEpisode,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         };
 
-                        return optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
+                        return optimizedStreamCreation(streamData.details, streamData.type, streamData.knownSeasonEpisode, streamData.searchContext);
 
                     } catch (error) {
                         logger.warn(`[stream-provider] Failed to build stream for ${result.id}: ${error.message}`);

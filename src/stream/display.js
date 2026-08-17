@@ -2,6 +2,9 @@
  * The stream title block, built from a parse result. Pure functions, no I/O and no caching.
  */
 
+import { detectSimpleVariant } from '../utils/variant-detector.js';
+import { configManager } from '../config/configuration.js';
+
 const LANGUAGE_FLAG = {
     fre: '🇫🇷', que: '🇫🇷', eng: '🇬🇧', jpn: '🇯🇵', spa: '🇪🇸', ger: '🇩🇪', deu: '🇩🇪',
     ita: '🇮🇹', kor: '🇰🇷', chi: '🇨🇳', zho: '🇨🇳', rus: '🇷🇺', por: '🇵🇹', dan: '🇩🇰',
@@ -149,4 +152,104 @@ export function technicalLine(fileParsed, containerParsed = null) {
     appendTechnical(segments, parsed);
 
     return [...new Set(segments)].join(SEPARATOR);
+}
+
+// ================================================================================================
+// THE TITLE BLOCK
+// ================================================================================================
+
+function formatSize(size) {
+    if (!size) return undefined;
+    const unit = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024));
+    return Number((size / Math.pow(1024, unit)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][unit];
+}
+
+/** A file inside a pack states less than its container, so the container answers for what it omits. */
+function extractBasicInfo(details, video) {
+    return {
+        containerName: details.containerName || details.name || 'Unknown',
+        videoName: video.name || '',
+        size: formatSize(video?.size || 0),
+        matchedTerm: details.matchedTerm || null,
+        parsed: (video.name ? video.parsed : null) ?? details.parsed ?? null,
+        containerParsed: details.parsed ?? null
+    };
+}
+
+function titleOf(parsed, containerParsed) {
+    return parsed?.title || containerParsed?.title || 'Unknown';
+}
+
+/** The container answers only when the file has no name of its own, never when the group is absent. */
+function releaseGroupOf(basicInfo) {
+    if (!configManager.getIsReleaseGroupEnabled()) return null;
+    return (basicInfo.videoName ? basicInfo.parsed : basicInfo.containerParsed)?.releaseGroup ?? null;
+}
+
+function variantLine(basicInfo, searchContext) {
+    if (process.env.VARIANT_SYSTEM_ENABLED === 'false') return '';
+    if (!searchContext?.searchTitle || !searchContext?.alternativeTitles) return '';
+
+    const variant = detectSimpleVariant(basicInfo.parsed, basicInfo.containerParsed, searchContext);
+    return variant?.isVariant && variant.variantName ? `🔄 Variant: ${variant.variantName}` : '';
+}
+
+function seasonEpisodeOf(knownSeasonEpisode, parsed) {
+    const season = knownSeasonEpisode?.season ?? parsed?.seasons?.[0];
+    const episode = knownSeasonEpisode?.episode ?? parsed?.episodes?.[0];
+    return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+}
+
+function sizeLine(icon, size, releaseGroup, seasonEpisode = null) {
+    let line = seasonEpisode
+        ? `${seasonEpisode.substring(0, 3)} - ${seasonEpisode.substring(3)} • ${icon} ${size}`
+        : `${icon} ${size}`;
+
+    if (releaseGroup?.trim()) {
+        line += ` • 👥 [${releaseGroup}]`;
+    }
+
+    return line;
+}
+
+function seriesTitle(basicInfo, icon, knownSeasonEpisode, searchContext) {
+    const { containerName, videoName, size, matchedTerm, parsed, containerParsed } = basicInfo;
+
+    const lines = [`📁 ${safeText(videoName || containerName)}`];
+    lines.push(safeText(matchedTerm?.trim() ? matchedTerm : titleOf(parsed, containerParsed)));
+
+    for (const line of [variantLine(basicInfo, searchContext), episodeTitleLine(parsed)]) {
+        if (line) lines.push(line);
+    }
+
+    const technical = technicalLine(parsed, containerParsed);
+    if (technical) lines.push(`⚙️ ${technical}`);
+
+    lines.push(sizeLine(icon, size, releaseGroupOf(basicInfo), seasonEpisodeOf(knownSeasonEpisode, parsed)));
+    return lines.join('\n');
+}
+
+function movieTitle(basicInfo, icon) {
+    const { containerName, videoName, size, parsed, containerParsed } = basicInfo;
+
+    const title = titleOf(parsed, containerParsed);
+    const year = parsed?.year ?? containerParsed?.year ?? null;
+
+    const lines = [`📁 ${safeText(videoName || containerName)}`];
+    lines.push(year ? `${title} (${year})` : title);
+
+    const technical = technicalLine(parsed, containerParsed);
+    if (technical) lines.push(`⚙️ ${technical}`);
+
+    lines.push(sizeLine(icon, size, releaseGroupOf(basicInfo)));
+    return lines.join('\n');
+}
+
+/** The multi-line title Stremio shows under the provider name. */
+export function streamTitle(details, video, type, icon, knownSeasonEpisode = null, searchContext = null) {
+    const basicInfo = extractBasicInfo(details, video);
+
+    return type === 'series'
+        ? seriesTitle(basicInfo, icon, knownSeasonEpisode, searchContext)
+        : movieTitle(basicInfo, icon);
 }
