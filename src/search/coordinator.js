@@ -79,23 +79,29 @@ export async function coordinateSearch(params) {
     // Create title variants for enhanced search (movie-only)
     const titleVariants = createTitleVariants(searchKey, type);
     
-    // ========== PARALLEL PHASE EXECUTION: PHASE 0 + PROVIDER VALIDATION ==========
-    const [preparationResult, validatedProvider] = await Promise.all([
-        tracker.span('phase0', () => prepareSearchTerms({
-            searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
-        })),
-        Promise.resolve().then(() => {
-            const providerImplementation = providers[provider];
-            if (!providerImplementation) {
-                throw new Error(`Invalid provider or make sure you encoded the request: ${provider}`);
-            }
-            return providerImplementation;
-        })
-    ]);
-    
+    const providerImpl = providers[provider];
+    if (!providerImpl) {
+        throw new Error(`Invalid provider or make sure you encoded the request: ${provider}`);
+    }
+
+    // ========== PHASE 0 AND THE LIBRARY LISTING, CONCURRENTLY ==========
+    // The listing needs a search key only on its two fallback paths, so it takes a promise and
+    // starts now; a provider that has to fall back still waits for phase 0
+    const preparation = tracker.span('phase0', () => prepareSearchTerms({
+        searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
+    }));
+
+    // Both derived promises absorb a rejection: once these run concurrently, a phase-0 failure
+    // would otherwise surface as an unhandled rejection rather than as the error thrown below.
+    const fallbackSearchKey = preparation.then(result => result.normalizedSearchKey, () => '');
+
+    const listing = tracker.span('list', () =>
+        fetchProviderTorrents(provider, providerImpl, apiKey, fallbackSearchKey, threshold));
+    listing.catch(() => {});
+
+    const preparationResult = await preparation;
     let { normalizedSearchKey, alternativeTitles, uniqueSearchTerms, absoluteEpisode, seasonOneLength } = preparationResult;
-    const providerImpl = validatedProvider;
-    
+
     // Add both raw and normalized variants from title variant creation
     if (titleVariants.length > 1) {
         const rawVariants = titleVariants.slice(1); // Skip first (original), keep with punctuation
@@ -106,11 +112,9 @@ export async function coordinateSearch(params) {
 
     // ========== OPTIMIZED PROVIDER SEARCH (SINGLE FETCH + PRE-FILTER) ==========
 
-    // Get ALL torrents once
     let allTorrents = [];
     try {
-        allTorrents = await tracker.span('list', () =>
-            fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold));
+        allTorrents = await listing;
     } catch (error) {
         logger.warn(`[coordinator] Failed to fetch torrents: ${error.message}`);
         return [];
