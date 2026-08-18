@@ -48,31 +48,41 @@ export function statesReleaseFields(text) {
  * A frozen copy of the parse, so no consumer writes back onto what the filename said.
  * The copy is what keeps the cached entry itself reusable.
  */
-export function frozenParse(filename) {
+export function frozenParse(filename, context) {
     if (!filename || typeof filename !== 'string') {
         return null;
     }
 
-    return Object.freeze({ ...parseName(filename) });
+    return Object.freeze({ ...parseName(filename, context) });
 }
 
 /**
  * The pipeline's single decoration point: a torrent and its files are parsed here
  */
-export function attachParse(details) {
+export function attachParse(details, context) {
     if (!details) {
         return details;
     }
 
-    details.parsed = frozenParse(details.name);
+    details.parsed = frozenParse(details.name, context);
 
     for (const video of details.videos ?? []) {
         if (video) {
-            video.parsed = frozenParse(video.name);
+            video.parsed = frozenParse(video.name, context);
         }
     }
 
     return details;
+}
+
+/**
+ * Corroboration for a name the parser could not settle on its own, on a movie request.
+ *
+ * Only the primary title is passed. An alternative title is often the bare name of a series, which
+ * witnesses itself inside that series' own episode filenames and turns the correction into a false positive.
+ */
+export function movieParseContext(title) {
+    return title ? { titles: [title], contentType: 'movie' } : null;
 }
 
 export function parserCacheSize() {

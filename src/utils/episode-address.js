@@ -65,6 +65,14 @@ export function statesEpisode(parsed) {
 }
 
 /**
+ * Whether the parser flagged the episode reading as one it could not settle. That is the only shape
+ * where a film and an episode look alike, so it is the only place worth reconsidering.
+ */
+export function statesAmbiguousEpisode(parsed) {
+    return Boolean(parsed?.warnings?.some(warning => String(warning).startsWith('ambiguous-episode-number')));
+}
+
+/**
  * Whether a name describes a season or a whole series rather than a single episode.
  * The last clause carries the case where a season is stated and no episode is, which no pack
  * flag covers.

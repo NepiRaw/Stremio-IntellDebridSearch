@@ -8,7 +8,7 @@ import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
 import { createTracker } from './utils/perf-tracker.js';
-import { attachParse } from './parsing/parser.js';
+import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
@@ -141,6 +141,10 @@ class StreamProvider {
 
             const streamData = [];
 
+            // The same corroboration the movie filter used, so what is displayed agrees with what
+            // was kept: a film the filter recognised is not then titled as an episode.
+            const parseContext = movieParseContext(cinemetaDetails.name);
+
             StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'movie');
 
             if (provider.bulkGetTorrentDetails) {
@@ -151,7 +155,7 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = attachParse(bulkDetails.get(result.id));
+                        const torrentDetails = attachParse(bulkDetails.get(result.id), parseContext);
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
@@ -180,7 +184,8 @@ class StreamProvider {
                 for (const result of deduplicatedResults) {
                     try {
                         const torrentDetails = attachParse(
-                            await provider.getTorrentDetails(config.DebridApiKey, result.id)
+                            await provider.getTorrentDetails(config.DebridApiKey, result.id),
+                            parseContext
                         );
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {

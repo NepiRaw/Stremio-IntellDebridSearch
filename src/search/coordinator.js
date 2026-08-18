@@ -9,8 +9,8 @@ import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparati
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis } from './phase-2-content-analysis.js';
-import { buildEpisodeAddresses, statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
-import { parseName } from '../parsing/parser.js';
+import { buildEpisodeAddresses, statesEpisode, statesSeasonWithoutEpisode, statesAmbiguousEpisode } from '../utils/episode-address.js';
+import { parseName, movieParseContext } from '../parsing/parser.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
 import { configManager } from '../config/configuration.js';
 import { extractKeywords } from './keyword-extractor.js';
@@ -160,9 +160,11 @@ export async function coordinateSearch(params) {
             
             if (type === 'movie') { // For movies, filter out torrents that are clearly series (S01E01, S01, Season packs, etc.)
                 const beforeCount = results.length;
+                const context = movieParseContext(searchKey);
                 results = results.filter(item => {
                     const parsed = parseName(item.name || '');
-                    return !statesEpisode(parsed) && !statesSeasonWithoutEpisode(parsed);
+                    const settled = statesAmbiguousEpisode(parsed) ? parseName(item.name || '', context) : parsed;
+                    return !statesEpisode(settled) && !statesSeasonWithoutEpisode(settled);
                 });
                 if (results.length < beforeCount) {
                     logger.info(`[coordinator] Filtered ${beforeCount - results.length} series torrent(s) from movie results`);
