@@ -205,6 +205,8 @@ function variantLine(variant) {
 function seasonEpisodeOf(knownSeasonEpisode, parsed) {
     const season = knownSeasonEpisode?.season ?? parsed?.seasons?.[0];
     const episode = knownSeasonEpisode?.episode ?? parsed?.episodes?.[0];
+    if (season == null || episode == null) return null;
+
     return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
 }
 
