@@ -314,10 +314,6 @@ export async function fetchTMDbTVDetails(tmdbId) {
     }
 }
 
-export function getCacheStats() {
-    return cache.getStats();
-}
-
 export function clearCache() {
     const entries = cache.getByPattern('^tmdb_');
     entries.forEach(entry => cache.delete(entry.key));

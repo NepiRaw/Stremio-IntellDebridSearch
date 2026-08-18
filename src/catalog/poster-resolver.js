@@ -946,7 +946,3 @@ export async function resolvePosterFromContext(context) {
     return buildPosterResultFromResolution(resolution);
 }
 
-export async function resolvePosterForTorrent(torrent) {
-    const context = createPosterLookupContext(torrent);
-    return resolvePosterFromContext(context);
-}

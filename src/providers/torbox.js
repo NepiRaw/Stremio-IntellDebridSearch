@@ -171,7 +171,7 @@ class TorBoxProvider extends BaseProvider {
     }
 
     async toTorrent(apiKey, item) {
-        const videoFiles = item.files.filter(file => isVideo(file.short_name));
+        const videoFiles = (item.files ?? []).filter(file => isVideo(file.short_name));
 
         const videos = [];
 

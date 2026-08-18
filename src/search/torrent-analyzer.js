@@ -8,43 +8,10 @@ import { isVideo } from '../utils/file-types.js';
 import { frozenParse } from '../parsing/parser.js';
 import { matchEpisodeAddress, keepBestTier } from '../utils/episode-address.js';
 
-/**
- * Check if two season numbers match, handling various formats and edge cases
- * @param {string|number} foundSeason - The season number found in the torrent
- * @param {string|number} targetSeason - The season number we're looking for
- * @returns {boolean} - Whether the seasons match
- */
-export function checkSeasonMatch(foundSeason, targetSeason) {
-    if ((foundSeason === null || foundSeason === undefined) || 
-        (targetSeason === null || targetSeason === undefined)) {
-        return false;
-    }
-    
-    if (typeof foundSeason === 'string') {
-        const parsed = parseInt(foundSeason, 10);
-        if (!isNaN(parsed)) foundSeason = parsed;
-    }
-    if (typeof targetSeason === 'string') {
-        const parsed = parseInt(targetSeason, 10);
-        if (!isNaN(parsed)) targetSeason = parsed;
-    }
-    
-    const normalizedTarget = parseInt(targetSeason, 10);
-    const normalizedFound = parseInt(foundSeason, 10);
-    
-    if (!isNaN(normalizedTarget) && !isNaN(normalizedFound) &&
-        normalizedTarget >= 0 && normalizedTarget <= 30 &&
-        normalizedFound >= 0 && normalizedFound <= 30) {
-        return normalizedFound === normalizedTarget;
-    }
-    
-    return false;
-}
-
 // A debrid re-download keeps the original name and adds "(1)" before the extension.
 const REDOWNLOAD_COPY = /\([1-3]\)\.[a-z0-9]{2,4}$/i;
 
-export function isRedownloadCopy(filename) {
+function isRedownloadCopy(filename) {
     return REDOWNLOAD_COPY.test(filename || '');
 }
 
@@ -67,7 +34,7 @@ export function selectEpisodeFiles(videos = [], addresses) {
 }
 
 /** A release that names the episode outranks one recognized through its absolute number. */
-export function rankEpisodeFiles(videos) {
+function rankEpisodeFiles(videos) {
     if (videos.length < 2) {
         return videos;
     }

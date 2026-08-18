@@ -19,7 +19,7 @@ import { extractKeywords } from './keyword-extractor.js';
  * Create title variants for enhanced search matching.
  * Creates "&" → "and" variants.
  */
-export function createTitleVariants(originalTitle, type) {
+function createTitleVariants(originalTitle, type) {
     const variants = [originalTitle];
     
     if (originalTitle.includes('&')) {
@@ -29,29 +29,6 @@ export function createTitleVariants(originalTitle, type) {
     }
     
     return variants;
-}
-
-/**
- * Get basic title information without complete metadata
- */
-export function getBasicTitleInfo(searchKey, type) {
-    const cleanedTitle = extractKeywords(searchKey);
-    return {
-        title: cleanedTitle,
-        normalizedTitle: cleanedTitle.toLowerCase(),
-        type: type
-    };
-}
-
-/**
- * Get search strategy based on content type and metadata availability
- */
-export function getSearchStrategy(type, season, episode, alternativeTitles) {
-    return {
-        useMultiplePhases: type === 'series' && season && episode,
-        useTitleVariations: alternativeTitles.length > 0,
-        useAnimeSearch: type === 'series'
-    };
 }
 
 /**
