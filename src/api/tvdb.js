@@ -1,4 +1,5 @@
 import cache from '../utils/cache-manager.js';
+import { fetchWithRetry } from './http.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -42,11 +43,11 @@ export function isTvdbEnabled() {
 }
 
 async function login(apiKey) {
-    const response = await fetch(`${API}/login`, {
+    const response = await fetchWithRetry(`${API}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apikey: apiKey })
-    });
+    }, 'tvdb-api');
 
     if (!response.ok) {
         throw new Error(`login failed: HTTP ${response.status}`);
@@ -64,12 +65,12 @@ async function login(apiKey) {
 // Re-authenticates once if the cached token has been revoked before its TTL.
 async function authorizedGet(path, apiKey) {
     let token = cache.get(TOKEN_KEY) || await login(apiKey);
-    let response = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    let response = await fetchWithRetry(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 
     if (response.status === 401) {
         cache.delete(TOKEN_KEY);
         token = await login(apiKey);
-        response = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+        response = await fetchWithRetry(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
     }
 
     if (!response.ok) {

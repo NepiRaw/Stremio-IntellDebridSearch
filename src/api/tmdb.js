@@ -1,4 +1,5 @@
 import cache from '../utils/cache-manager.js';
+import { fetchWithRetry } from './http.js';
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 
@@ -50,7 +51,7 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
 
         if (!resolvedTmdbId && imdbId && resolvedApiKey) {
             const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${resolvedApiKey}&external_source=imdb_id`;
-            const resp = await fetch(findUrl);
+            const resp = await fetchWithRetry(findUrl, {}, 'tmdb-api');
             const data = await resp.json();
             if (type === 'movie' && data.movie_results && data.movie_results.length) {
                 const result = data.movie_results[0];
@@ -75,7 +76,7 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
             ? `https://api.themoviedb.org/3/movie/${resolvedTmdbId}/alternative_titles?api_key=${resolvedApiKey}`
             : `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/alternative_titles?api_key=${resolvedApiKey}`;
 
-        const resp = await fetch(url);
+        const resp = await fetchWithRetry(url, {}, 'tmdb-api');
         const data = await resp.json();
         const rawTitles = data.results || data.titles || [];
         
@@ -135,7 +136,7 @@ export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
 
     try {
         const searchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${resolvedApiKey}&query=${encodeURIComponent(searchTitle)}`;
-        const searchResp = await fetch(searchUrl);
+        const searchResp = await fetchWithRetry(searchUrl, {}, 'tmdb-api');
         const searchData = await searchResp.json();
 
         let result = null;
@@ -191,9 +192,9 @@ export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
 
     try {
         const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}/external_ids?api_key=${resolvedApiKey}`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -246,9 +247,9 @@ export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = 
         }
 
         const url = `https://api.themoviedb.org/3/search/${endpoint}?${params.toString()}`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -290,9 +291,9 @@ export async function fetchTMDbTVDetails(tmdbId) {
 
     try {
         const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${resolvedApiKey}&language=en-US`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
