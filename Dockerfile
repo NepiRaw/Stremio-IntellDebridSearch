@@ -20,6 +20,5 @@ RUN corepack enable && pnpm install --frozen-lockfile
 
 EXPOSE 3001
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
