@@ -18,7 +18,8 @@ builder.defineCatalogHandler(async (args) => {
 
         if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
             if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
-                throw new Error('Invalid Debrid configuration: Missing configs')
+                logger.debug('[CatalogHandler] No debrid configuration, returning an empty catalog')
+                return { metas: [] }
             }
 
             let provider;

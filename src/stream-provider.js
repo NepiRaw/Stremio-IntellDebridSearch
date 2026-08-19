@@ -92,6 +92,11 @@ class StreamProvider {
                 throw new ValidationError(`Invalid movie ID format: ${id}`, 'id', 'INVALID_ID');
             }
 
+            if (!config.DebridProvider || !config.DebridApiKey) {
+                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                return [];
+            }
+
             const imdbId = id.startsWith('imdb:') ? id.replace('imdb:', '') : id;
 
             const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
@@ -273,6 +278,13 @@ class StreamProvider {
             const idParts = id.split(':');
             if (idParts.length !== 3) {
                 throw new ValidationError(`Invalid series ID format: ${id}`, 'id', 'INVALID_ID');
+            }
+
+            // An install without a configuration reaches here with an empty config object, which is
+            // truthy. Answering empty is correct; letting it fall through raises deep in the search.
+            if (!config.DebridProvider || !config.DebridApiKey) {
+                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                return [];
             }
 
             const [imdbId, seasonStr, episodeStr] = idParts;
