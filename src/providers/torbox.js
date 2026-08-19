@@ -12,7 +12,7 @@ const API_VALIDATION_OPTIONS = { responseValidation: false }
 const TORBOX_RATE_LIMIT = {
     maxCalls: 10,         // Max API calls before applying delay
     delayMs: 250,         // Delay in milliseconds
-    enabled: false        // Enable/disable rate limiting
+    enabled: true         // Enable/disable rate limiting
 };
 
 class TorBoxProvider extends BaseProvider {
