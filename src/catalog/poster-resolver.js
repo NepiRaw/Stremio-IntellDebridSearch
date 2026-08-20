@@ -1,7 +1,6 @@
-import { parseUnified } from '../utils/unified-torrent-parser.js';
-import { hasObviousEpisodeIndicators, hasSeasonOnlyIndicators, isTechnicalTerm } from '../utils/media-patterns.js';
+import { parseName, frozenParse, statesReleaseFields } from '../parsing/parser.js';
+import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
-import { romanToNumber } from '../utils/roman-numeral-utils.js';
 import cache from '../utils/cache-manager.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -145,13 +144,33 @@ function mediaTypeToEndpoint(mediaType) {
     return mediaType === 'series' ? 'tv' : 'movie';
 }
 
+const ROMAN_SEQUENCE = [['L', 50], ['XL', 40], ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]];
+const ROMAN_TOKEN = /^(?=[IVXL]{2})(XL|L|X{0,3})(IX|IV|V?I{0,3})$/;
+
+function romanTokenToNumber(roman) {
+    if (!ROMAN_TOKEN.test(roman)) {
+        return null;
+    }
+
+    let value = 0;
+    let at = 0;
+    for (const [symbol, amount] of ROMAN_SEQUENCE) {
+        while (roman.startsWith(symbol, at)) {
+            value += amount;
+            at += symbol.length;
+        }
+    }
+
+    return value <= 50 ? value : null;
+}
+
 function normalizeToken(token) {
     const trimmed = (token || '').trim();
     if (!trimmed) {
         return '';
     }
 
-    const romanValue = romanToNumber(trimmed.toUpperCase());
+    const romanValue = romanTokenToNumber(trimmed.toUpperCase());
     if (romanValue !== null) {
         return String(romanValue);
     }
@@ -193,7 +212,7 @@ function isLikelyAliasSegment(value) {
         return false;
     }
 
-    if (isTechnicalTerm(trimmed)) {
+    if (statesReleaseFields(trimmed)) {
         return false;
     }
 
@@ -392,32 +411,25 @@ function yearDistanceScore(parsedYear, candidateDate) {
     return 0;
 }
 
+function statesSeriesMarkers(filename) {
+    const parsed = parseName(filename);
+    return statesEpisode(parsed) || statesSeasonWithoutEpisode(parsed);
+}
+
 function inferProvisionalType(filename, parsed) {
-    const hasEpisodeMarkers = hasObviousEpisodeIndicators(filename);
-    const hasSeasonMarkers = hasSeasonOnlyIndicators(filename);
-    const flexibleSeriesPartInfo = extractFlexibleSeriesPartInfo(filename);
-
-    if (parsed?.episode || parsed?.absoluteEpisode) {
+    if (parsed?.episodes?.[0] || parsed?.absoluteEpisode) {
         return 'series';
     }
 
-    if (flexibleSeriesPartInfo) {
+    if (extractFlexibleSeriesPartInfo(filename)) {
         return 'series';
     }
 
-    if (parsed?.season && (hasEpisodeMarkers || hasSeasonMarkers)) {
-        return 'series';
-    }
-
-    if (hasEpisodeMarkers || hasSeasonMarkers) {
-        return 'series';
-    }
-
-    return 'movie';
+    return statesSeriesMarkers(filename) ? 'series' : 'movie';
 }
 
 function isClearlyEpisodic(filename, parsed) {
-    return Boolean(hasObviousEpisodeIndicators(filename) || hasSeasonOnlyIndicators(filename) || parsed?.episode || parsed?.absoluteEpisode);
+    return Boolean(statesSeriesMarkers(filename) || parsed?.episodes?.[0] || parsed?.absoluteEpisode);
 }
 
 function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
@@ -425,7 +437,7 @@ function shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed) {
         return false;
     }
 
-    if (hasObviousEpisodeIndicators(filename) || hasSeasonOnlyIndicators(filename) || parsed?.season) {
+    if (statesSeriesMarkers(filename) || parsed?.seasons?.[0]) {
         return false;
     }
 
@@ -452,7 +464,7 @@ function sanitizeParsedForPosterLookup(filename, parsed) {
     if (shouldIgnoreTitleSuffixAbsoluteEpisode(filename, parsed)) {
         sanitized = {
             ...sanitized,
-            episode: parsed.episode === parsed.absoluteEpisode ? null : parsed.episode,
+            episodes: parsed.episodes?.[0] === parsed.absoluteEpisode ? null : parsed.episodes,
             absoluteEpisode: null
         };
     }
@@ -466,8 +478,8 @@ function sanitizeParsedForPosterLookup(filename, parsed) {
     return {
         ...sanitized,
         title: cleanedTitle || sanitized.title,
-        season: sanitized.season || flexibleSeriesPartInfo.season,
-        episode: null,
+        seasons: sanitized.seasons?.[0] ? sanitized.seasons : [flexibleSeriesPartInfo.season],
+        episodes: null,
         absoluteEpisode: null
     };
 }
@@ -495,7 +507,7 @@ function isJunkParsedTitle(title) {
 }
 
 function seasonSupportScore(context, candidate) {
-    const parsedSeason = context.parsed?.season;
+    const parsedSeason = context.parsed?.seasons?.[0];
     if (!parsedSeason) {
         return 0.6;
     }
@@ -513,7 +525,7 @@ function seasonSupportScore(context, candidate) {
 }
 
 function episodeSupportScore(context, candidate) {
-    const parsedEpisode = context.parsed?.episode || context.parsed?.absoluteEpisode;
+    const parsedEpisode = context.parsed?.episodes?.[0] || context.parsed?.absoluteEpisode;
     if (!parsedEpisode) {
         return 0.6;
     }
@@ -615,7 +627,7 @@ function applySeriesAmbiguityTieBreak(context, candidates) {
         return candidates;
     }
 
-    if (!(context.parsed?.season || context.parsed?.episode || context.parsed?.absoluteEpisode)) {
+    if (!(context.parsed?.seasons?.[0] || context.parsed?.episodes?.[0] || context.parsed?.absoluteEpisode)) {
         return candidates;
     }
 
@@ -830,7 +842,7 @@ export function createPosterLookupContext(torrent) {
         return null;
     }
 
-    const rawParsed = parseUnified(filename);
+    const rawParsed = frozenParse(filename);
     const ignoredTitleSuffixAbsoluteEpisode = shouldIgnoreTitleSuffixAbsoluteEpisode(filename, rawParsed);
     const parsed = sanitizeParsedForPosterLookup(filename, rawParsed);
     const parsedTitle = parsed?.title?.trim() || '';
@@ -934,7 +946,3 @@ export async function resolvePosterFromContext(context) {
     return buildPosterResultFromResolution(resolution);
 }
 
-export async function resolvePosterForTorrent(torrent) {
-    const context = createPosterLookupContext(torrent);
-    return resolvePosterFromContext(context);
-}

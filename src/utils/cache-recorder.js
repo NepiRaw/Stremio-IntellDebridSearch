@@ -16,6 +16,21 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 let recorderSingleton = null;
 
+/** Language labels, lower-cased, which is the shape the existing `languages` column already holds. */
+function labelList(languages) {
+    const labels = (languages ?? []).map(entry => entry?.label?.toLowerCase()).filter(Boolean);
+    return labels.length ? JSON.stringify(labels) : null;
+}
+
+function jsonList(values) {
+    return values?.length ? JSON.stringify(values) : null;
+}
+
+function flag(value) {
+    return value ? 1 : 0;
+}
+
+
 class DedupCache {
     constructor(maxSize = DEDUP_CACHE_MAX) {
         this.map = new Map();
@@ -89,7 +104,28 @@ export class CacheRecorder {
         this.db.pragma('cache_size = -8000'); // 8 MB page cache
 
         this._createSchema();
+        this._migrateSchema();
         this._prepareStatements();
+    }
+
+    _addedColumns() {
+        return [
+            ['content_type', 'TEXT'], ['editions', 'TEXT'], ['streaming_service', 'TEXT'],
+            ['hdr', 'TEXT'], ['bit_depth', 'TEXT'], ['channels', 'TEXT'],
+            ['subtitle_languages', 'TEXT'], ['is_remux', 'INTEGER'], ['is_repack', 'INTEGER'],
+            ['is_proper', 'INTEGER'], ['is_season_pack', 'INTEGER'], ['is_complete_series', 'INTEGER']
+        ];
+    }
+
+    /** Existing databases gain the new columns in place; no existing column is touched. */
+    _migrateSchema() {
+        const present = new Set(this.db.prepare('PRAGMA table_info(torrent_cache)').all().map(column => column.name));
+
+        for (const [name, type] of this._addedColumns()) {
+            if (!present.has(name)) {
+                this.db.exec(`ALTER TABLE torrent_cache ADD COLUMN ${name} ${type}`);
+            }
+        }
     }
 
     _createSchema() {
@@ -108,6 +144,18 @@ export class CacheRecorder {
                 release_group TEXT,
                 parsed_title TEXT,
                 year INTEGER,
+                content_type TEXT,
+                editions TEXT,
+                streaming_service TEXT,
+                hdr TEXT,
+                bit_depth TEXT,
+                channels TEXT,
+                subtitle_languages TEXT,
+                is_remux INTEGER,
+                is_repack INTEGER,
+                is_proper INTEGER,
+                is_season_pack INTEGER,
+                is_complete_series INTEGER,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 PRIMARY KEY (hash, provider)
@@ -142,9 +190,13 @@ export class CacheRecorder {
         this.stmts = {
             upsertTorrentCache: this.db.prepare(`
                 INSERT INTO torrent_cache (hash, provider, is_cached, torrent_name, total_size,
-                    resolution, quality_source, codec, audio, languages, release_group, parsed_title, year)
+                    resolution, quality_source, codec, audio, languages, release_group, parsed_title, year,
+                    content_type, editions, streaming_service, hdr, bit_depth, channels, subtitle_languages,
+                    is_remux, is_repack, is_proper, is_season_pack, is_complete_series)
                 VALUES (@hash, @provider, 1, @torrent_name, @total_size,
-                    @resolution, @quality_source, @codec, @audio, @languages, @release_group, @parsed_title, @year)
+                    @resolution, @quality_source, @codec, @audio, @languages, @release_group, @parsed_title, @year,
+                    @content_type, @editions, @streaming_service, @hdr, @bit_depth, @channels, @subtitle_languages,
+                    @is_remux, @is_repack, @is_proper, @is_season_pack, @is_complete_series)
                 ON CONFLICT(hash, provider) DO UPDATE SET
                     is_cached = 1,
                     updated_at = datetime('now'),
@@ -157,7 +209,19 @@ export class CacheRecorder {
                     languages = COALESCE(@languages, languages),
                     release_group = COALESCE(@release_group, release_group),
                     parsed_title = COALESCE(@parsed_title, parsed_title),
-                    year = COALESCE(@year, year)
+                    year = COALESCE(@year, year),
+                    content_type = COALESCE(@content_type, content_type),
+                    editions = COALESCE(@editions, editions),
+                    streaming_service = COALESCE(@streaming_service, streaming_service),
+                    hdr = COALESCE(@hdr, hdr),
+                    bit_depth = COALESCE(@bit_depth, bit_depth),
+                    channels = COALESCE(@channels, channels),
+                    subtitle_languages = COALESCE(@subtitle_languages, subtitle_languages),
+                    is_remux = COALESCE(@is_remux, is_remux),
+                    is_repack = COALESCE(@is_repack, is_repack),
+                    is_proper = COALESCE(@is_proper, is_proper),
+                    is_season_pack = COALESCE(@is_season_pack, is_season_pack),
+                    is_complete_series = COALESCE(@is_complete_series, is_complete_series)
             `),
 
             upsertContentHash: this.db.prepare(`
@@ -216,8 +280,7 @@ export class CacheRecorder {
             if (this.dedup.has(dedupKey) && (!hasVideos || this.dedup.hasVideos(dedupKey))) continue;
             this.dedup.set(dedupKey, hasVideos);
 
-            const info = torrent.info || {};
-            const languages = info.languages?.length ? JSON.stringify(info.languages) : null;
+            const parsed = torrent.parsed || {};
 
             this.writeBuffer.push({
                 type: 'stream',
@@ -228,14 +291,28 @@ export class CacheRecorder {
                 episode,
                 torrent_name: torrent.name || null,
                 total_size: torrent.size || null,
-                resolution: info.resolution || null,
-                quality_source: info.source || null,
-                codec: info.codec || null,
-                audio: info.audio || null,
-                languages,
-                release_group: info.group || null,
-                parsed_title: info.title || null,
-                year: info.year || null,
+                // The columns an external addon already reads keep their exact previous values.
+                resolution: parsed.resolution || null,
+                quality_source: parsed.source || null,
+                codec: parsed.codec || null,
+                audio: parsed.audio?.[0] || null,
+                languages: labelList(parsed.languages),
+                release_group: parsed.releaseGroup || null,
+                parsed_title: parsed.title || null,
+                year: parsed.year || null,
+                // Added with the parser swap, never in place of anything above.
+                content_type: parsed.contentType || null,
+                editions: jsonList(parsed.editions),
+                streaming_service: parsed.streamingService || null,
+                hdr: jsonList(parsed.hdr),
+                bit_depth: parsed.bitDepth || null,
+                channels: parsed.channels?.[0] || null,
+                subtitle_languages: labelList(parsed.subtitleLanguages),
+                is_remux: flag(parsed.isRemux),
+                is_repack: flag(parsed.isRepack),
+                is_proper: flag(parsed.isProper),
+                is_season_pack: flag(parsed.isSeasonPack),
+                is_complete_series: flag(parsed.isCompleteSeries),
                 videos: torrent.videos || []
             });
         }
@@ -270,7 +347,19 @@ export class CacheRecorder {
                         languages: entry.languages,
                         release_group: entry.release_group,
                         parsed_title: entry.parsed_title,
-                        year: entry.year
+                        year: entry.year,
+                        content_type: entry.content_type,
+                        editions: entry.editions,
+                        streaming_service: entry.streaming_service,
+                        hdr: entry.hdr,
+                        bit_depth: entry.bit_depth,
+                        channels: entry.channels,
+                        subtitle_languages: entry.subtitle_languages,
+                        is_remux: entry.is_remux,
+                        is_repack: entry.is_repack,
+                        is_proper: entry.is_proper,
+                        is_season_pack: entry.is_season_pack,
+                        is_complete_series: entry.is_complete_series
                     });
 
                     // 2. Upsert content_hash mapping

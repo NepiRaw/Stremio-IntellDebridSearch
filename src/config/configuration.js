@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
+import { FILE_TYPES } from '../utils/file-types.js';
 
 function validateConfig(config) {
     if (!config || typeof config !== 'object') {
@@ -19,11 +20,6 @@ function validateConfig(config) {
     logger.debug('[CONFIG] Config keys:', Object.keys(config));
     return false;
 }
-
-const FILE_TYPES = Object.freeze({
-    TORRENTS: Symbol("torrents"),
-    DOWNLOADS: Symbol("downloads")
-});
 
 /**
  * Centralized Configuration Manager
@@ -47,23 +43,23 @@ class ConfigurationManager {
         }
 
         const tmdbApiKey = this.getEnvVar('TMDB_API_KEY');
-        const traktApiKey = this.getEnvVar('TRAKT_API_KEY');
-        
+        const tvdbApiKey = this.getEnvVar('TVDB_API_KEY');
+
         if (!this._hasLoggedApiConfig) {
             if (tmdbApiKey) {
                 logger.info('[configuration] Using TMDb API key from environment variables');
             }
-            
-            if (traktApiKey) {
-                logger.info('[configuration] Using Trakt API key from environment variables');
+
+            if (tvdbApiKey) {
+                logger.info('[configuration] Using TVDB API key from environment variables');
             }
             this._hasLoggedApiConfig = true;
         }
 
         this._apiConfigCache = {
             tmdbApiKey,
-            traktApiKey,
-            hasApiKeys: !!(tmdbApiKey || traktApiKey),
+            tvdbApiKey,
+            hasApiKeys: !!(tmdbApiKey || tvdbApiKey),
             hasAdvancedSearch: this.determineSearchCapabilities()
         };
 
@@ -79,7 +75,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.filename,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.completionDate)
                 })
@@ -91,7 +86,6 @@ class ConfigurationManager {
                     id: item.id.split('-')[0],
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created * 1000)
                 })
@@ -104,7 +98,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.filename,
                     type: 'other',
-                    info: null,
                     size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
                     created: new Date(item.added) // RealDebrid uses 'added' field
                 })
@@ -117,7 +110,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created_at)
                 })
@@ -129,7 +121,6 @@ class ConfigurationManager {
                     id: item.id,
                     name: item.name,
                     type: 'other',
-                    info: null,
                     size: item.size,
                     created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
                 })
@@ -146,55 +137,38 @@ class ConfigurationManager {
     }
 
     getIsTmdbEnabled() {
-        const { tmdbApiKey, traktApiKey } = this.getApiConfig();
-        
-        if (tmdbApiKey && traktApiKey) {
-            return true; // Scenario 1: Both APIs
-        }
-        if (tmdbApiKey && !traktApiKey) {
-            return true; // Scenario 2: TMDb only
-        }
-        return false;
+        const { tmdbApiKey } = this.getApiConfig();
+        return !!tmdbApiKey;
     }
 
-    getIsTraktEnabled() {
-        const { tmdbApiKey, traktApiKey } = this.getApiConfig();
-        
-        if (tmdbApiKey && traktApiKey) {
-            return true; // Scenario 1: Both APIs
-        }
-        
-        return false;
+    // Absolute episode numbering comes from TVDB alone, independently of TMDb.
+    getIsTvdbEnabled() {
+        const { tvdbApiKey } = this.getApiConfig();
+        return !!tvdbApiKey;
     }
 
     determineSearchCapabilities() {
         const tmdbApiKey = this.getEnvVar('TMDB_API_KEY');
-        const traktApiKey = this.getEnvVar('TRAKT_API_KEY');
-        
-        if (tmdbApiKey && traktApiKey) {
-            return true;
+        const tvdbApiKey = this.getEnvVar('TVDB_API_KEY');
+
+        if (!tmdbApiKey && tvdbApiKey) {
+            logger.warn('[configuration] Only TVDB API key available. TMDb API key is required for advanced search. Falling back to basic search.');
         }
-        if (tmdbApiKey && !traktApiKey) {
-            return true;
-        }
-        if (!tmdbApiKey && traktApiKey) {
-            logger.warn('[configuration] Only Trakt API key available. TMDb API key is required for advanced search. Falling back to basic search.');
-            return false;
-        }
-        return false;
+
+        return !!tmdbApiKey;
     }
 
     getSearchCapabilities() {
         const isTmdbEnabled = this.getIsTmdbEnabled();
-        const isTraktEnabled = this.getIsTraktEnabled();
-        
+        const isTvdbEnabled = this.getIsTvdbEnabled();
+
         return {
             alternativeTitles: isTmdbEnabled,
-            episodeMapping: isTraktEnabled,
+            episodeMapping: isTvdbEnabled,
             enhancedMatching: isTmdbEnabled,
-            absoluteEpisodes: isTraktEnabled,
+            absoluteEpisodes: isTvdbEnabled,
             internationalTitles: isTmdbEnabled,
-            animeSupport: isTraktEnabled
+            animeSupport: isTvdbEnabled
         };
     }
 
@@ -418,7 +392,7 @@ export function logApiStartupStatus() {
     const apiConfig = configManager.getApiConfig();
     const capabilities = configManager.getSearchCapabilities();
     const isTmdbEnabled = configManager.getIsTmdbEnabled();
-    const isTraktEnabled = configManager.getIsTraktEnabled();
+    const isTvdbEnabled = configManager.getIsTvdbEnabled();
     const hasAdvancedSearch = configManager.determineSearchCapabilities();
     const isReleaseGroupEnabled = configManager.getIsReleaseGroupEnabled();
     const isCatalogPosterEnabled = configManager.getIsCatalogPosterEnabled();
@@ -428,7 +402,7 @@ export function logApiStartupStatus() {
     
     logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
     logger.info(`[configuration] TMDb API: ${isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] Trakt API: ${isTraktEnabled ? 'Available ✅' : 'Not configured ❌'}`);
+    logger.info(`[configuration] TVDB API: ${isTvdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
     logger.info(`[configuration] ⚡ Advanced search: ${hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
     logger.info(`[configuration] 👥 Release groups: ${isReleaseGroupEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
     logger.info(`[configuration] 🖼️  Catalog posters: ${isCatalogPosterEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);

@@ -2,13 +2,13 @@
  * Provides movie and series streams
  */
 import { coordinateSearch } from './search/coordinator.js';
-import { filterEpisode, filterYear } from './stream/stream-builder.js';
-import { sortMovieStreamsByQuality, deduplicateStreams } from './stream/quality-processor.js';
-import { sequentialStreamFormatting } from './stream/performance-optimizer.js';
+import { filterYear, optimizedStreamCreation } from './stream/stream-builder.js';
+import { sortStreamsByRank, deduplicateStreams } from './stream/quality-processor.js';
 import { logger } from './utils/logger.js';
 import { ValidationError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
-import { AbsoluteEpisodeProcessor } from './utils/absolute-episode-processor.js';
+import { createTracker } from './utils/perf-tracker.js';
+import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { AllDebridProvider } from './providers/all-debrid.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
@@ -76,6 +76,7 @@ class StreamProvider {
     
     static async getMovieStreams(config, type, id) {
         const startTime = Date.now();
+        const tracker = createTracker(id);
         logger.info(`[stream-provider] Starting movie stream search for ${id}`);
 
         try {
@@ -91,9 +92,14 @@ class StreamProvider {
                 throw new ValidationError(`Invalid movie ID format: ${id}`, 'id', 'INVALID_ID');
             }
 
+            if (!config.DebridProvider || !config.DebridApiKey) {
+                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                return [];
+            }
+
             const imdbId = id.startsWith('imdb:') ? id.replace('imdb:', '') : id;
-            
-            const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
+
+            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
@@ -114,7 +120,8 @@ class StreamProvider {
                 threshold: 0.4,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                traktApiKey: apiConfig.traktApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey,
+                tracker
             });
 
             const searchResults = searchResponse?.results || searchResponse || [];
@@ -130,8 +137,7 @@ class StreamProvider {
             }
 
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
-            const streamProcessingStart = Date.now();
-            
+
             const provider = providers[config.DebridProvider];
             if (!provider || !provider.getTorrentDetails) {
                 logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
@@ -140,24 +146,29 @@ class StreamProvider {
 
             const streamData = [];
 
+            // The same corroboration the movie filter used, so what is displayed agrees with what
+            // was kept: a film the filter recognised is not then titled as an episode.
+            const parseContext = movieParseContext(cinemetaDetails.name);
+
             StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'movie');
 
             if (provider.bulkGetTorrentDetails) {
                 
                 const torrentIds = deduplicatedResults.map(result => result.id);
-                const bulkDetails = await provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds);
+                const bulkDetails = await tracker.span('fetch', () =>
+                    provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds));
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = bulkDetails.get(result.id);
-                        
+                        const torrentDetails = attachParse(bulkDetails.get(result.id), parseContext);
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             continue;
                         }
 
                         if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.info?.year;
+                            const torrentYear = torrentDetails?.parsed?.year;
                             const movieYear = cinemetaDetails?.year;
                             logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
                             continue;
@@ -167,7 +178,6 @@ class StreamProvider {
                             details: torrentDetails,
                             type: 'movie',
                             knownSeasonEpisode: null,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         });
                     } catch (error) {
@@ -178,15 +188,18 @@ class StreamProvider {
                 
                 for (const result of deduplicatedResults) {
                     try {
-                        const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
-                        
+                        const torrentDetails = attachParse(
+                            await provider.getTorrentDetails(config.DebridApiKey, result.id),
+                            parseContext
+                        );
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
                             continue;
                         }
 
                         if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.info?.year;
+                            const torrentYear = torrentDetails?.parsed?.year;
                             const movieYear = cinemetaDetails?.year;
                             logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
                             continue;
@@ -196,7 +209,6 @@ class StreamProvider {
                             details: torrentDetails,
                             type: 'movie',
                             knownSeasonEpisode: null,
-                            variantInfo: result.variantInfo,
                             searchContext: searchContext
                         });
                     } catch (error) {
@@ -205,16 +217,21 @@ class StreamProvider {
                 }
             }
 
-            const streams = await sequentialStreamFormatting(streamData);
-            
-            const streamProcessingEnd = Date.now();
-            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
+            const streams = await tracker.span('build', () => streamData.flatMap(data => {
+                try {
+                    return optimizedStreamCreation(data.details, data.type, data.knownSeasonEpisode, data.searchContext);
+                } catch (error) {
+                    logger.warn(`[stream-provider] Failed to build streams for ${data.details?.name}: ${error.message}`);
+                    return [];
+                }
+            }).filter(Boolean));
 
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
             const deduplicatedStreams = deduplicateStreams(streams);
 
-            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreams);
-            
+            const sortedStreams = sortStreamsByRank(deduplicatedStreams);
+            tracker.note('streams', sortedStreams.length);
+
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Movie search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId}`);
 
@@ -237,13 +254,16 @@ class StreamProvider {
         } catch (error) {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}:`, error);
-            
+
             return [];
+        } finally {
+            logger.debug(`[perf] ${tracker.summary()}`);
         }
     }
 
     static async getSeriesStreams(config, type, id) {
         const startTime = Date.now();
+        const tracker = createTracker(id);
         logger.info(`[stream-provider] Starting series stream search for ${id}`);
 
         try {
@@ -258,6 +278,13 @@ class StreamProvider {
             const idParts = id.split(':');
             if (idParts.length !== 3) {
                 throw new ValidationError(`Invalid series ID format: ${id}`, 'id', 'INVALID_ID');
+            }
+
+            // An install without a configuration reaches here with an empty config object, which is
+            // truthy. Answering empty is correct; letting it fall through raises deep in the search.
+            if (!config.DebridProvider || !config.DebridApiKey) {
+                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                return [];
             }
 
             const [imdbId, seasonStr, episodeStr] = idParts;
@@ -276,7 +303,7 @@ class StreamProvider {
                 throw new ValidationError(`Invalid episode: ${episodeStr}`, 'episode', 'INVALID_EPISODE');
             }
 
-            const cinemetaDetails = await Cinemeta.getMeta(type, imdbId);
+            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
                 return [];
@@ -297,7 +324,8 @@ class StreamProvider {
                 threshold: 0.3,
                 providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
-                traktApiKey: apiConfig.traktApiKey
+                tvdbApiKey: apiConfig.tvdbApiKey,
+                tracker
             });
 
             const searchResults = searchResponse.results || [];
@@ -322,21 +350,13 @@ class StreamProvider {
 
             const deduplicatedResults = StreamHelpers.performDeduplication(searchResults, 'series');
 
-            const filterSeason = searchResponse.animeMapping ? searchResponse.mappedSeason : season;
-            const targetEpisode = searchResponse.animeMapping ? searchResponse.mappedEpisode : episode;
-            
-            if (searchResponse.animeMapping) {
-                logger.info(`[stream-provider] Using anime mapping: S${season}E${episode} → S${filterSeason}E${targetEpisode}`);
-            }
-
             if (!deduplicatedResults || deduplicatedResults.length === 0) {
                 logger.info(`[stream-provider] No streams found for series ${imdbId} S${season}E${episode}`);
                 return [];
             }
 
             logger.debug(`[stream-provider] Starting controlled concurrent stream processing for ${deduplicatedResults.length} series results`);
-            const streamProcessingStart = Date.now();
-            
+
             // Use controlled concurrency to prevent debrid API overwhelm
             // Limit concurrent debrid API calls to prevent rate limiting issues
             const { executeWithControlledConcurrency } = await import('./utils/debrid-processor.js');
@@ -353,35 +373,25 @@ class StreamProvider {
             StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'series');
 
             if (provider.bulkGetTorrentDetails) {
-                
-                const torrentIds = deduplicatedResults.map(result => result.id);
-                const bulkDetails = await provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds);
-                
+
+                const missingIds = deduplicatedResults.filter(result => !result.torrentDetails).map(result => result.id);
+                const bulkDetails = missingIds.length
+                    ? await provider.bulkGetTorrentDetails(config.DebridApiKey, missingIds)
+                    : new Map();
+
                 const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
-                        const torrentDetails = bulkDetails.get(result.id);
-                        
+                        const torrentDetails = result.torrentDetails ?? attachParse(bulkDetails.get(result.id));
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                            return null;
-                        }
-
-                        if (searchResponse.absoluteEpisode) {
-                            torrentDetails.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
-                                searchResponse.absoluteEpisode,
-                                torrentDetails.videos
-                            );
-                        }
-
-                        const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);
-                        if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             return null;
                         }
 
                         collectedTorrents.push(torrentDetails);
 
                         const knownSeasonEpisode = {
-                            season: searchResponse.animeMapping ? filterSeason : season,
-                            episode: searchResponse.animeMapping ? targetEpisode : episode,
+                            season,
+                            episode,
                             absoluteEpisode: searchResponse.absoluteEpisode
                         };
 
@@ -392,52 +402,26 @@ class StreamProvider {
                             },
                             type: 'series',
                             knownSeasonEpisode,
-                            variantInfo: result.variantInfo,
-                            searchContext: searchContext,
-                            animeMapping: searchResponse.animeMapping
+                            searchContext: searchContext
                         };
 
-                        const { optimizedStreamCreation } = await import('./stream/stream-builder.js');
-                        const streams = optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
-                        
-                        if (searchResponse.animeMapping && streams && streams.length > 0) {
-                            const mapping = searchResponse.animeMapping;
-                            streams.forEach(stream => {
-                                if (stream && stream.url) {
-                                    stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
-                                }
-                            });
-                        }
-
-                        return streams;
+                        return optimizedStreamCreation(streamData.details, streamData.type, streamData.knownSeasonEpisode, streamData.searchContext);
 
                     } catch (error) {
                         return null;
                     }
                 });
                 
-                const allStreamResults = await Promise.all(streamPromises);
+                const allStreamResults = await tracker.span('build', () => Promise.all(streamPromises));
                 streamTasks = allStreamResults.filter(result => result !== null).flat();
             } else {
                 streamTasks = deduplicatedResults.map(result => async () => {
                     try {
-                        const torrentDetails = await provider.getTorrentDetails(config.DebridApiKey, result.id, 'stream');
-                        
+                        const torrentDetails = result.torrentDetails
+                            ?? attachParse(await provider.getTorrentDetails(config.DebridApiKey, result.id));
+
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
-                            return null;
-                        }
-
-                        if (searchResponse.absoluteEpisode) {
-                            torrentDetails.videos = AbsoluteEpisodeProcessor.processAbsoluteEpisodes(
-                                searchResponse.absoluteEpisode,
-                                torrentDetails.videos
-                            );
-                        }
-
-                        const episodeFilterSuccess = filterEpisode(torrentDetails, filterSeason, targetEpisode);
-                        if (!episodeFilterSuccess || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                            logger.debug(`[stream-provider] No matching episodes found in torrent ${result.id} for S${filterSeason}E${targetEpisode}${searchResponse.animeMapping ? ` (mapped from S${season}E${episode})` : ''}`);
                             return null;
                         }
 
@@ -445,8 +429,8 @@ class StreamProvider {
 
                         // Use mapped values for knownSeasonEpisode when anime mapping is active
                         const knownSeasonEpisode = {
-                            season: searchResponse.animeMapping ? filterSeason : season,
-                            episode: searchResponse.animeMapping ? targetEpisode : episode,
+                            season,
+                            episode,
                             absoluteEpisode: searchResponse.absoluteEpisode
                         };
 
@@ -457,25 +441,10 @@ class StreamProvider {
                             },
                             type: 'series',
                             knownSeasonEpisode,
-                            variantInfo: result.variantInfo,
-                            searchContext: searchContext,
-                            animeMapping: searchResponse.animeMapping
+                            searchContext: searchContext
                         };
 
-                        const { optimizedStreamCreation } = await import('./stream/stream-builder.js');
-                        const streams = optimizedStreamCreation(streamData.details, streamData.type, null, streamData.knownSeasonEpisode, streamData.variantInfo, streamData.searchContext);
-                        
-                        // Add anime mapping annotation if applicable
-                        if (searchResponse.animeMapping && streams && streams.length > 0) {
-                            const mapping = searchResponse.animeMapping;
-                            streams.forEach(stream => {
-                                if (stream && stream.url) {
-                                    stream.name = `${stream.name}\n🎌 Anime S${mapping.originalSeason}E${mapping.originalEpisode}→S${mapping.mappedSeason}E${mapping.mappedEpisode}`;
-                                }
-                            });
-                        }
-
-                        return streams; // Return array of streams instead of single stream
+                        return optimizedStreamCreation(streamData.details, streamData.type, streamData.knownSeasonEpisode, streamData.searchContext);
 
                     } catch (error) {
                         logger.warn(`[stream-provider] Failed to build stream for ${result.id}: ${error.message}`);
@@ -486,22 +455,21 @@ class StreamProvider {
                 const concurrencyLimit = config.ConcurrencyLimit || 6;
                 logger.info(`[stream-provider] Processing ${streamTasks.length} streams with max ${concurrencyLimit} concurrent individual operations`);
                 
-                const streamResults = await executeWithControlledConcurrency(streamTasks, concurrencyLimit);
-                
+                const streamResults = await tracker.span('build', () =>
+                    executeWithControlledConcurrency(streamTasks, concurrencyLimit));
+
                 streamTasks = streamResults
                     .filter(result => result.status === 'fulfilled' && result.value !== null)
                     .map(result => result.value)
                     .flat();
             }
             
-            const streamProcessingEnd = Date.now();
-            logger.debug(`[stream-provider] Stream processing completed in ${streamProcessingEnd - streamProcessingStart}ms`);
-
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
             const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
 
-            const sortedStreams = sortMovieStreamsByQuality(deduplicatedStreamTasks);
-            
+            const sortedStreams = sortStreamsByRank(deduplicatedStreamTasks);
+            tracker.note('streams', sortedStreams.length);
+
             const duration = Date.now() - startTime;
             logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
@@ -526,8 +494,10 @@ class StreamProvider {
         } catch (error) {
             const duration = Date.now() - startTime;
             logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}:`, error);
-            
+
             return [];
+        } finally {
+            logger.debug(`[perf] ${tracker.summary()}`);
         }
     }
 

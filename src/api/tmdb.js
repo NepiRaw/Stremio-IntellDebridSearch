@@ -1,4 +1,5 @@
 import cache from '../utils/cache-manager.js';
+import { fetchWithRetry } from './http.js';
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 
@@ -24,10 +25,7 @@ function getTmdbApiKey(userProvidedKey = null) {
 }
 
 export function isTmdbEnabled() {
-    const tmdbApiKey = process.env.TMDB_API_KEY;
-    const traktApiKey = process.env.TRAKT_API_KEY;
-    
-    return !!tmdbApiKey && (!!traktApiKey || !traktApiKey);
+    return !!process.env.TMDB_API_KEY;
 }
 
 export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null, imdbId = null) {
@@ -50,31 +48,27 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
         let resolvedTmdbId = tmdbId;
         let originalName = null;
         let originalLanguage = null;
-        
+
         if (!resolvedTmdbId && imdbId && resolvedApiKey) {
             const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${resolvedApiKey}&external_source=imdb_id`;
-            try {
-                const resp = await fetch(findUrl);
-                const data = await resp.json();
-                if (type === 'movie' && data.movie_results && data.movie_results.length) {
-                    const result = data.movie_results[0];
-                    resolvedTmdbId = result.id;
-                    originalName = result.original_title || null;
-                    originalLanguage = result.original_language || null;
-                } else if (type === 'series' && data.tv_results && data.tv_results.length) {
-                    const result = data.tv_results[0];
-                    resolvedTmdbId = result.id;
-                    originalName = result.original_name || null;
-                    originalLanguage = result.original_language || null;
-                }
-            } catch (err) {
-                logger.warn(`[tmdb-api] Failed to resolve TMDb ID from IMDb ID ${imdbId}:`, err.message);
+            const resp = await fetchWithRetry(findUrl, {}, 'tmdb-api');
+            const data = await resp.json();
+            if (type === 'movie' && data.movie_results && data.movie_results.length) {
+                const result = data.movie_results[0];
+                resolvedTmdbId = result.id;
+                originalName = result.original_title || null;
+                originalLanguage = result.original_language || null;
+            } else if (type === 'series' && data.tv_results && data.tv_results.length) {
+                const result = data.tv_results[0];
+                resolvedTmdbId = result.id;
+                originalName = result.original_name || null;
+                originalLanguage = result.original_language || null;
             }
         }
 
         if (!resolvedTmdbId) {
             logger.warn(`[tmdb-api] No TMDb ID available for ${type} ${imdbId}`);
-            cache.set(cacheKey, [], 1800); // Cache empty result for 30 minutes
+            cache.set(cacheKey, [], 1800); // TMDb answered and knows nothing about it
             return [];
         }
 
@@ -82,7 +76,7 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
             ? `https://api.themoviedb.org/3/movie/${resolvedTmdbId}/alternative_titles?api_key=${resolvedApiKey}`
             : `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/alternative_titles?api_key=${resolvedApiKey}`;
 
-        const resp = await fetch(url);
+        const resp = await fetchWithRetry(url, {}, 'tmdb-api');
         const data = await resp.json();
         const rawTitles = data.results || data.titles || [];
         
@@ -120,7 +114,6 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
 
     } catch (err) {
         logger.error(`[tmdb-api] Failed to fetch alternative titles for ${type} ${tmdbId || imdbId}:`, err.message);
-        cache.set(cacheKey, [], 1800); // Cache empty result for 30 minutes to avoid repeated failures
         return [];
     }
 }
@@ -143,7 +136,7 @@ export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
 
     try {
         const searchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${resolvedApiKey}&query=${encodeURIComponent(searchTitle)}`;
-        const searchResp = await fetch(searchUrl);
+        const searchResp = await fetchWithRetry(searchUrl, {}, 'tmdb-api');
         const searchData = await searchResp.json();
 
         let result = null;
@@ -166,7 +159,6 @@ export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
 
     } catch (err) {
         logger.error(`[tmdb-api] Failed to search TMDb for "${searchTitle}":`, err.message);
-        cache.set(cacheKey, null, 3600); // Cache null result for 1 hour to avoid repeated failures
         return null;
     }
 }
@@ -200,9 +192,9 @@ export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
 
     try {
         const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}/external_ids?api_key=${resolvedApiKey}`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -219,11 +211,6 @@ export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
         return imdbId;
     } catch (err) {
         logger.error(`[tmdb-api] Failed to fetch external IDs for ${endpoint}/${tmdbId}:`, err.message);
-        cache.set(cacheKey, null, 1800, {
-            type: 'tmdb_external_ids',
-            endpoint,
-            error: true
-        });
         return null;
     }
 }
@@ -260,9 +247,9 @@ export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = 
         }
 
         const url = `https://api.themoviedb.org/3/search/${endpoint}?${params.toString()}`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -285,7 +272,6 @@ export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = 
         return results;
     } catch (err) {
         logger.error(`[tmdb-api] Failed to search TMDb ${endpoint} for "${title}":`, err.message);
-        cache.set(cacheKey, [], 1800);
         return [];
     }
 }
@@ -305,9 +291,9 @@ export async function fetchTMDbTVDetails(tmdbId) {
 
     try {
         const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${resolvedApiKey}&language=en-US`;
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
             headers: { accept: 'application/json' }
-        });
+        }, 'tmdb-api');
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -324,18 +310,12 @@ export async function fetchTMDbTVDetails(tmdbId) {
         return details;
     } catch (err) {
         logger.error(`[tmdb-api] Failed to fetch TV details for ${tmdbId}:`, err.message);
-        cache.set(cacheKey, null, 1800);
         return null;
     }
 }
 
-export function getCacheStats() {
-    return cache.getStats();
-}
-
 export function clearCache() {
-    const stats = cache.getStats();
-    const tmdbKeys = stats.keys.filter(key => key.startsWith('tmdb_'));
-    tmdbKeys.forEach(key => cache.delete(key));
-    logger.info(`[tmdb-api] Cleared ${tmdbKeys.length} cached entries`);
+    const entries = cache.getByPattern('^tmdb_');
+    entries.forEach(entry => cache.delete(entry.key));
+    logger.info(`[tmdb-api] Cleared ${entries.length} cached entries`);
 }

@@ -6,13 +6,16 @@
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { configManager } from '../config/configuration.js';
+import { isSameWork } from './phase-1-title-matching.js';
+import { parseName } from '../parsing/parser.js';
 
 /**
  * Fetch all torrents from provider using optimized bulk methods
  * @param {string} provider - Provider name
  * @param {Object} providerImpl - Provider implementation
  * @param {string} apiKey - API key
- * @param {string} normalizedSearchKey - Fallback search term
+ * @param {string|Promise<string>} normalizedSearchKey - Fallback search term, awaited only on the
+ *   two paths that use it, so a caller can hand over a promise and let the listing start first
  * @param {number} threshold - Search threshold for fallback
  * @returns {Array} Array of normalized torrents
  */
@@ -33,7 +36,7 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
         }
         
         logger.info(`[provider-search] ${provider} using fallback searchTorrents method (no bulk support)`);
-        return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
+        return await providerImpl.searchTorrents(apiKey, await normalizedSearchKey, threshold);
     }
 
     try {
@@ -58,7 +61,7 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
         // Check if fallback method exists before calling it
         if (typeof providerImpl.searchTorrents === 'function') {
             logger.info(`[provider-search] Falling back to searchTorrents for ${provider}`);
-            return await providerImpl.searchTorrents(apiKey, normalizedSearchKey, threshold);
+            return await providerImpl.searchTorrents(apiKey, await normalizedSearchKey, threshold);
         }
         
         // No fallback available, re-throw the error
@@ -66,77 +69,99 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
     }
 }
 
+/** Typo tolerance: 0.85 allows 15% of a keyword's characters to differ. */
+const MIN_SIMILARITY = 0.85;
+
+function normalizeRaw(text) {
+    return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function wordBoundaryPattern(keyword) {
+    return new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+}
+
 /**
- * Ultra-fast fuzzy matching for typo tolerance
- * @param {string} title - The torrent title to search in
- * @param {string} keyword - The keyword to find
- * @param {number} minSimilarity - Minimum similarity (0.85 = allow 15% character differences)
- * @returns {boolean} Whether the keyword matches the title with typo tolerance
+ * Everything a keyword needs in order to be tested
+ * Built once per request instead of once per (torrent, keyword) pair
  */
-function ultraFastFuzzyMatch(title, keyword, minSimilarity = 0.85) {
-    if (wordBoundaryIncludes(title, keyword)) {
+function prepareKeywords(keywords) {
+    return keywords.map(keyword => {
+        const extracted = extractKeywords(keyword).toLowerCase();
+
+        return {
+            rawPattern: wordBoundaryPattern(normalizeRaw(keyword)),
+            extracted,
+            extractedPattern: wordBoundaryPattern(extracted),
+            maxDifferences: Math.floor(extracted.length * (1 - MIN_SIMILARITY))
+        };
+    });
+}
+
+/** Whether any window of the title differs from the keyword by no more than its tolerance. */
+function fuzzyMatches(title, { extracted, extractedPattern, maxDifferences }) {
+    if (extractedPattern.test(title)) {
         return true;
     }
-    
-    if (keyword.length < 4) {
+
+    if (extracted.length < 4) {
         return false;
     }
-    
-    const maxDifferences = Math.floor(keyword.length * (1 - minSimilarity));
-    
-    for (let i = 0; i <= title.length - keyword.length; i++) {
-        const window = title.substring(i, i + keyword.length);
+
+    for (let i = 0; i <= title.length - extracted.length; i++) {
         let differences = 0;
-        
-        for (let j = 0; j < keyword.length; j++) {
-            if (keyword[j] !== window[j]) {
+
+        for (let j = 0; j < extracted.length; j++) {
+            if (extracted[j] !== title[i + j]) {
                 differences++;
                 if (differences > maxDifferences) break;
             }
         }
-        
+
         if (differences <= maxDifferences) {
             return true;
         }
     }
-    
+
     return false;
 }
 
-function wordBoundaryIncludes(text, keyword) {
-    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+function matchesAnyKeyword(torrentName, prepared) {
+    const normalizedTitle = extractKeywords(torrentName).toLowerCase();
+    const normalizedRaw = normalizeRaw(torrentName);
+
+    return prepared.some(keyword =>
+        keyword.rawPattern.test(normalizedRaw) || fuzzyMatches(normalizedTitle, keyword));
 }
 
 /**
  * Pre-filter torrents by keyword inclusion with optimized performance
  * @param {Array} allTorrents - Array of all torrents
  * @param {Array} keywords - Keywords to filter by
+ * @param {Array<Set<string>>} aliasVocabularies - Alias vocabularies for the identity lane
  * @returns {Promise<Array>} Filtered torrents
  */
-export async function preFilterTorrentsByKeywords(allTorrents, keywords) {
+export async function preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies = []) {
     const startTime = Date.now();
-    
+    let rescued = 0;
+
+    const prepared = prepareKeywords(keywords);
+
     const relevantTorrents = allTorrents.filter(torrent => {
-        const normalizedTitle = extractKeywords(torrent.name).toLowerCase();
-        
-        return keywords.some(keyword => {
-            const normalizedTorrentForRaw = torrent.name.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-            const normalizedKeywordForRaw = keyword.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-            
-            const wordMatch = wordBoundaryIncludes(normalizedTorrentForRaw, normalizedKeywordForRaw);
-            if (wordMatch) {
-                return true;
-            }
-            const normalizedKeyword = extractKeywords(keyword).toLowerCase();
-            
-            return ultraFastFuzzyMatch(normalizedTitle, normalizedKeyword, 0.85);
-        });
+        if (matchesAnyKeyword(torrent.name, prepared)) {
+            return true;
+        }
+
+        if (!aliasVocabularies.length || !isSameWork(parseName(torrent.name)?.title, aliasVocabularies)) {
+            return false;
+        }
+
+        rescued++;
+        return true;
     });
-    
+
     const endTime = Date.now();
-    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${endTime - startTime}ms)`);
-    
+    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${rescued} by title identity, ${endTime - startTime}ms)`);
+
     return relevantTorrents;
 }
 

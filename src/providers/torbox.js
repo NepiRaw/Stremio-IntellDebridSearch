@@ -1,6 +1,5 @@
 ﻿import { TorboxApi } from '@torbox/torbox-api'
-import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js'
-import { parseUnified } from '../utils/unified-torrent-parser.js'
+import { isVideo, FILE_TYPES } from '../utils/file-types.js'
 import { logger } from '../utils/logger.js'
 import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
 import { BaseProvider } from './BaseProvider.js'
@@ -13,7 +12,7 @@ const API_VALIDATION_OPTIONS = { responseValidation: false }
 const TORBOX_RATE_LIMIT = {
     maxCalls: 10,         // Max API calls before applying delay
     delayMs: 250,         // Delay in milliseconds
-    enabled: false        // Enable/disable rate limiting
+    enabled: true         // Enable/disable rate limiting
 };
 
 class TorBoxProvider extends BaseProvider {
@@ -92,9 +91,7 @@ class TorBoxProvider extends BaseProvider {
         const files = await this.listFilesParallel(fileType, apiKey)
         let results = []
         if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS)
-            results = files.map(result => this.toTorrent(apiKey, result, 'stream'))
-        else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS)
-            results = files.map(result => this.toDownload(result, 'stream'))
+            results = files.map(result => this.toTorrent(apiKey, result))
 
         return this.performFuzzySearch(results, searchKey, threshold)
     }
@@ -103,11 +100,7 @@ class TorBoxProvider extends BaseProvider {
         return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
     }
 
-    async searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
-        return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold)
-    }
-
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         await this.rateLimit();
         const torboxApi = new TorboxApi({
             token: apiKey,
@@ -125,7 +118,7 @@ class TorBoxProvider extends BaseProvider {
                 const data = response.data.data;
                 const torrent = Array.isArray(data) ? data.find(t => t.id == id) : data;
                 if (torrent && torrent.download_finished && torrent.download_present) {
-                    return this.toTorrent(apiKey, torrent, context);
+                    return this.toTorrent(apiKey, torrent);
                 }
             }
             return null;
@@ -177,29 +170,22 @@ class TorBoxProvider extends BaseProvider {
             })
     }
 
-    async toTorrent(apiKey, item, context = 'stream') {
-        const videoFiles = item.files.filter(file => isVideo(file.short_name));
-        
+    async toTorrent(apiKey, item) {
+        const videoFiles = (item.files ?? []).filter(file => isVideo(file.short_name));
+
         const videos = [];
-        
+
         logger.debug(`[TorBox] Processing ${videoFiles.length} video files for torrent ${item.id}`);
-        
+
         for (let i = 0; i < videoFiles.length; i++) {
             const file = videoFiles[i];
             try {
-                const url = this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` });
-                
-                const info = context === 'stream' 
-                    ? parseUnified(file.short_name)
-                    : { title: file.short_name };
-                
                 videos.push({
                     id: `${item.id}:${file.id}`,
                     name: file.short_name,
-                    url: url,
+                    url: this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` }),
                     size: file.size,
-                    created: new Date(item.created_at),
-                    info: info
+                    created: new Date(item.created_at)
                 });
             } catch (error) {
                 logger.warn(`[TorBox] Failed to process file ${file.id}:`, error.message);
@@ -215,24 +201,9 @@ class TorBoxProvider extends BaseProvider {
             type: 'other',
             fileType: FILE_TYPES.TORRENTS,
             hash: item.hash,
-            info: context === 'stream' ? parseUnified(item.name) : null,
             size: item.size,
             created: new Date(item.created_at),
             videos: videos || []
-        }
-    }
-
-    toDownload(item, context = 'stream') {
-        return {
-            source: 'TorBox',
-            id: item.id,
-            url: item.name,
-            name: item.filename,
-            type: 'other',
-            fileType: FILE_TYPES.DOWNLOADS,
-            info: context === 'stream' ? parseUnified(item.name) : null,
-            size: item.size,
-            created: new Date(item.created_at),
         }
     }
 
@@ -291,9 +262,8 @@ class TorBoxProvider extends BaseProvider {
                 }
 
                 return allFiles.filter(f => f.download_finished && f.download_present);
-            } else if (fileType?.toString() === 'Symbol(downloads)' || fileType == FILE_TYPES.DOWNLOADS) {
-                return []
             }
+
             return []
         } catch (error) {
             logger.warn('TorBox listFilesParallel failed:', error);

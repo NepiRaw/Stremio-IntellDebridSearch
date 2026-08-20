@@ -3,63 +3,42 @@
  * Handles quality extraction, scoring, and display formatting
  */
 
-import { extractQualityDisplay, extractQualityInfo } from '../utils/media-patterns.js';
+import { qualityLine, qualityRank } from './display.js';
 import { logger } from '../utils/logger.js';
 
 export function extractQuality(video, details) {
-    const videoName = video.name || '';
-    const torrentName = details.name || '';
-    const combinedName = `${torrentName} ${videoName}`;
-    
-    logger.debug(`[extractQuality] Analyzing: "${combinedName}"`);
-    
-    const fallbackInfo = {
-        resolution: video.info?.resolution || details.info?.resolution
-    };
-    
-    const quality = extractQualityDisplay(combinedName, fallbackInfo);
-    logger.debug(`[extractQuality] Found quality: ${quality}`);
-    
-    return quality;
+    return qualityLine(video?.parsed, details?.parsed);
 }
 
-export function sortMovieStreamsByQuality(streams) {
+/** Falls back to the built strings for a stream created without ranking signals. */
+function rankOf(stream) {
+    if (stream.rank) return stream.rank;
+
+    const sizeLine = stream.title.split('\n').at(-1) || '';
+    const size = sizeLine.match(/(\d+\.?\d*)\s*([KMGT]?B)/);
+    const unit = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+
+    return {
+        isVariant: stream.title.includes('🔄 Variant:'),
+        match: 0,
+        quality: qualityRank(stream.name.split('\n')[1] || ''),
+        size: size ? parseFloat(size[1]) * (unit[size[2]] || 1) : 0
+    };
+}
+
+/**
+ * Best first: a release of the work asked for before a variant of it, then how well the name answers
+ * the requested episode, then resolution, then size. Variants keep the same order among themselves.
+ */
+export function sortStreamsByRank(streams) {
     return streams.sort((a, b) => {
-        const aQualityLine = a.name.split('\n')[1] || '';
-        const bQualityLine = b.name.split('\n')[1] || '';
-        
-        const aQualityInfo = extractQualityInfo(aQualityLine);
-        const bQualityInfo = extractQualityInfo(bQualityLine);
-        
-        const aScore = aQualityInfo.score || -1;
-        const bScore = bQualityInfo.score || -1;
-        
-        if (aScore !== bScore) {
-            return bScore - aScore;
-        }
-        
-        const aTitleLines = a.title.split('\n');
-        const bTitleLines = b.title.split('\n');
-        const aSizeLine = aTitleLines[aTitleLines.length - 1] || '';
-        const bSizeLine = bTitleLines[bTitleLines.length - 1] || '';
-        
-        const aSizeMatch = aSizeLine.match(/(\d+\.?\d*)\s*([KMGT]B)/);
-        const bSizeMatch = bSizeLine.match(/(\d+\.?\d*)\s*([KMGT]B)/);
-        
-        if (aSizeMatch && bSizeMatch) {
-            const aSize = parseFloat(aSizeMatch[1]);
-            const bSize = parseFloat(bSizeMatch[1]);
-            const aUnit = aSizeMatch[2];
-            const bUnit = bSizeMatch[2];
-            
-            const unitMultiplier = { 'B': 1, 'KB': 1024, 'MB': 1024*1024, 'GB': 1024*1024*1024, 'TB': 1024*1024*1024*1024 };
-            const aSizeBytes = aSize * (unitMultiplier[aUnit] || 1);
-            const bSizeBytes = bSize * (unitMultiplier[bUnit] || 1);
-            
-            return bSizeBytes - aSizeBytes;
-        }
-        
-        return 0;
+        const left = rankOf(a);
+        const right = rankOf(b);
+
+        return (Number(left.isVariant) - Number(right.isVariant))
+            || (right.match - left.match)
+            || (right.quality - left.quality)
+            || (right.size - left.size);
     });
 }
 

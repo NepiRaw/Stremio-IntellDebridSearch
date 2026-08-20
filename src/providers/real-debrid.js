@@ -1,7 +1,6 @@
 import RealDebridClient from 'real-debrid-api';
-import { isVideo, FILE_TYPES } from '../stream/metadata-extractor.js';
+import { isVideo, FILE_TYPES } from '../utils/file-types.js';
 import BaseProvider from './BaseProvider.js';
-import { parseUnified } from '../utils/unified-torrent-parser.js';
 
 class RealDebridProvider extends BaseProvider {
     constructor() {
@@ -59,8 +58,6 @@ class RealDebridProvider extends BaseProvider {
         
         if (fileType?.toString() === 'Symbol(torrents)' || fileType === FILE_TYPES.TORRENTS) {
             results = files.map(result => this.toTorrent(result));
-        } else if (fileType === FILE_TYPES.DOWNLOADS) {
-            results = files.map(result => this.toDownload(result));
         }
 
         return this.performFuzzySearch(results, searchKey, threshold);
@@ -70,40 +67,25 @@ class RealDebridProvider extends BaseProvider {
         return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold);
     }
 
-
-    async searchDownloads(apiKey, searchKey = null, threshold = 0.3) {
-        return this.searchFiles(FILE_TYPES.DOWNLOADS, apiKey, searchKey, threshold);
-    }
-
-    async getTorrentDetails(apiKey, id, context = 'stream') {
+    async getTorrentDetails(apiKey, id) {
         return this.makeApiCall(async () => {
             const RD = new RealDebridClient(apiKey);
             const response = await RD.torrents.info(id);
-            return this.toTorrentDetails(apiKey, response.data, context);
+            return this.toTorrentDetails(apiKey, response.data);
         }, 3, `getTorrentDetails(${id})`);
     }
 
-    async toTorrentDetails(apiKey, item, context = 'stream') {
+    async toTorrentDetails(apiKey, item) {
         const videos = item.files
             .filter(file => file.selected)
             .filter(file => isVideo(file.path))
-            .map((file, index) => {
-                const hostUrl = item.links.at(index);
-                const url = this.buildSecureStreamUrl(apiKey, item.id, { link: hostUrl });
-                
-                const info = context === 'stream' 
-                    ? this.parseTitle(file.path)
-                    : { title: file.path };
-                
-                return {
-                    id: `${item.id}:${file.id}`,
-                    name: file.path,
-                    url: url,
-                    size: file.bytes,
-                    created: this.parseDate(item.added),
-                    info: info
-                };
-            });
+            .map((file, index) => ({
+                id: `${item.id}:${file.id}`,
+                name: file.path,
+                url: this.buildSecureStreamUrl(apiKey, item.id, { link: item.links.at(index) }),
+                size: file.bytes,
+                created: this.parseDate(item.added)
+            }));
 
         return this.normalizeTorrentDetails(item, videos, {
             name: item.filename,
@@ -141,26 +123,12 @@ class RealDebridProvider extends BaseProvider {
         }
     }
 
-    toDownload(item) {
-        return {
-            source: 'RealDebrid',
-            id: item.id,
-            url: item.download,
-            name: item.filename,
-            type: 'other',
-            info: this.parseTitle(item.filename),
-            size: item.filesize,
-            created: this.parseDate(item.generated)
-        };
-    }
-
     normalizeTorrent(item, customFields = {}) {
         return {
             source: this.providerName,
             id: item.id,
             name: item.name || item.filename,
             type: 'other',
-            info: null,
             size: item.size || item.bytes,
             created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
             ...customFields
@@ -191,8 +159,6 @@ class RealDebridProvider extends BaseProvider {
 
             if (fileType?.toString() === 'Symbol(torrents)' || fileType === FILE_TYPES.TORRENTS) {
                 return this.fetchTorrentsParallel(RD, pageSize);
-            } else if (fileType?.toString() === 'Symbol(downloads)' || fileType === FILE_TYPES.DOWNLOADS) {
-                return this.fetchDownloadsParallel(RD, pageSize);
             }
         }, 3, `listFilesParrallel(${fileType.description})`);
     }
@@ -303,115 +269,6 @@ class RealDebridProvider extends BaseProvider {
         }
     }
 
-    async fetchDownloadsParallel(RD, pageSize) {
-        try {
-            const firstResp = await RD.downloads.get(0, 1, pageSize);
-            const firstPage = firstResp.data || [];
-            
-            if (firstPage.length === 0) return [];
-            if (firstPage.length < pageSize) {
-                return firstPage.filter(f => f.host !== 'real-debrid.com');
-            }
-            
-            const pageNumbers = [];
-            let testPage = 2;
-            let hasMore = true;
-            
-            while (hasMore && testPage <= 100) { // Safety limit
-                try {
-                    const testResp = await RD.downloads.get(0, testPage, pageSize);
-                    if (!testResp.data || testResp.data.length === 0) {
-                        hasMore = false;
-                    } else {
-                        pageNumbers.push(testPage);
-                        testPage++;
-                    }
-                } catch (error) {
-                    if (error.response?.status === 429) {
-                        this.log('warn', 'Rate limited during downloads page discovery, waiting 5 seconds');
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        continue;
-                    }
-                    hasMore = false;
-                }
-            }
-            
-            if (pageNumbers.length === 0) {
-                return firstPage.filter(f => f.host !== 'real-debrid.com');
-            }
-            
-            const allDownloads = [...firstPage];
-            let batchSize = 3;
-            const pagesToFetch = [...pageNumbers];
-            let rateLimitRetries = 0;
-            const maxRateLimitRetries = 2;
-            
-            while (pagesToFetch.length > 0) {
-                const currentBatch = pagesToFetch.splice(0, batchSize);
-                
-                const batchResults = await Promise.all(
-                    currentBatch.map(page => 
-                        RD.downloads.get(0, page, pageSize)
-                            .then(resp => ({ page, data: resp.data || [], success: true }))
-                            .catch(error => ({ 
-                                page,
-                                status: error.response?.status,
-                                error: error.response?.data?.error,
-                                success: false
-                            }))
-                    )
-                );
-                
-                const successful = batchResults.filter(r => r.success);
-                const rateLimited = batchResults.filter(r => r.status === 429);
-                
-                if (rateLimited.length > 0) {
-                    rateLimitRetries++;
-                    if (rateLimitRetries > maxRateLimitRetries) {
-                        this.log('warn', 'Max rate limit retries reached for downloads, returning partial results');
-                        break;
-                    }
-                    if (batchSize > 1) {
-                        this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
-                        batchSize = Math.max(1, Math.floor(batchSize / 2));
-                    }
-                    pagesToFetch.unshift(...currentBatch);
-                    const waitTime = rateLimitRetries === 1 ? 2000 : 5000;
-                    this.log('warn', `Rate limited (429), waiting ${waitTime/1000}s before retry ${rateLimitRetries}/${maxRateLimitRetries}`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                    continue;
-                }
-                
-                successful.forEach(r => allDownloads.push(...r.data));
-                
-                if (pagesToFetch.length > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-            }
-            
-            return allDownloads.filter(f => f.host !== 'real-debrid.com');
-        } catch (error) {
-            if (error.isAxiosError && !error.response) {
-                throw error;
-            }
-            
-            if (error.response?.status === 429) {
-                this.log('warn', 'Rate limited (429) on initial downloads request, returning empty');
-                return [];
-            }
-            if (error.response?.status === 401 || 
-                error.response?.data?.error === 'bad_token' ||
-                error.response?.data?.error_code === 8) {
-                
-                this.log('error', `RealDebrid authentication failed: ${error.response?.data?.error || 'Invalid or expired API key'}. Please verify your API key in addon settings. Error code: ${error.response?.data?.error_code || 'unknown'}`);
-                throw error;
-            }
-            
-            this.log('warn', `fetchDownloadsParallel failed: ${error.message}`);
-            return [];  // Return empty array on failure
-        }
-    }
-
     async bulkGetTorrentDetails(apiKey, ids) {
         const detailPromises = ids.map(id => this.getTorrentDetails(apiKey, id));
         const results = await Promise.all(detailPromises);
@@ -451,9 +308,6 @@ class RealDebridProvider extends BaseProvider {
         return { ip };
     }
 
-    parseTitle(filename) {
-        return parseUnified(filename);
-    }
 }
 
 const realDebridProvider = new RealDebridProvider();

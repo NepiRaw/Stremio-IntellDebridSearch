@@ -6,7 +6,7 @@
 import { logger } from '../utils/logger.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { fetchTMDbAlternativeTitles } from '../api/tmdb.js';
-import { getEpisodeMapping } from '../api/trakt.js';
+import { getEpisodeMapping, getSeasonLength } from '../api/tvdb.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -43,20 +43,20 @@ function getManualSearchTerms(imdbId) {
  * @param {number} params.season - Season number (for series)
  * @param {number} params.episode - Episode number (for series)
  * @param {string} params.tmdbApiKey - TMDb API key
- * @param {string} params.traktApiKey - Trakt API key
+ * @param {string} params.tvdbApiKey - TheTVDB API key
  * @returns {Object} Prepared search data
  */
 export async function prepareSearchTerms(params) {
-    const { searchKey, type, imdbId, season, episode, tmdbApiKey, traktApiKey } = params;
-    
+    const { searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey } = params;
+
     logger.info('[phase-0] Starting search preparation');
-    
+
     const apiCalls = [];
-    
+
     let absoluteEpisodePromise = null;
-    if (traktApiKey && type === 'series' && season && episode) {
+    if (tvdbApiKey && type === 'series' && season && episode) {
         logger.info(`[phase-0] Fetching absolute episode mapping for S${season}E${episode}`);
-        absoluteEpisodePromise = getEpisodeMapping(traktApiKey, imdbId, season, episode);
+        absoluteEpisodePromise = getEpisodeMapping(imdbId, season, episode);
         apiCalls.push(absoluteEpisodePromise);
     }
     
@@ -91,8 +91,8 @@ export async function prepareSearchTerms(params) {
             } else {
                 logger.info(`[phase-0] ❌ No absolute episode number found, but got title: ${absoluteEpisode.title || 'No title'}`);
             }
-        } else if (traktApiKey && type === 'series' && season && episode) {
-            logger.info(`[phase-0] ❌ No absolute episode found from Trakt API`);
+        } else if (tvdbApiKey && type === 'series' && season && episode) {
+            logger.info(`[phase-0] ❌ No absolute episode found from TVDB API`);
         }
     }
     
@@ -134,11 +134,14 @@ export async function prepareSearchTerms(params) {
     
     logger.info(`[phase-0] Deduplicated search terms: ${allSearchTerms.length} → ${uniqueSearchTerms.length} unique terms`);
 
+    const seasonOneLength = absoluteEpisode?.absoluteEpisode ? await getSeasonLength(imdbId, 1) : 0;
+
     return {
         normalizedSearchKey,
         alternativeTitles,
         uniqueSearchTerms,
-        absoluteEpisode
+        absoluteEpisode,
+        seasonOneLength
     };
 }
 

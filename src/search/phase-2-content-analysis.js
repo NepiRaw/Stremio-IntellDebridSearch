@@ -17,15 +17,16 @@
  *    - For direct files, returns the torrent as-is.
  *
  * 4. Supports anime and non-standard episode numbering via episode remapping:
- *    - If anime fallback (Phase 3) is triggered, an episodeMapping object is provided (e.g., { mappedSeason, mappedEpisode }).
  *    - Re-analyzes torrents using the mapped season/episode to find the correct episode.
- *    - Annotates results with animeMapping for traceability.
  *
  * 5. Returns an array of matching episodes, each with detailed info and, if applicable, anime mapping metadata.
  */
 
 import { logger } from '../utils/logger.js';
-import { analyzeTorrent } from './torrent-analyzer.js';
+import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
+import { isSameWorkStrict } from './phase-1-title-matching.js';
+import { parseName, frozenParse, attachParse } from '../parsing/parser.js';
+import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js';
 
 /**
  * Batch fetch torrent details for torrents that need them
@@ -34,9 +35,11 @@ import { analyzeTorrent } from './torrent-analyzer.js';
  * @param {string} apiKey - API key
  * @returns {Promise} Promise that resolves when all details are fetched
  */
-export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
-    const torrentsNeedingDetails = titleMatches.filter(match => 
-        provider?.getTorrentDetails && !match.item.videos
+export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, addresses = null) {
+    const torrentsNeedingDetails = titleMatches.filter(match =>
+        provider?.getTorrentDetails &&
+        !match.item.videos &&
+        couldContain(match.item.parsed ?? frozenParse(match.item.name), addresses)
     );
 
     if (torrentsNeedingDetails.length === 0) {
@@ -56,8 +59,8 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
         await Promise.all(
             batch.map(async match => {
                 try {
-                    const details = await provider.getTorrentDetails(apiKey, match.item.id, 'stream');
-                    Object.assign(match.item, details);
+                    const details = await provider.getTorrentDetails(apiKey, match.item.id);
+                    Object.assign(match.item, attachParse(details));
                 } catch (e) {
                     logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);
                 }
@@ -76,9 +79,9 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey) {
  * @param {Object} absoluteEpisode - Absolute episode data from Trakt (optional)
  * @returns {Array} Array of matching episodes
  */
-export async function performContentAnalysis(titleMatches, season, episode, absoluteEpisode = null) {
+export async function performContentAnalysis(titleMatches, addresses, aliasVocabularies = []) {
     logger.info('[phase-2] Starting optimized parallel content analysis for episode matching');
-    
+
     // Process torrents in parallel batches for optimal performance
     const PARALLEL_BATCH_SIZE = 15; // Process 15 torrents in parallel at a time
     const batches = [];
@@ -94,12 +97,14 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
         
         const batchPromises = batch.map(async (match) => {
             try {
-                const analysis = analyzeTorrent(match.item, parseInt(season), parseInt(episode), absoluteEpisode);
+                const torrent = match.item;
+                const analysis = analyzeTorrent(torrent, addresses);
                 return {
-                    torrent: match.item,
+                    torrent,
                     analysis,
                     score: match.score,
-                    matchedTerm: match.matchedTerm
+                    matchedTerm: match.matchedTerm,
+                    identityMatch: match.identityMatch === true
                 };
             } catch (error) {
                 logger.warn(`[phase-2] Failed to analyze torrent ${match.item.name}:`, error);
@@ -113,6 +118,28 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
         const batchMatches = batchResults
             .filter(result => result !== null && result.analysis.hasMatchingEpisode)
             .flatMap(result => {
+                if (result.identityMatch) {
+                    const names = result.analysis.isContainer
+                        ? result.analysis.matchingFiles.map(video => video.name)
+                        : [result.torrent.name];
+
+                    if (!names.some(name => isSameWorkStrict(parseName(name)?.title, aliasVocabularies))) {
+                        logger.debug(`[phase-2] Identity check rejected ${result.torrent.name}`);
+                        return [];
+                    }
+                }
+
+                const streamFiles = result.analysis.isContainer
+                    ? result.analysis.matchingFiles
+                    : selectEpisodeFiles(result.torrent.videos, addresses);
+
+                if (!streamFiles.length) {
+                    logger.debug(`[phase-2] No usable file for ${result.torrent.name}`);
+                    return [];
+                }
+
+                result.torrent.videos = streamFiles;
+
                 // For containers, return each matching video as a separate result
                 if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
                     return result.analysis.matchingFiles.map(video => ({
@@ -121,20 +148,18 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
                         name: video.name,
                         size: video.size,
                         url: video.url,
-                        info: {
-                            ...(result.torrent.info || {}),
-                            ...(video.info || {})
-                        },
                         containerName: result.torrent.name,
                         isExtractedVideo: true,
                         videos: [video],
-                        matchedTerm: result.matchedTerm
+                        matchedTerm: result.matchedTerm,
+                        torrentDetails: result.torrent
                     }));
                 } else {
                     // For direct files, return as is
                     return [{
                         ...result.torrent,
-                        matchedTerm: result.matchedTerm
+                        matchedTerm: result.matchedTerm,
+                        torrentDetails: result.torrent
                     }];
                 }
             });
@@ -149,66 +174,4 @@ export async function performContentAnalysis(titleMatches, season, episode, abso
     
     logger.debug(`[phase-2] TRUE parallel content analysis complete: ${allMatches.length} matching episodes found`);
     return allMatches;
-}
-
-/**
- * Re-analyze existing torrents with new season/episode criteria (for anime mapping)
- * @param {Array} titleMatches - Original title matches
- * @param {Object} episodeMapping - Anime episode mapping
- * @returns {Array} Array of matching episodes with anime mapping
- */
-export function reAnalyzeWithMapping(titleMatches, episodeMapping) {
-    logger.info('[phase-2] Re-analyzing existing torrents with anime mapping');
-    
-    // Re-analyze the same torrents we already found with the new season/episode
-    const reAnalyzedResults = titleMatches.map(match => {
-        const analysis = analyzeTorrent(
-            match.item, 
-            parseInt(episodeMapping.mappedSeason), 
-            parseInt(episodeMapping.mappedEpisode)
-        );
-        return {
-            torrent: match.item,
-            analysis,
-            score: match.score
-        };
-    });
-    
-    // Extract matching episodes with new criteria
-    const animeMatches = reAnalyzedResults
-        .filter(result => {
-            const hasMatch = result.analysis.hasMatchingEpisode;
-            if (hasMatch) {
-                logger.info(`[phase-2] ✅ ANIME MATCH: ${result.torrent.name} - Found S${episodeMapping.mappedSeason}E${episodeMapping.mappedEpisode}`);
-            }
-            return hasMatch;
-        })
-        .flatMap(result => {
-            // For containers, return each matching video as a separate result
-            if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
-                const extractedVideos = result.analysis.matchingFiles.map(video => ({
-                    ...result.torrent,
-                    name: video.name,
-                    size: video.size,
-                    info: {
-                        ...(result.torrent.info || {}),
-                        ...(video.info || {})
-                    },
-                    // Keep track that this is from a container and anime mapping was used
-                    containerName: result.torrent.name,
-                    isExtractedVideo: true,
-                    animeMapping: episodeMapping,
-                    videos: [video]
-                }));
-                
-                return extractedVideos;
-            }
-            // For direct files, return as is with anime mapping info
-            return [{
-                ...result.torrent,
-                animeMapping: episodeMapping
-            }];
-        });
-    
-    return animeMatches;
 }

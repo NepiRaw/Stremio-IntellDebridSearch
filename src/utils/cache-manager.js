@@ -226,12 +226,4 @@ const cache = new UnifiedCacheManager({
     cleanupInterval: 300 // 5 minute cleanup interval
 });
 
-// Dedicated cache for Roman numeral parsing
-const romanCache = new UnifiedCacheManager({
-    maxSize: 5000,        // Dedicated space for Roman results
-    defaultTTL: 7200,     // 2 hour TTL for Roman results
-    cleanupInterval: 600  // 10 minute cleanup interval
-});
-
 export default cache;
-export { UnifiedCacheManager, romanCache };

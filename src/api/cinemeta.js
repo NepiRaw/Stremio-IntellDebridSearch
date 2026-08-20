@@ -1,11 +1,22 @@
-import fetch from 'node-fetch';
 import { logger } from '../utils/logger.js';
 import cache from '../utils/cache-manager.js';
+import { fetchWithRetry, isTransientNetworkError } from './http.js';
 
 /**
  * Cinemeta API client - fetches metadata from Stremio's Cinemeta service
  * Handles movie and series metadata with caching support
  */
+
+export { isTransientNetworkError };
+
+/** Fetches JSON, retrying only what a retry can fix. An HTTP status is an answer, not a failure. */
+export async function fetchJson(url) {
+    const response = await fetchWithRetry(url, {}, 'cinemeta');
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
+}
 
 /**
  * Get metadata from Cinemeta service
@@ -31,13 +42,7 @@ async function getMeta(type, imdbId) {
 
     try {
         const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const body = await response.json();
+        const body = await fetchJson(url);
         const meta = body && body.meta;
 
         if (!meta) {

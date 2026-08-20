@@ -18,7 +18,8 @@ builder.defineCatalogHandler(async (args) => {
 
         if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
             if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
-                throw new Error('Invalid Debrid configuration: Missing configs')
+                logger.debug('[CatalogHandler] No debrid configuration, returning an empty catalog')
+                return { metas: [] }
             }
 
             let provider;
@@ -73,7 +74,7 @@ builder.defineCatalogHandler(async (args) => {
                         searchKey: args.extra.search, 
                         provider: providerName, 
                         tmdbApiKey: apiConfig.tmdbApiKey, 
-                        traktApiKey: apiConfig.traktApiKey, 
+                        tvdbApiKey: apiConfig.tvdbApiKey, 
                         providers
                     };
                     const searchResult = await coordinateSearch(params);
@@ -158,7 +159,7 @@ builder.defineMetaHandler(async (args) => {
                 throw new Error(`Unsupported provider: ${providerName}`);
         }
         
-        const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId, 'meta');
+        const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId);
         
         if (!torrentDetails) {
             logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
@@ -166,52 +167,41 @@ builder.defineMetaHandler(async (args) => {
         }
         
         const videoFiles = torrentDetails.videos || [];
-        const videos = [];
-        
-        for (let index = 0; index < videoFiles.length; index++) {
-            const file = videoFiles[index];
-            const videoId = `${args.id}:file:${index}`;
 
-            logger.info(`[MetaHandler] 🎥 Processing video file: ${file.name}`);
+        for (const file of videoFiles) {
+            if (!provider.resolveStreamUrl || !file.url) continue;
 
-            let streamUrl = file.url;
-            
-            if (provider.resolveStreamUrl && file.url) {
-                logger.info(`[MetaHandler] 🔄 Resolving stream URL for ${file.name}`);
-                try {
-                    const resolved = await provider.resolveStreamUrl(args.config.DebridApiKey, file.url);
-                    if (resolved) {
-                        streamUrl = resolved;
-                        logger.info(`[MetaHandler] ✅ Resolved to direct stream URL`);
-                    }
-                } catch (resolveError) {
-                    logger.warn(`[MetaHandler] Could not resolve URL, using original: ${resolveError.message}`);
+            logger.info(`[MetaHandler] 🔄 Resolving stream URL for ${file.name}`);
+            try {
+                const resolved = await provider.resolveStreamUrl(args.config.DebridApiKey, file.url);
+                if (resolved) {
+                    file.url = resolved;
+                    logger.info(`[MetaHandler] ✅ Resolved to direct stream URL`);
                 }
-            }
-            
-            if (streamUrl) {
-                const videoEntry = {
-                    id: videoId,
-                    title: file.name || `File ${index + 1}`,
-                    streams: [
-                        {
-                            name: providerName,
-                            title: `${providerName} - ${file.name || `File ${index + 1}`}`,
-                            url: streamUrl,
-                            behaviorHints: {
-                                bingeGroup: `${providerName}-${torrentId}`,
-                                filename: file.name || `File ${index + 1}`,
-                                videoSize: file.size || null
-                            }
-                        }
-                    ]
-                };
-                logger.debug(`[MetaHandler] Added video entry with direct stream URL`);
-                videos.push(videoEntry);
-            } else {
-                logger.warn(`[MetaHandler] No stream URL available for ${file.name}`);
+            } catch (resolveError) {
+                logger.warn(`[MetaHandler] Could not resolve URL, using original: ${resolveError.message}`);
             }
         }
+
+        const { attachParse } = await import('./src/parsing/parser.js');
+        const { toStreams } = await import('./src/stream/stream-builder.js');
+        const built = toStreams(attachParse(torrentDetails), 'series', null, null);
+        const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
+
+        const videos = [];
+        videoFiles.forEach((file, index) => {
+            const stream = byFilename.get(file.name);
+            if (!stream) {
+                logger.warn(`[MetaHandler] No stream URL available for ${file.name}`);
+                return;
+            }
+
+            videos.push({
+                id: `${args.id}:file:${index}`,
+                title: file.name || `File ${index + 1}`,
+                streams: [stream]
+            });
+        });
         
         const baseMeta = {
             id: args.id,

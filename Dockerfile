@@ -2,23 +2,23 @@ FROM node:24
 
 ARG TARGETARCH
 
-RUN apt-get update && \
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > /etc/apt/apt.conf.d/80-retries && \
+    apt-get update && \
     apt-get install -y --no-install-recommends curl gnupg dbus ca-certificates && \
     # Install Cloudflare WARP client
-    curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ bookworm main" > /etc/apt/sources.list.d/cloudflare-client.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends cloudflare-warp && \
     GOST_ARCH="${TARGETARCH:-amd64}" && \
-    curl -fsSL "https://github.com/ginuerzh/gost/releases/download/v2.12.0/gost_2.12.0_linux_${GOST_ARCH}.tar.gz" | tar xz -C /usr/local/bin/ && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 "https://github.com/ginuerzh/gost/releases/download/v2.12.0/gost_2.12.0_linux_${GOST_ARCH}.tar.gz" | tar xz -C /usr/local/bin/ && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY . .
-RUN npm install
+RUN corepack enable && pnpm install --frozen-lockfile
 
 EXPOSE 3001
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
