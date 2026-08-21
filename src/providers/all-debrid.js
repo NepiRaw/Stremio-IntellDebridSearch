@@ -190,7 +190,7 @@ class AllDebridProvider extends BaseProvider {
     }
 
     async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-        const torrentsResults = await this.listTorrentsParallel(apiKey);
+        const torrentsResults = this.asList(await this.listTorrentsParallel(apiKey), 'searchTorrents');
         const torrents = torrentsResults.map(item => this.normalizeTorrent(item, {
             name: item.filename // AllDebrid uses 'filename' field
         }));
@@ -453,7 +453,7 @@ class AllDebridProvider extends BaseProvider {
     }
 
     async listTorrents(apiKey) {
-        const torrents = await this.listTorrentsParallel(apiKey);
+        const torrents = this.asList(await this.listTorrentsParallel(apiKey), 'listTorrents');
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
             name: torrent.filename,

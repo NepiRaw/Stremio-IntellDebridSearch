@@ -343,6 +343,15 @@ export class BaseProvider {
         return true;
     }
 
+    asList(result, context) {
+        if (Array.isArray(result)) {
+            return result;
+        }
+
+        this.log('warn', `${context} returned no list, answering with an empty catalog`);
+        return [];
+    }
+
     /**
      * Standard logging helper
      */

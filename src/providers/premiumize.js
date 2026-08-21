@@ -95,7 +95,7 @@ class PremiumizeProvider extends BaseProvider {
      * List torrents for catalog
      */
     async listTorrents(apiKey) {
-        const files = await this.listFiles(apiKey);
+        const files = this.asList(await this.listFiles(apiKey), 'listTorrents');
         return files.map(file => this.extractCatalogMeta({
             id: file.id,
             name: file.name

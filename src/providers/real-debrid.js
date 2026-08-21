@@ -137,12 +137,8 @@ class RealDebridProvider extends BaseProvider {
 
     async listTorrents(apiKey, skip = 0) {
         const nextPage = Math.floor(skip / 50) + 1;
-        const torrents = await this.listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage);
-        
-        if (!Array.isArray(torrents)) {
-            this.log('warn', 'listFilesParrallel returned non-array, defaulting to empty');
-            return [];
-        }
+        const torrents = this.asList(await this.listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage), 'listTorrents');
+
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
             name: torrent.filename,

@@ -9,6 +9,7 @@ const METADATA_VERSION = 'catalog-metadata-v1';
 
 let enrichmentCacheSingleton = null;
 let enrichmentCacheSignature = null;
+let enrichmentCacheUnavailable = false;
 
 function normalizeAliasValue(value) {
     return String(value || '')
@@ -830,7 +831,7 @@ function buildCacheSignature(config) {
 
 export function getEnrichmentCache() {
     const config = configManager.getCatalogEnrichmentCacheConfig();
-    if (!config.enabled) {
+    if (!config.enabled || enrichmentCacheUnavailable) {
         return null;
     }
 
@@ -843,7 +844,16 @@ export function getEnrichmentCache() {
         enrichmentCacheSingleton.close();
     }
 
-    enrichmentCacheSingleton = new CatalogEnrichmentCache(config);
+    try {
+        enrichmentCacheSingleton = new CatalogEnrichmentCache(config);
+    } catch (error) {
+        enrichmentCacheUnavailable = true;
+        enrichmentCacheSingleton = null;
+        enrichmentCacheSignature = null;
+        logger.error(`[enrichment-cache] Unavailable, serving without persistent enrichment: ${error.message}`);
+        return null;
+    }
+
     enrichmentCacheSignature = signature;
     return enrichmentCacheSingleton;
 }
@@ -865,4 +875,5 @@ export function resetEnrichmentCache() {
         enrichmentCacheSingleton = null;
         enrichmentCacheSignature = null;
     }
+    enrichmentCacheUnavailable = false;
 }

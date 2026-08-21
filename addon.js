@@ -192,7 +192,7 @@ builder.defineMetaHandler(async (args) => {
         videoFiles.forEach((file, index) => {
             const stream = byFilename.get(file.name);
             if (!stream) {
-                logger.warn(`[MetaHandler] No stream URL available for ${file.name}`);
+                logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.name ?? '<no name>'}", ${dropReason(file, built)}`);
                 return;
             }
 
@@ -277,6 +277,12 @@ function enrichCacheParams() {
         cacheMaxAge: CACHE_MAX_AGE,
         staleError: STALE_ERROR_AGE
     }
+}
+
+function dropReason(file, built) {
+    if (!file?.name) return 'the file has no name'
+    if (!file.url) return 'the file has no url, buildSecureStreamUrl returned null'
+    return `no built stream carries that filename, built: ${built.map(stream => stream.behaviorHints?.filename).join(' | ')}`
 }
 
 export default builder.getInterface()

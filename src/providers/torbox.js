@@ -208,7 +208,7 @@ class TorBoxProvider extends BaseProvider {
     }
 
     async listTorrents(apiKey, skip = 0) {
-        const torrents = await this.listFilesParallel(FILE_TYPES.TORRENTS, apiKey, 1);
+        const torrents = this.asList(await this.listFilesParallel(FILE_TYPES.TORRENTS, apiKey, 1), 'listTorrents');
         return torrents.map(torrent => this.extractCatalogMeta({
             id: torrent.id,
             name: torrent.name,
