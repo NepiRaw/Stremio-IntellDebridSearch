@@ -14,12 +14,10 @@ import { logger } from './src/utils/logger.js'
 
 import { DebridLinkProvider } from './src/providers/debrid-link.js'
 import { PremiumizeProvider } from './src/providers/premiumize.js'
-import { TorBoxProvider } from './src/providers/torbox.js'
 
 const PROVIDER_CLASSES = {
     DebridLink: DebridLinkProvider,
     Premiumize: PremiumizeProvider,
-    TorBox: TorBoxProvider
 };
 
 const router = new Router();

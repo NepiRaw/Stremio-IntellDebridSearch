@@ -13,7 +13,6 @@ import Cinemeta from './api/cinemeta.js';
 import { getProvider, fetchTorrentDetails } from './providers/index.js';
 import { authErrorStreams } from './stream/error-stream.js';
 import { DebridLinkProvider } from './providers/debrid-link.js';
-import { TorBoxProvider } from './providers/torbox.js';
 import { PremiumizeProvider } from './providers/premiumize.js';
 
 import { getCacheRecorder } from './utils/cache-recorder.js';
@@ -21,7 +20,6 @@ import { getCacheRecorder } from './utils/cache-recorder.js';
 // Create provider instances once to avoid duplicate initialization logging
 const sharedProviders = { 
     DebridLink: new DebridLinkProvider(),
-    TorBox: new TorBoxProvider(),
     Premiumize: new PremiumizeProvider()
 };
 
@@ -528,9 +526,6 @@ class StreamProvider {
                 case 'Premiumize':
                     // These providers return direct URLs, no unrestricting needed
                     unrestricted = hostUrl;
-                    break;
-                case 'TorBox':
-                    unrestricted = await sharedProviders.TorBox.unrestrictUrl(debridApiKey, itemId, hostUrl, clientIp);
                     break;
                 default:
                     throw new Error(`Unsupported debrid provider: ${debridProvider}`);

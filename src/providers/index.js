@@ -6,10 +6,12 @@
 
 import * as allDebrid from './all-debrid.js';
 import * as realDebrid from './real-debrid.js';
+import * as torBox from './torbox.js';
 
 const registry = new Map([
     [allDebrid.name, allDebrid],
-    [realDebrid.name, realDebrid]
+    [realDebrid.name, realDebrid],
+    [torBox.name, torBox]
 ]);
 
 export function getProvider(name) {

@@ -35,10 +35,6 @@ builder.defineCatalogHandler(async (args) => {
                     const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
                     legacyProvider = new DebridLinkProvider();
                     break;
-                case 'TorBox':
-                    const { TorBoxProvider } = await import('./src/providers/torbox.js');
-                    legacyProvider = new TorBoxProvider();
-                    break;
                 case 'Premiumize':
                     const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
                     legacyProvider = new PremiumizeProvider();
@@ -134,10 +130,6 @@ builder.defineMetaHandler(async (args) => {
             case 'DebridLink':
                 const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
                 legacyProvider = new DebridLinkProvider();
-                break;
-            case 'TorBox':
-                const { TorBoxProvider } = await import('./src/providers/torbox.js');
-                legacyProvider = new TorBoxProvider();
                 break;
             case 'Premiumize':
                 const { PremiumizeProvider } = await import('./src/providers/premiumize.js');

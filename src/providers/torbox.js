@@ -1,414 +1,165 @@
-﻿import { TorboxApi } from '@torbox/torbox-api'
-import { isVideo, FILE_TYPES } from '../utils/file-types.js'
-import { logger } from '../utils/logger.js'
-import { BadTokenError, AccessDeniedError } from '../utils/error-handler.js'
-import { BaseProvider } from './BaseProvider.js'
+/**
+ * TorBox on the shared core.
+ * The listing carries every file inline, so the file phase costs nothing when it is given the
+ * torrents the listing returned. A torrent that arrives from anywhere else falls back to a single
+ * lookup by id, which keeps correctness independent of how a caller passes objects around.
+ */
 
-const API_BASE_URL = 'https://api.torbox.app'
-const API_VERSION = 'v1'
-const API_VALIDATION_OPTIONS = { responseValidation: false }
+import { request } from './http.js';
+import { toTorrent, toVideoFile } from './shapes.js';
+import { normalizeTorrentFiles } from './paths.js';
+import { ProviderAuthError, ProviderItemGoneError } from './errors.js';
+import { buildResolveUrl } from './resolve-url.js';
+import { isVideo } from '../utils/file-types.js';
+import { logger } from '../utils/logger.js';
 
-// TorBox Rate Limiting Configuration (max per TB doc: 300/min )
-const TORBOX_RATE_LIMIT = {
-    maxCalls: 10,         // Max API calls before applying delay
-    delayMs: 250,         // Delay in milliseconds
-    enabled: true         // Enable/disable rate limiting
-};
+export const name = 'TorBox';
+export const capabilities = { filesInline: true, bulkFiles: false, directLinks: false };
 
-class TorBoxProvider extends BaseProvider {
-    constructor() {
-        super('TorBox')
-        this.lastApiCall = 0;
-        this.apiCallCount = 0;
-    }
+const BASE = 'https://api.torbox.app/v1/api';
 
-    /**
-     * Validate TorBox API key before encryption
-     * Static method for use in /encrypt-config endpoint
-     * @param {string} apiKey - API key to validate
-     * @returns {Promise<{valid: boolean, error?: string, email?: string, premium?: boolean}>}
-     */
-    static async validateApiKey(apiKey) {
-        const VALIDATION_TIMEOUT = 10000;
-        
-        try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
-            
-            const response = await fetch('https://api.torbox.app/v1/api/user/me', {
-                headers: { 'Authorization': `Bearer ${apiKey}` },
-                signal: controller.signal
-            });
-            clearTimeout(timeout);
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-                return { 
-                    valid: false, 
-                    error: data.error || data.detail || 'Invalid API key'
-                };
-            }
-            
-            return {
-                valid: true,
-                email: data.data?.email,
-                premium: data.data?.plan !== 'free',
-                plan: data.data?.plan
-            };
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                return { valid: false, error: 'Validation timeout - try again' };
-            }
-            return { valid: false, error: error.message };
-        }
-    }
+/** Without an explicit limit the same call takes 1.5-5.9s instead of 0.7-0.9s. */
+const PAGE_SIZE = 1000;
+const PAGE_BATCH = 4;
+const MAX_PAGES = 40;
 
-    /**
-     * Apply rate limiting to avoid TorBox API limits (5 per second)
-     */
-    async rateLimit() {
-        if (!TORBOX_RATE_LIMIT.enabled) return;
+const auth = apiKey => ({ authorization: `Bearer ${apiKey}` });
 
-        this.apiCallCount++;
-        
-        if (this.apiCallCount % TORBOX_RATE_LIMIT.maxCalls === 0) {
-            const timeSinceLastCall = Date.now() - this.lastApiCall;
-            const delayNeeded = TORBOX_RATE_LIMIT.delayMs - timeSinceLastCall;
-            
-            if (delayNeeded > 0) {
-                logger.debug(`[TorBox] Rate limiting: waiting ${delayNeeded}ms`);
-                await new Promise(resolve => setTimeout(resolve, delayNeeded));
-            }
-        }
-        
-        this.lastApiCall = Date.now();
-    }
+/** The listing's own files, kept off the canonical torrent so nothing downstream can serialise them. */
+const inlineFiles = new WeakMap();
 
-    async searchFiles(fileType, apiKey, searchKey, threshold) {
-        logger.debug("Search " + fileType.description + " with searchKey: " + searchKey)
+const isReady = row => row?.id !== undefined && row.name && row.download_finished && row.download_present;
 
-        const files = await this.listFilesParallel(fileType, apiKey)
-        let results = []
-        if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS)
-            results = files.map(result => this.toTorrent(apiKey, result))
-
-        return this.performFuzzySearch(results, searchKey, threshold)
-    }
-
-    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-        return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold)
-    }
-
-    async getTorrentDetails(apiKey, id) {
-        await this.rateLimit();
-        const torboxApi = new TorboxApi({
-            token: apiKey,
-            baseUrl: API_BASE_URL,
-            validation: API_VALIDATION_OPTIONS
-        });
-
-        try {
-            const response = await torboxApi.torrents.getTorrentList(API_VERSION, {
-                bypassCache: true,
-                id: String(id)
-            });
-
-            if (response.data?.success && response.data?.data) {
-                const data = response.data.data;
-                const torrent = Array.isArray(data) ? data.find(t => t.id == id) : data;
-                if (torrent && torrent.download_finished && torrent.download_present) {
-                    return this.toTorrent(apiKey, torrent);
-                }
-            }
-            return null;
-        } catch (err) {
-            this.logApiError(err, 'getTorrentDetails');
-            return null;
-        }
-    }
-
-    async unrestrictUrl(apiKey, torrentId, hostUrl, userIp) {
-        await this.rateLimit();
-        
-        let fileId;
-        if (typeof hostUrl === 'string' && hostUrl.startsWith('torbox_file_')) {
-            const fileIdMatch = hostUrl.match(/torbox_file_(\d+)/);
-            if (fileIdMatch) {
-                fileId = parseInt(fileIdMatch[1]);
-            } else {
-                logger.error(`[TorBox] Failed to extract file ID from hostUrl: ${hostUrl}`);
-                throw new Error(`Invalid TorBox hostUrl format: ${hostUrl}`);
-            }
-        } else {
-            fileId = hostUrl;
-        }
-        
-        const torboxApi = new TorboxApi({
-            token: apiKey,
-            baseUrl: API_BASE_URL,
-            validation: API_VALIDATION_OPTIONS
-        });
-
-        return torboxApi.torrents
-            .requestDownloadLink(API_VERSION, {
-                token: apiKey,
-                torrentId,
-                fileId,
-                userIp
-            })
-            .then(res => res.data)
-            .then(res => {
-                if (res.success) {
-                    return res.data
-                }
-                return null;
-            })
-            .catch(err => {
-                this.logApiError(err, 'unrestrictUrl');
-                return null;
-            })
-    }
-
-    async toTorrent(apiKey, item) {
-        const videoFiles = (item.files ?? []).filter(file => isVideo(file.short_name));
-
-        const videos = [];
-
-        logger.debug(`[TorBox] Processing ${videoFiles.length} video files for torrent ${item.id}`);
-
-        for (let i = 0; i < videoFiles.length; i++) {
-            const file = videoFiles[i];
-            try {
-                videos.push({
-                    id: `${item.id}:${file.id}`,
-                    name: file.short_name,
-                    url: this.buildSecureStreamUrl(apiKey, item.id, { link: `torbox_file_${file.id}` }),
-                    size: file.size,
-                    created: new Date(item.created_at)
-                });
-            } catch (error) {
-                logger.warn(`[TorBox] Failed to process file ${file.id}:`, error.message);
-            }
-        }
-
-        logger.debug(`[TorBox] Processed ${videos.length} video files for torrent ${item.name}`);
-
-        return {
-            source: 'TorBox',
-            id: item.id,
-            name: item.name,
-            type: 'other',
-            fileType: FILE_TYPES.TORRENTS,
-            hash: item.hash,
-            size: item.size,
-            created: new Date(item.created_at),
-            videos: videos || []
-        }
-    }
-
-    async listTorrents(apiKey, skip = 0) {
-        const torrents = this.asList(await this.listFilesParallel(FILE_TYPES.TORRENTS, apiKey, 1), 'listTorrents');
-        return torrents.map(torrent => this.extractCatalogMeta({
-            id: torrent.id,
-            name: torrent.name,
-            hash: torrent.hash || null,
-            size: torrent.size || torrent.total_bytes || null
-        }));
-    }
-
-    async listFilesParallel(fileType, apiKey, page = 1, pageSize = 1000) {
-        const torboxApi = new TorboxApi({
-            token: apiKey,
-            baseUrl: API_BASE_URL,
-            validation: API_VALIDATION_OPTIONS
-        });
-
-        try {
-            if (fileType?.toString() === 'Symbol(torrents)' || fileType == FILE_TYPES.TORRENTS) {
-                const allFiles = [];
-                let offset = 0;
-                const maxPages = 50;
-
-                for (let i = 0; i < maxPages; i++) {
-                    await this.rateLimit();
-                    
-                    let batch;
-                    try {
-                        const res = await torboxApi.torrents.getTorrentList(API_VERSION, {
-                            bypassCache: true,
-                            offset: String(offset),
-                            limit: String(pageSize)
-                        });
-                        
-                        if (res.data?.success && res.data?.data) {
-                            batch = res.data.data;
-                        } else {
-                            break;
-                        }
-                    } catch (err) {
-                        this._logTorboxApiError(err);
-                        break;
-                    }
-
-                    allFiles.push(...batch);
-
-                    if (batch.length < pageSize) break;
-                    offset += pageSize;
-                }
-
-                if (allFiles.length > pageSize) {
-                    logger.debug(`[TorBox] Fetched ${allFiles.length} torrents across ${Math.ceil(allFiles.length / pageSize)} pages`);
-                }
-
-                return allFiles.filter(f => f.download_finished && f.download_present);
-            }
-
-            return []
-        } catch (error) {
-            logger.warn('TorBox listFilesParallel failed:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Log TorBox API errors with structured error parsing
-     */
-    _logTorboxApiError(err) {
-        const status = err?.response?.status || err?.metadata?.status || err?.status;
-        let errorCode = err?.response?.data?.error || err?.error;
-        
-        if (!errorCode && err?.raw) {
-            try {
-                const rawString = typeof err.raw === 'string' 
-                    ? err.raw 
-                    : new TextDecoder().decode(err.raw);
-                const parsed = JSON.parse(rawString);
-                errorCode = parsed?.error;
-                if (parsed?.detail) {
-                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
-                }
-            } catch (parseErr) {
-            }
-        }
-        
-        // Log specific error types
-        if (status === 429) {
-            logger.warn('[TorBox] Rate limit exceeded (429) - consider enabling rate limit');
-        } else if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
-            logger.warn('[TorBox] Authentication failed: Invalid or expired API token');
-        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
-            logger.warn('[TorBox] Access denied: API feature not available on your plan');
-        } else {
-            logger.warn('[TorBox] API call failed:', err?.message || errorCode || 'Unknown error');
-        }
-    }
-
-    /**
-     * Log API errors in a consistent format without throwing
-     * Use this when you want to log an error but continue execution gracefully
-     * @param {Error} err - The error object
-     * @param {string} context - The context/method where the error occurred
-     */
-    logApiError(err, context = 'unknown') {
-        const status = err?.response?.status || err?.metadata?.status || err?.status;
-        let errorCode = err?.response?.data?.error || err?.error;
-        let errorDetail = null;
-        
-        // Try to parse raw body for SDK errors
-        if (!errorCode && err?.raw) {
-            try {
-                const rawString = typeof err.raw === 'string' 
-                    ? err.raw 
-                    : new TextDecoder().decode(err.raw);
-                const parsed = JSON.parse(rawString);
-                errorCode = parsed?.error;
-                errorDetail = parsed?.detail;
-            } catch (parseErr) {
-                // Ignore parsing errors
-            }
-        }
-        
-        // Log with appropriate message based on error type
-        if (status === 429) {
-            logger.warn(`[TorBox] ${context}: Rate limit exceeded (429) - consider enabling rate limit`);
-        } else if (status === 401 || errorCode === 'BAD_TOKEN' || errorCode === 'invalid_token') {
-            logger.warn(`[TorBox] ${context}: Authentication failed - Invalid or expired API token`);
-        } else if (status === 403 || errorCode === 'PLAN_RESTRICTED_FEATURE') {
-            logger.warn(`[TorBox] ${context}: Access denied - API feature not available on your plan`);
-        } else if (errorDetail) {
-            logger.warn(`[TorBox] ${context}: ${errorCode} - ${errorDetail}`);
-        } else {
-            logger.warn(`[TorBox] ${context}: API error - ${err?.message || errorCode || 'Unknown error'}`);
-        }
-    }
-
-    /**
-     * Handle TorBox API errors gracefully
-     * Supports both standard response format and TorBox SDK HttpError format
-     * @param {Error} err - The error object
-     * @returns {Promise} Rejected promise with appropriate error type
-     */
-    handleError(err) {
-        // Extract status from multiple possible locations:
-        // - Standard fetch: err.response.status
-        // - TorBox SDK HttpError: err.metadata.status
-        const status = err?.response?.status || err?.metadata?.status || err?.status;
-        
-        // Extract error code from response body or SDK error
-        // - Standard: err.response.data.error
-        // - SDK raw body needs parsing
-        let errorCode = err?.response?.data?.error || err?.error;
-        
-        // Try to parse the raw body if it's an ArrayBuffer/Uint8Array (SDK format)
-        if (!errorCode && err?.raw) {
-            try {
-                const rawString = typeof err.raw === 'string' 
-                    ? err.raw 
-                    : new TextDecoder().decode(err.raw);
-                const parsed = JSON.parse(rawString);
-                errorCode = parsed?.error;
-                
-                // Log the detailed error for debugging
-                if (parsed?.detail) {
-                    logger.warn(`[TorBox] API Error: ${parsed.error} - ${parsed.detail}`);
-                }
-            } catch (parseErr) {
-                // Ignore parsing errors, continue with other checks
-            }
-        }
-        
-        logger.debug(`[TorBox] handleError - status: ${status}, errorCode: ${errorCode}`);
-        
-        // Check for rate limiting
-        if (status === 429) {
-            logger.warn('[TorBox] Rate limit exceeded (429) - consider enabling rate limit');
-            return Promise.reject(err);
-        }
-        
-        // Check for authentication errors (invalid token, bad token)
-        if (errorCode === 'invalid_token' || 
-            errorCode === 'BAD_TOKEN' || 
-            status === 401) {
-            logger.warn('[TorBox] Authentication error: Invalid or expired API token');
-            return Promise.reject(new BadTokenError('Invalid API token', 'TorBox'));
-        }
-        
-        // Check for access denied / plan restricted errors
-        if (status === 403 || 
-            errorCode === 'PLAN_RESTRICTED_FEATURE' ||
-            errorCode === 'Forbidden') {
-            logger.warn('[TorBox] Access denied: API feature not available (plan restriction or forbidden)');
-            return Promise.reject(new AccessDeniedError('Access denied: Plan restricted feature', 'TorBox'));
-        }
-        
-        // Log unhandled errors for debugging
-        logger.warn(`[TorBox] Unhandled API error:`, err?.message || err);
-        return Promise.reject(err);
-    }
+async function list(apiKey, params, operation) {
+    const { data } = await request({
+        provider: name, operation, endpointClass: 'list', apiKey,
+        url: `${BASE}/torrents/mylist?bypass_cache=true&${params}`, headers: auth(apiKey)
+    });
+    return data?.data;
 }
 
-const torBoxProvider = new TorBoxProvider()
+const page = async (apiKey, offset) => {
+    const rows = await list(apiKey, `limit=${PAGE_SIZE}&offset=${offset}`, 'listTorrents');
+    return Array.isArray(rows) ? rows : [];
+};
 
-export default torBoxProvider;
-export { TorBoxProvider };
+export async function validateKey(apiKey) {
+    const { data } = await request({
+        provider: name, operation: 'validateKey', apiKey,
+        url: `${BASE}/user/me?settings=false`, headers: auth(apiKey)
+    });
+    const user = data?.data ?? {};
+    return { ok: true, username: user.email, premium: Number(user.plan) > 0, premiumUntil: user.premium_expires_at };
+}
+
+function toCanonical(row) {
+    const torrent = toTorrent({
+        provider: name,
+        id: row.id,
+        name: row.name,
+        hash: row.hash,
+        size: row.size,
+        created: row.created_at,
+        fileCount: row.files?.length
+    });
+    if (Array.isArray(row.files)) inlineFiles.set(torrent, row.files);
+    return torrent;
+}
+
+/**
+ * The library, always live. One call covers any account up to 1000 torrents; beyond that the next
+ * pages are fetched four at a time, since the cost is payload-bound rather than latency-bound.
+ */
+export async function listTorrents(apiKey) {
+    const rows = await page(apiKey, 0);
+
+    if (rows.length === PAGE_SIZE) {
+        for (let offset = PAGE_SIZE; offset < PAGE_SIZE * MAX_PAGES;) {
+            const batch = await Promise.all(
+                Array.from({ length: PAGE_BATCH }, (_, index) => page(apiKey, offset + index * PAGE_SIZE))
+            );
+            for (const rowsPage of batch) rows.push(...rowsPage);
+            offset += PAGE_BATCH * PAGE_SIZE;
+            if (batch.some(rowsPage => rowsPage.length < PAGE_SIZE)) break;
+        }
+    }
+
+    const unique = new Map(rows.filter(isReady).map(row => [String(row.id), row]));
+    return [...unique.values()].map(toCanonical);
+}
+
+/** One torrent's inline files to canonical video files. */
+function toVideos(torrent, files, apiKey) {
+    const addresses = normalizeTorrentFiles(files.map(file => file.name ?? file.short_name), torrent.name);
+
+    return files
+        .map((file, index) => ({ file, address: addresses[index] }))
+        .filter(entry => isVideo(entry.address.fileName))
+        .map(entry => toVideoFile({
+            provider: name,
+            torrentId: torrent.id,
+            fileId: entry.file.id,
+            address: entry.address,
+            size: entry.file.size,
+            created: torrent.created,
+            url: buildResolveUrl(name, apiKey, torrent.id, String(entry.file.id)),
+            resolveRef: { torrentId: String(torrent.id), fileId: entry.file.id }
+        }));
+}
+
+async function lookup(apiKey, torrentId) {
+    const found = await list(apiKey, `id=${encodeURIComponent(torrentId)}`, 'fetchTorrent');
+    return Array.isArray(found) ? found.find(row => String(row.id) === String(torrentId)) : found;
+}
+
+export async function fetchFiles(apiKey, torrents) {
+    const files = new Map();
+
+    await Promise.all(torrents.map(async torrent => {
+        const id = String(torrent.id);
+        const inline = inlineFiles.get(torrent);
+        if (inline) {
+            files.set(id, toVideos(torrent, inline, apiKey));
+            return;
+        }
+
+        try {
+            const row = await lookup(apiKey, id);
+            files.set(id, row?.files ? toVideos(toCanonical(row), row.files, apiKey) : []);
+        } catch (error) {
+            if (error instanceof ProviderAuthError) throw error;
+            logger.debug(`[${name}] dropping torrent ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            files.set(id, []);
+        }
+    }));
+
+    return files;
+}
+
+/** One torrent with its files, for the meta route. */
+export async function fetchTorrent(apiKey, torrentId) {
+    const row = await lookup(apiKey, torrentId);
+    if (!isReady(row)) return null;
+
+    const torrent = toCanonical(row);
+    return { torrent, videos: toVideos(torrent, row.files ?? [], apiKey) };
+}
+
+export async function resolveStream(apiKey, resolveRef, clientIp) {
+    // At play time the reference is rebuilt from the URL, so the file id arrives as `link`.
+    const fileId = resolveRef?.fileId ?? resolveRef?.link;
+    if (fileId === undefined || fileId === null || !resolveRef?.torrentId) {
+        throw new ProviderItemGoneError(`[${name}] resolveStream: the reference names no file`, { provider: name, operation: 'resolveStream' });
+    }
+
+    // TorBox takes the token as a query parameter on this endpoint; the header alone is refused.
+    const query = new URLSearchParams({ token: apiKey, torrent_id: String(resolveRef.torrentId), file_id: String(fileId) });
+    if (clientIp) query.set('user_ip', clientIp);
+
+    const { data } = await request({
+        provider: name, operation: 'resolveStream', endpointClass: 'resolve', apiKey,
+        url: `${BASE}/torrents/requestdl?${query}`, headers: auth(apiKey)
+    });
+
+    return data?.data;
+}
