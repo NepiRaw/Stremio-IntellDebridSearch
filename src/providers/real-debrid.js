@@ -1,312 +1,161 @@
-import RealDebridClient from 'real-debrid-api';
-import { isVideo, FILE_TYPES } from '../utils/file-types.js';
-import BaseProvider from './BaseProvider.js';
+/**
+ * RealDebrid on the shared core.
+ * The library is one call for any account under 2500 torrents, files come one call per torrent,
+ * and a link is only usable when the link count equals the SELECTED file count: any other count
+ * means RealDebrid packaged the torrent differently and no per-file link exists.
+ */
 
-class RealDebridProvider extends BaseProvider {
-    constructor() {
-        super('RealDebrid');
-    }
+import { request } from './http.js';
+import { toTorrent, toVideoFile } from './shapes.js';
+import { normalizeTorrentFiles } from './paths.js';
+import { ProviderAuthError, ProviderItemGoneError } from './errors.js';
+import { buildResolveUrl } from './resolve-url.js';
+import { isVideo } from '../utils/file-types.js';
+import { logger } from '../utils/logger.js';
 
-    /**
-     * Validate RealDebrid API key before encryption
-     * Static method for use in /encrypt-config endpoint
-     * @param {string} apiKey - API key to validate
-     * @returns {Promise<{valid: boolean, error?: string, username?: string, premium?: boolean}>}
-     */
-    static async validateApiKey(apiKey) {
-        const VALIDATION_TIMEOUT = 10000;
-        
-        try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
-            
-            const response = await fetch('https://api.real-debrid.com/rest/1.0/user', {
-                headers: { 'Authorization': `Bearer ${apiKey}` },
-                signal: controller.signal
-            });
-            clearTimeout(timeout);
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                return { 
-                    valid: false, 
-                    error: errorData.error || `HTTP ${response.status}`,
-                    errorCode: errorData.error_code
-                };
-            }
-            
-            const data = await response.json();
-            return {
-                valid: true,
-                username: data.username,
-                premium: data.premium > 0,
-                expiration: data.expiration
-            };
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                return { valid: false, error: 'Validation timeout - try again' };
-            }
-            return { valid: false, error: error.message };
-        }
-    }
+export const name = 'RealDebrid';
+export const capabilities = { filesInline: false, bulkFiles: false, directLinks: false };
 
-    async searchFiles(fileType, apiKey, searchKey, threshold = 0.3) {
-        this.log('debug', `Search ${fileType.description} with searchKey: ${searchKey}`);
+const BASE = 'https://api.real-debrid.com/rest/1.0';
 
-        const files = await this.listFilesParrallel(fileType, apiKey);
-        let results = [];
-        
-        if (fileType?.toString() === 'Symbol(torrents)' || fileType === FILE_TYPES.TORRENTS) {
-            results = files.map(result => this.toTorrent(result));
-        }
+/** A limit above 5000 silently answers 100 rows, so the page size stays well under it. */
+const PAGE_SIZE = 2500;
+const MAX_PAGES = 20;
 
-        return this.performFuzzySearch(results, searchKey, threshold);
-    }
+const auth = apiKey => ({ authorization: `Bearer ${apiKey}` });
+const posted = { 'content-type': 'application/x-www-form-urlencoded' };
 
-    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-        return this.searchFiles(FILE_TYPES.TORRENTS, apiKey, searchKey, threshold);
-    }
-
-    async getTorrentDetails(apiKey, id) {
-        return this.makeApiCall(async () => {
-            const RD = new RealDebridClient(apiKey);
-            const response = await RD.torrents.info(id);
-            return this.toTorrentDetails(apiKey, response.data);
-        }, 3, `getTorrentDetails(${id})`);
-    }
-
-    async toTorrentDetails(apiKey, item) {
-        const videos = item.files
-            .filter(file => file.selected)
-            .filter(file => isVideo(file.path))
-            .map((file, index) => ({
-                id: `${item.id}:${file.id}`,
-                name: file.path,
-                url: this.buildSecureStreamUrl(apiKey, item.id, { link: item.links.at(index) }),
-                size: file.bytes,
-                created: this.parseDate(item.added)
-            }));
-
-        return this.normalizeTorrentDetails(item, videos, {
-            name: item.filename,
-            hash: item.hash,
-            size: item.bytes,
-            created: this.parseDate(item.added)
-        });
-    }
-
-    async unrestrictUrl(apiKey, hostUrl, clientIp) {
-        return this.makeApiCall(async () => {
-            const options = this.getDefaultOptions(clientIp);
-            const RD = new RealDebridClient(apiKey, options);
-            const response = await RD.unrestrict.link(hostUrl);
-            return response.data.download;
-        }, 3, `unrestrictUrl(${hostUrl})`);
-    }
-
-    async toTorrent(apiKey, item) {
-        if (typeof apiKey === 'object' && !item) {
-            item = apiKey;
-            return this.normalizeTorrent(item, {
-                name: item.filename,
-                size: item.bytes,
-                created: this.parseDate(item.added)
-            });
-        }
-        
-        try {
-            const details = await this.getTorrentDetails(apiKey, item.id);
-            return details.videos || [];
-        } catch (error) {
-            logger.warn(`[RealDebrid] Failed to get stream details for torrent ${item.id}:`, error);
-            return [];
-        }
-    }
-
-    normalizeTorrent(item, customFields = {}) {
-        return {
-            source: this.providerName,
-            id: item.id,
-            name: item.name || item.filename,
-            type: 'other',
-            size: item.size || item.bytes,
-            created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
-            ...customFields
-        };
-    }
-
-    async listTorrents(apiKey, skip = 0) {
-        const nextPage = Math.floor(skip / 50) + 1;
-        const torrents = this.asList(await this.listFilesParrallel(FILE_TYPES.TORRENTS, apiKey, nextPage), 'listTorrents');
-
-        return torrents.map(torrent => this.extractCatalogMeta({
-            id: torrent.id,
-            name: torrent.filename,
-            hash: torrent.hash || null,
-            bytes: torrent.bytes || null
-        }));
-    }
-
-    async listFilesParrallel(fileType, apiKey, page = 1, pageSize = 50) {
-        return this.makeApiCall(async () => {
-            const RD = new RealDebridClient(apiKey, {
-                params: { page: 1, limit: pageSize }
-            });
-
-            if (fileType?.toString() === 'Symbol(torrents)' || fileType === FILE_TYPES.TORRENTS) {
-                return this.fetchTorrentsParallel(RD, pageSize);
-            }
-        }, 3, `listFilesParrallel(${fileType.description})`);
-    }
-
-    async fetchTorrentsParallel(RD, pageSize) {
-        try {
-            const firstResp = await RD.torrents.get(0, 1, pageSize);
-            const firstPage = firstResp.data || [];
-            
-            if (firstPage.length === 0) return [];
-            if (firstPage.length < pageSize) return firstPage;
-            
-            const pageNumbers = [];
-            let testPage = 2;
-            let hasMore = true;
-            
-            while (hasMore && testPage <= 100) { // Safety limit
-                try {
-                    const testResp = await RD.torrents.get(0, testPage, pageSize);
-                    if (!testResp.data || testResp.data.length === 0) {
-                        hasMore = false;
-                    } else {
-                        pageNumbers.push(testPage);
-                        testPage++;
-                    }
-                } catch (error) {
-                    if (error.response?.status === 429) {
-                        this.log('warn', 'Rate limited during page discovery, waiting 5 seconds');
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        continue;
-                    }
-                    hasMore = false;
-                }
-            }
-            
-            if (pageNumbers.length === 0) return firstPage;
-            
-            // Adaptive batch sizing - start with 3 (proven safe threshold)
-            const allTorrents = [...firstPage];
-            let batchSize = 2;
-            const pagesToFetch = [...pageNumbers];
-            let rateLimitRetries = 0;
-            const maxRateLimitRetries = 2;
-            
-            while (pagesToFetch.length > 0) {
-                const currentBatch = pagesToFetch.splice(0, batchSize);
-                
-                const batchResults = await Promise.all(
-                    currentBatch.map(page => 
-                        RD.torrents.get(0, page, pageSize)
-                            .then(resp => ({ page, data: resp.data || [], success: true }))
-                            .catch(error => ({ 
-                                page,
-                                status: error.response?.status,
-                                error: error.response?.data?.error,
-                                success: false
-                            }))
-                    )
-                );
-                
-                const successful = batchResults.filter(r => r.success);
-                const rateLimited = batchResults.filter(r => r.status === 429);
-                
-                if (rateLimited.length > 0) {
-                    rateLimitRetries++;
-                    if (rateLimitRetries > maxRateLimitRetries) {
-                        this.log('warn', 'Max rate limit retries reached, returning partial results');
-                        break;
-                    }
-                    if (batchSize > 1) {
-                        this.log('debug', `Rate limited, reducing batch size from ${batchSize} to ${Math.max(1, Math.floor(batchSize / 2))}`);
-                        batchSize = Math.max(1, Math.floor(batchSize / 2));
-                    }
-                    pagesToFetch.unshift(...currentBatch);
-                    const waitTime = rateLimitRetries === 1 ? 2000 : 5000;
-                    this.log('warn', `Rate limited (429), waiting ${waitTime/1000}s before retry ${rateLimitRetries}/${maxRateLimitRetries}`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                    continue;
-                }
-
-                successful.forEach(r => allTorrents.push(...r.data));
-                
-                if (pagesToFetch.length > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-            }
-            
-            return allTorrents;
-        } catch (error) {
-            if (error.isAxiosError && !error.response) {
-                throw error;
-            }
-            
-            if (error.response?.status === 429) {
-                this.log('warn', 'Rate limited (429) on initial request, returning empty');
-                return [];
-            }
-            if (error.response?.status === 401 || 
-                error.response?.data?.error === 'bad_token' ||
-                error.response?.data?.error_code === 8) {
-                
-                this.log('error', `RealDebrid authentication failed: ${error.response?.data?.error || 'Invalid or expired API key'}. Please verify your API key in addon settings. Error code: ${error.response?.data?.error_code || 'unknown'}`);
-                throw error;
-            }
-            
-            this.log('warn', `fetchTorrentsParallel failed: ${error.message}`);
-            return [];  // Return empty array on failure
-        }
-    }
-
-    async bulkGetTorrentDetails(apiKey, ids) {
-        const detailPromises = ids.map(id => this.getTorrentDetails(apiKey, id));
-        const results = await Promise.all(detailPromises);
-        
-        const detailsMap = new Map();
-        ids.forEach((id, index) => {
-            detailsMap.set(id, results[index]);
-        });
-        
-        return detailsMap;
-    }
-
-    handleError(error, context = 'unknown') {
-        this.log('debug', `Error in ${context}:`, error);
-        
-        const errData = error.response?.data;
-        
-        if (errData && errData.error_code === 8) {
-            return super.handleError(new Error('Invalid API token'), context);
-        }
-        
-        if (errData && this.accessDeniedError(errData)) {
-            const accessError = new Error('Access denied by provider');
-            accessError.name = 'AccessDeniedError';
-            accessError.code = 'ACCESS_DENIED';
-            return super.handleError(accessError, context);
-        }
-        
-        return super.handleError(error, context);
-    }
-
-    accessDeniedError(errData) {
-        return [9, 20].includes(errData && errData.error_code);
-    }
-
-    getDefaultOptions(ip) {
-        return { ip };
-    }
-
+export async function validateKey(apiKey) {
+    const { data } = await request({
+        provider: name, operation: 'validateKey', apiKey,
+        url: `${BASE}/user`, headers: auth(apiKey)
+    });
+    return { ok: true, username: data?.username, premium: Number(data?.premium) > 0, premiumUntil: data?.expiration };
 }
 
-const realDebridProvider = new RealDebridProvider();
+const toTorrentRow = row => toTorrent({
+    provider: name,
+    id: row.id,
+    name: row.filename,
+    hash: row.hash,
+    size: row.bytes,
+    created: row.added,
+    fileCount: row.links?.length
+});
 
-export default realDebridProvider;
-export { RealDebridProvider };
+/**
+ * The library. /torrents is capped by concurrency, not by rate, so pages are fetched one after
+ * another; a parallel walk is what makes RD reject listing requests.
+ */
+export async function listTorrents(apiKey) {
+    const page = async number => request({
+        provider: name, operation: 'listTorrents', endpointClass: 'list', apiKey,
+        url: `${BASE}/torrents?limit=${PAGE_SIZE}&page=${number}`, headers: auth(apiKey)
+    });
+
+    const first = await page(1);
+    const rows = Array.isArray(first.data) ? [...first.data] : [];
+
+    const total = Number(first.headers.get('x-total-count'));
+    const pages = Number.isFinite(total) ? Math.min(Math.ceil(total / PAGE_SIZE), MAX_PAGES) : 1;
+    for (let number = 2; number <= pages; number++) {
+        const next = await page(number);
+        if (!Array.isArray(next.data) || next.data.length === 0) break;
+        rows.push(...next.data);
+    }
+
+    return rows.filter(row => row?.id && row.filename).map(toTorrentRow);
+}
+
+/**
+ * Pairs links to files
+ * RealDebrid returns one link per selected file, in the same order, so the pairing must happen
+ * before the video filter. When the counts disagree the torrent was packaged as a single
+ * archive and holds no per-file link, returning nothing
+ */
+function pairLinks(item) {
+    const selected = (item.files ?? []).filter(file => file.selected === 1);
+    const links = item.links ?? [];
+
+    if (links.length !== selected.length) {
+        return { paired: [], reason: links.length < selected.length ? 'archived' : 'more links than selected files' };
+    }
+    return { paired: selected.map((file, index) => ({ file, link: links[index] })), reason: null };
+}
+
+/** One torrent's info payload to canonical video files. */
+function toVideos(item, apiKey) {
+    const { paired, reason } = pairLinks(item);
+    if (reason) {
+        logger.debug(`[${name}] dropping torrent ${item.id}: ${reason} (${item.links?.length ?? 0} links, ${(item.files ?? []).filter(file => file.selected === 1).length} selected)`);
+        return [];
+    }
+
+    const addresses = normalizeTorrentFiles(paired.map(entry => entry.file.path), item.filename);
+
+    return paired
+        .map((entry, index) => ({ ...entry, address: addresses[index] }))
+        .filter(entry => isVideo(entry.address.fileName))
+        .map(entry => toVideoFile({
+            provider: name,
+            torrentId: item.id,
+            fileId: entry.file.id,
+            address: entry.address,
+            size: entry.file.bytes,
+            created: item.added,
+            url: buildResolveUrl(name, apiKey, item.id, entry.link),
+            resolveRef: { link: entry.link }
+        }));
+}
+
+async function info(apiKey, torrentId, operation) {
+    const { data } = await request({
+        provider: name, operation, endpointClass: 'files', apiKey,
+        url: `${BASE}/torrents/info/${encodeURIComponent(torrentId)}`, headers: auth(apiKey)
+    });
+    return data;
+}
+
+export async function fetchFiles(apiKey, torrents) {
+    const files = new Map();
+
+    await Promise.all(torrents.map(async torrent => {
+        const id = String(torrent.id);
+        try {
+            files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey));
+        } catch (error) {
+            // A rejected key must reach the user; one unreachable torrent must not empty the search.
+            if (error instanceof ProviderAuthError) throw error;
+            logger.debug(`[${name}] dropping torrent ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            files.set(id, []);
+        }
+    }));
+
+    return files;
+}
+
+/** One torrent with its files, for the meta route. */
+export async function fetchTorrent(apiKey, torrentId) {
+    const item = await info(apiKey, torrentId, 'fetchTorrent');
+    if (!item?.id || !item.filename) return null;
+
+    return { torrent: toTorrentRow(item), videos: toVideos(item, apiKey) };
+}
+
+export async function resolveStream(apiKey, resolveRef, clientIp) {
+    if (!resolveRef?.link) {
+        throw new ProviderItemGoneError(`[${name}] resolveStream: the reference carries no link`, { provider: name, operation: 'resolveStream' });
+    }
+
+    const body = new URLSearchParams({ link: resolveRef.link });
+    if (clientIp) body.set('ip', clientIp);
+
+    const { data } = await request({
+        provider: name, operation: 'resolveStream', endpointClass: 'resolve', apiKey,
+        url: `${BASE}/unrestrict/link`, method: 'POST',
+        headers: { ...auth(apiKey), ...posted },
+        body
+    });
+
+    return data?.download;
+}

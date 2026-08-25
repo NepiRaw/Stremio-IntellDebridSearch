@@ -5,9 +5,11 @@
  */
 
 import * as allDebrid from './all-debrid.js';
+import * as realDebrid from './real-debrid.js';
 
 const registry = new Map([
-    [allDebrid.name, allDebrid]
+    [allDebrid.name, allDebrid],
+    [realDebrid.name, realDebrid]
 ]);
 
 export function getProvider(name) {

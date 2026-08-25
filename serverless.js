@@ -12,13 +12,11 @@ import { ApiKeySecurityManager } from './src/providers/BaseProvider.js'
 import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
 
-import { RealDebridProvider } from './src/providers/real-debrid.js'
 import { DebridLinkProvider } from './src/providers/debrid-link.js'
 import { PremiumizeProvider } from './src/providers/premiumize.js'
 import { TorBoxProvider } from './src/providers/torbox.js'
 
 const PROVIDER_CLASSES = {
-    RealDebrid: RealDebridProvider,
     DebridLink: DebridLinkProvider,
     Premiumize: PremiumizeProvider,
     TorBox: TorBoxProvider
