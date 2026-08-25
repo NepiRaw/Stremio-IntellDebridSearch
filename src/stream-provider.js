@@ -10,7 +10,8 @@ import { getApiConfig } from './config/configuration.js';
 import { createTracker } from './utils/perf-tracker.js';
 import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
-import { AllDebridProvider } from './providers/all-debrid.js';
+import { getProvider, fetchTorrentDetails } from './providers/index.js';
+import { authErrorStreams } from './stream/error-stream.js';
 import { RealDebridProvider } from './providers/real-debrid.js';
 import { DebridLinkProvider } from './providers/debrid-link.js';
 import { TorBoxProvider } from './providers/torbox.js';
@@ -21,7 +22,6 @@ import { getCacheRecorder } from './utils/cache-recorder.js';
 // Create provider instances once to avoid duplicate initialization logging
 const sharedProviders = { 
     // Migrated to clean class architecture (tested with API keys)
-    AllDebrid: new AllDebridProvider(), 
     RealDebrid: new RealDebridProvider(), 
     DebridLink: new DebridLinkProvider(),
     TorBox: new TorBoxProvider(),
@@ -30,7 +30,7 @@ const sharedProviders = {
 
 const StreamHelpers = {
     logBulkProcessing(provider, torrentCount, contentType) {
-        if (provider.bulkGetTorrentDetails) {
+        if (provider?.bulkGetTorrentDetails || provider?.fetchFiles) {
             logger.info(`[stream-provider] 🚀 Using BULK OPTIMIZATION for ${torrentCount} ${contentType} torrents`);
         } else {
             logger.info(`[stream-provider] ⚠️ Using INDIVIDUAL CALLS for ${torrentCount} ${contentType} torrents (no bulk support)`);
@@ -138,8 +138,9 @@ class StreamProvider {
 
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
 
-            const provider = providers[config.DebridProvider];
-            if (!provider || !provider.getTorrentDetails) {
+            const legacyProvider = providers[config.DebridProvider];
+            const provider = getProvider(config.DebridProvider);
+            if (!provider && !legacyProvider?.getTorrentDetails) {
                 logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
                 return [];
             }
@@ -150,13 +151,13 @@ class StreamProvider {
             // was kept: a film the filter recognised is not then titled as an episode.
             const parseContext = movieParseContext(cinemetaDetails.name);
 
-            StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'movie');
+            StreamHelpers.logBulkProcessing(provider ?? legacyProvider, deduplicatedResults.length, 'movie');
 
-            if (provider.bulkGetTorrentDetails) {
-                
-                const torrentIds = deduplicatedResults.map(result => result.id);
-                const bulkDetails = await tracker.span('fetch', () =>
-                    provider.bulkGetTorrentDetails(config.DebridApiKey, torrentIds));
+            if (provider || legacyProvider.bulkGetTorrentDetails) {
+
+                const bulkDetails = await tracker.span('fetch', () => provider
+                    ? fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, deduplicatedResults)
+                    : legacyProvider.bulkGetTorrentDetails(config.DebridApiKey, deduplicatedResults.map(result => result.id)));
                 
                 for (const result of deduplicatedResults) {
                     try {
@@ -189,7 +190,7 @@ class StreamProvider {
                 for (const result of deduplicatedResults) {
                     try {
                         const torrentDetails = attachParse(
-                            await provider.getTorrentDetails(config.DebridApiKey, result.id),
+                            await legacyProvider.getTorrentDetails(config.DebridApiKey, result.id),
                             parseContext
                         );
 
@@ -253,9 +254,10 @@ class StreamProvider {
 
         } catch (error) {
             const duration = Date.now() - startTime;
-            logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}:`, error);
+            logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
 
-            return [];
+            // A rejected key is the one failure a user can act on, so it gets a row of its own.
+            return authErrorStreams(error);
         } finally {
             logger.debug(`[perf] ${tracker.summary()}`);
         }
@@ -361,8 +363,9 @@ class StreamProvider {
             // Limit concurrent debrid API calls to prevent rate limiting issues
             const { executeWithControlledConcurrency } = await import('./utils/debrid-processor.js');
             
-            const provider = providers[config.DebridProvider];
-            if (!provider || !provider.getTorrentDetails) {
+            const legacyProvider = providers[config.DebridProvider];
+            const provider = getProvider(config.DebridProvider);
+            if (!provider && !legacyProvider?.getTorrentDetails) {
                 logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
                 return [];
             }
@@ -370,14 +373,14 @@ class StreamProvider {
             let streamTasks = [];
             const collectedTorrents = []; // Collect torrent details for cache recording
 
-            StreamHelpers.logBulkProcessing(provider, deduplicatedResults.length, 'series');
+            StreamHelpers.logBulkProcessing(provider ?? legacyProvider, deduplicatedResults.length, 'series');
 
-            if (provider.bulkGetTorrentDetails) {
+            if (provider || legacyProvider.bulkGetTorrentDetails) {
 
-                const missingIds = deduplicatedResults.filter(result => !result.torrentDetails).map(result => result.id);
-                const bulkDetails = missingIds.length
-                    ? await provider.bulkGetTorrentDetails(config.DebridApiKey, missingIds)
-                    : new Map();
+                const missing = deduplicatedResults.filter(result => !result.torrentDetails);
+                const bulkDetails = !missing.length ? new Map() : await (provider
+                    ? fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, missing)
+                    : legacyProvider.bulkGetTorrentDetails(config.DebridApiKey, missing.map(result => result.id)));
 
                 const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
@@ -418,7 +421,7 @@ class StreamProvider {
                 streamTasks = deduplicatedResults.map(result => async () => {
                     try {
                         const torrentDetails = result.torrentDetails
-                            ?? attachParse(await provider.getTorrentDetails(config.DebridApiKey, result.id));
+                            ?? attachParse(await legacyProvider.getTorrentDetails(config.DebridApiKey, result.id));
 
                         if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
                             logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
@@ -493,9 +496,10 @@ class StreamProvider {
 
         } catch (error) {
             const duration = Date.now() - startTime;
-            logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}:`, error);
+            logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
 
-            return [];
+            // A rejected key is the one failure a user can act on, so it gets a row of its own.
+            return authErrorStreams(error);
         } finally {
             logger.debug(`[perf] ${tracker.summary()}`);
         }
@@ -515,11 +519,14 @@ class StreamProvider {
         
         try {
             let unrestricted;
-            
+            const provider = getProvider(debridProvider);
+            if (provider) {
+                const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
+                logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
+                return url;
+            }
+
             switch (debridProvider) {
-                case 'AllDebrid':
-                    unrestricted = await sharedProviders.AllDebrid.unrestrictUrl(debridApiKey, hostUrl);
-                    break;
                 case 'RealDebrid':
                     unrestricted = await sharedProviders.RealDebrid.unrestrictUrl(debridApiKey, hostUrl, clientIp);
                     break;

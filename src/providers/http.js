@@ -5,10 +5,13 @@
  */
 
 import Bottleneck from 'bottleneck';
+import http from 'node:http';
+import https from 'node:https';
 import packageInfo from '../../package.json' with { type: 'json' };
 import { createHash } from 'node:crypto';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import { logger } from '../utils/logger.js';
-import { fetchWithRetry } from '../api/http.js';
+import { isTransientNetworkError } from '../api/http.js';
 import { classify, isErrorBody, retryAfterMs } from './errors.js';
 
 /** A provider behind Cloudflare answers 403 without one. */
@@ -63,20 +66,71 @@ function limiterFor(provider, endpointClass, apiKey) {
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function send(url, options, context) {
-    try {
-        return await fetchWithRetry(url, options, `${context.provider}:${context.operation}`);
-    } catch (cause) {
-        throw classify({ ...context, status: 0, cause });
+const ATTEMPTS = 3;
+const RETRY_DELAY_MS = 150;
+
+/** A dropped socket or a failed name lookup says nothing about the answer, so ask again. */
+async function withRetry(send, context) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await send();
+        } catch (cause) {
+            if (!isTransientNetworkError(cause) || attempt === ATTEMPTS) throw classify({ ...context, status: 0, cause });
+            logger.debug(`[${context.provider}] ${context.operation} ${cause.code ?? cause.message} on attempt ${attempt}, retrying`);
+            await wait(RETRY_DELAY_MS * attempt);
+        }
     }
+}
+
+const proxyAgents = new Map();
+const proxyAgent = proxyUrl => {
+    if (!proxyAgents.has(proxyUrl)) proxyAgents.set(proxyUrl, new SocksProxyAgent(proxyUrl));
+    return proxyAgents.get(proxyUrl);
+};
+
+/**
+ * The proxied transport. `fetch` cannot take an http.Agent, and AllDebrid's link/unlock is refused
+ * from a datacenter address, so that one call goes through node's client and a SOCKS agent.
+ * Answers the same shape the fetch path returns.
+ */
+function sendThroughProxy(url, { method, headers, body, timeoutMs, proxyUrl }) {
+    const payload = body === undefined || body === null ? null : String(body);
+    const sent = payload === null ? headers : { ...headers, 'content-length': Buffer.byteLength(payload) };
+
+    const client = url.startsWith('http:') ? http : https;
+
+    return new Promise((resolve, reject) => {
+        const call = client.request(url, { method, headers: sent, agent: proxyAgent(proxyUrl), timeout: timeoutMs }, response => {
+            let text = '';
+            response.setEncoding('utf8');
+            response.on('data', chunk => { text += chunk; });
+            response.on('end', () => {
+                const responseHeaders = new Headers();
+                for (const [key, value] of Object.entries(response.headers)) {
+                    for (const item of [value].flat()) responseHeaders.append(key, String(item));
+                }
+                resolve({
+                    status: response.statusCode,
+                    ok: response.statusCode >= 200 && response.statusCode < 300,
+                    headers: responseHeaders,
+                    text: async () => text
+                });
+            });
+        });
+        call.on('timeout', () => call.destroy(Object.assign(new Error('proxy request timed out'), { code: 'ETIMEDOUT' })));
+        call.on('error', reject);
+        if (payload !== null) call.write(payload);
+        call.end();
+    });
 }
 
 /**
  * Performs one provider call and returns {data, headers, status}, throwing a typed error for any
  * failure, including the ones that arrive as HTTP 200 or as HTML.
- * Callers build their own auth headers, since the providers disagree on where the key goes.
+ * Callers build their own auth headers, since the providers disagree on where the key goes, and
+ * pass `proxyUrl` for the rare endpoint that must not leave from this machine's address.
  */
-export async function request({ provider, operation, endpointClass = 'default', apiKey, url, method = 'GET', headers = {}, body, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function request({ provider, operation, endpointClass = 'default', apiKey, url, method = 'GET', headers = {}, body, timeoutMs = DEFAULT_TIMEOUT_MS, proxyUrl }) {
     const context = { provider, operation };
     const limiter = limiterFor(provider, endpointClass, apiKey);
     const options = {
@@ -86,7 +140,10 @@ export async function request({ provider, operation, endpointClass = 'default', 
     };
 
     for (let attempt = 1; ; attempt++) {
-        const response = await limiter.schedule(() => send(url, { ...options, signal: AbortSignal.timeout(timeoutMs) }, context));
+        const send = proxyUrl
+            ? () => sendThroughProxy(url, { ...options, timeoutMs, proxyUrl })
+            : () => fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+        const response = await limiter.schedule(() => withRetry(send, context));
         const text = await response.text().catch(() => '');
         let data = null;
         try {

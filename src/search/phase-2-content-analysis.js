@@ -23,6 +23,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { getProvider, fetchTorrentDetails } from '../providers/index.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName, frozenParse, attachParse } from '../parsing/parser.js';
@@ -31,13 +32,14 @@ import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js
 /**
  * Batch fetch torrent details for torrents that need them
  * @param {Array} titleMatches - Matches from Phase 1
- * @param {Object} provider - Provider implementation
+ * @param {Object} legacyProvider - Legacy provider instance, used until the provider migrates
  * @param {string} apiKey - API key
  * @returns {Promise} Promise that resolves when all details are fetched
  */
-export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, addresses = null) {
+export async function batchFetchTorrentDetails(titleMatches, legacyProvider, apiKey, addresses = null, providerName = null) {
+    const provider = getProvider(providerName);
     const torrentsNeedingDetails = titleMatches.filter(match =>
-        provider?.getTorrentDetails &&
+        (provider || legacyProvider?.getTorrentDetails) &&
         !match.item.videos &&
         couldContain(match.item.parsed ?? frozenParse(match.item.name), addresses)
     );
@@ -47,6 +49,16 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, a
     }
 
     logger.info(`[phase-2] Parallel batch fetching details for ${torrentsNeedingDetails.length} torrents`);
+
+    if (provider) {
+        const details = await fetchTorrentDetails(providerName, apiKey, torrentsNeedingDetails.map(match => match.item));
+        for (const match of torrentsNeedingDetails) {
+            const found = details.get(String(match.item.id));
+            if (found) Object.assign(match.item, attachParse(found));
+        }
+        logger.debug(`[phase-2] Bulk fetch completed for ${torrentsNeedingDetails.length} torrents`);
+        return;
+    }
 
     const BATCH_SIZE = 20; // Process 20 torrents in parallel at a time
     const batches = [];
@@ -59,7 +71,7 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, a
         await Promise.all(
             batch.map(async match => {
                 try {
-                    const details = await provider.getTorrentDetails(apiKey, match.item.id);
+                    const details = await legacyProvider.getTorrentDetails(apiKey, match.item.id);
                     Object.assign(match.item, attachParse(details));
                 } catch (e) {
                     logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);

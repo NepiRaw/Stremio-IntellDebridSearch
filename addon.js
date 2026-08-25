@@ -3,6 +3,8 @@ import StreamProvider from './src/stream-provider.js'
 import { getManifest } from './src/config/manifest.js'
 import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
 import { logger } from './src/utils/logger.js';
+import { getProvider } from './src/providers/index.js';
+import { searchProviderLibrary } from './src/search/provider-search.js';
 
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
 const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
@@ -22,29 +24,28 @@ builder.defineCatalogHandler(async (args) => {
                 return { metas: [] }
             }
 
-            let provider;
+            let legacyProvider;
             const providerName = args.config.DebridProvider;
-            
-            switch (providerName) {
-                case 'AllDebrid':
-                    const { AllDebridProvider } = await import('./src/providers/all-debrid.js');
-                    provider = new AllDebridProvider();
+            const provider = getProvider(providerName);
+
+            switch (provider ? null : providerName) {
+                case null:
                     break;
                 case 'RealDebrid':
                     const { RealDebridProvider } = await import('./src/providers/real-debrid.js');
-                    provider = new RealDebridProvider();
+                    legacyProvider = new RealDebridProvider();
                     break;
                 case 'DebridLink':
                     const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
-                    provider = new DebridLinkProvider();
+                    legacyProvider = new DebridLinkProvider();
                     break;
                 case 'TorBox':
                     const { TorBoxProvider } = await import('./src/providers/torbox.js');
-                    provider = new TorBoxProvider();
+                    legacyProvider = new TorBoxProvider();
                     break;
                 case 'Premiumize':
                     const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
-                    provider = new PremiumizeProvider();
+                    legacyProvider = new PremiumizeProvider();
                     break;
                 default:
                     throw new Error(`Unsupported provider: ${providerName}`);
@@ -60,14 +61,7 @@ builder.defineCatalogHandler(async (args) => {
                 const apiConfig = getApiConfig();
                 
                 if (apiConfig.hasAdvancedSearch) {
-                    const providers = {
-                        AllDebrid: provider,
-                        RealDebrid: provider,
-                        DebridLink: provider,
-                        TorBox: provider,
-                        Premiumize: provider
-                    };
-                    providers[providerName] = provider;
+                    const providers = { [providerName]: legacyProvider };
                     
                     const params = { 
                         apiKey: args.config.DebridApiKey, 
@@ -81,13 +75,15 @@ builder.defineCatalogHandler(async (args) => {
                     torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
                     logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
                 } else {
-                    torrents = await provider.searchTorrents(args.config.DebridApiKey, args.extra.search);
+                    torrents = await searchProviderLibrary(providerName, legacyProvider, args.config.DebridApiKey, args.extra.search);
                     logger.debug(`[CatalogHandler] searchTorrents search returned ${torrents.length} torrents`);
                 }
             } else {
                 // Standard catalog request
                 if (args.config.ShowCatalog) {
-                    torrents = await provider.listTorrents(args.config.DebridApiKey, args.extra.skip || 0);
+                    torrents = provider
+                        ? await provider.listTorrents(args.config.DebridApiKey)
+                        : await legacyProvider.listTorrents(args.config.DebridApiKey, args.extra.skip || 0);
                     logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
                 }
             }
@@ -133,33 +129,36 @@ builder.defineMetaHandler(async (args) => {
             throw new Error(`Unsupported provider: ${providerNameLower}`);
         }
         
-        let provider;
-        switch (providerName) {
-            case 'AllDebrid':
-                const { AllDebridProvider } = await import('./src/providers/all-debrid.js');
-                provider = new AllDebridProvider();
+        let legacyProvider;
+        const provider = getProvider(providerName);
+
+        switch (provider ? null : providerName) {
+            case null:
                 break;
             case 'RealDebrid':
                 const { RealDebridProvider } = await import('./src/providers/real-debrid.js');
-                provider = new RealDebridProvider();
+                legacyProvider = new RealDebridProvider();
                 break;
             case 'DebridLink':
                 const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
-                provider = new DebridLinkProvider();
+                legacyProvider = new DebridLinkProvider();
                 break;
             case 'TorBox':
                 const { TorBoxProvider } = await import('./src/providers/torbox.js');
-                provider = new TorBoxProvider();
+                legacyProvider = new TorBoxProvider();
                 break;
             case 'Premiumize':
                 const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
-                provider = new PremiumizeProvider();
+                legacyProvider = new PremiumizeProvider();
                 break;
             default:
                 throw new Error(`Unsupported provider: ${providerName}`);
         }
         
-        const torrentDetails = await provider.getTorrentDetails(args.config.DebridApiKey, torrentId);
+        const found = provider ? await provider.fetchTorrent(args.config.DebridApiKey, torrentId) : null;
+        const torrentDetails = provider
+            ? found && { ...found.torrent, videos: found.videos }
+            : await legacyProvider.getTorrentDetails(args.config.DebridApiKey, torrentId);
         
         if (!torrentDetails) {
             logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
@@ -169,11 +168,11 @@ builder.defineMetaHandler(async (args) => {
         const videoFiles = torrentDetails.videos || [];
 
         for (const file of videoFiles) {
-            if (!provider.resolveStreamUrl || !file.url) continue;
+            if (!legacyProvider?.resolveStreamUrl || !file.url) continue;
 
             logger.info(`[MetaHandler] 🔄 Resolving stream URL for ${file.name}`);
             try {
-                const resolved = await provider.resolveStreamUrl(args.config.DebridApiKey, file.url);
+                const resolved = await legacyProvider.resolveStreamUrl(args.config.DebridApiKey, file.url);
                 if (resolved) {
                     file.url = resolved;
                     logger.info(`[MetaHandler] ✅ Resolved to direct stream URL`);

@@ -1,469 +1,155 @@
-import axios from 'axios';
-import Bottleneck from 'bottleneck';
-import querystring from 'querystring';
-import { encode } from 'urlencode';
-import { SocksProxyAgent } from 'socks-proxy-agent';
-import BaseProvider, { ApiKeySecurityManager } from './BaseProvider.js';
+/**
+ * AllDebrid on the shared core.
+ * The library is one call, files come from a bulk endpoint that takes 20 ids at a time, and only
+ * link/unlock is refused from a datacenter address, so only that call takes the WARP proxy.
+ */
+
+import { request } from './http.js';
+import { toTorrent, toVideoFile } from './shapes.js';
+import { normalizeTorrentFiles, flattenTree } from './paths.js';
+import { classify, ProviderItemGoneError } from './errors.js';
+import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
+import { logger } from '../utils/logger.js';
 
-// Rate limiter 
-const limiter = new Bottleneck({
-    minTime: 1000 / 12, // ~12 req/s
-    maxConcurrent: 5,
-    reservoir: 600, // 600/min
-    reservoirRefreshAmount: 600,
-    reservoirRefreshInterval: 60 * 1000
-});
+export const name = 'AllDebrid';
+export const capabilities = { filesInline: false, bulkFiles: true, directLinks: false };
 
-const ALL_DEBRID_CLIENT_NAME = 'intell-debridsearch';
+const BASE = 'https://api.alldebrid.com';
+const AGENT = 'intell-debridsearch';
+const FILES_BATCH = 20;
+const READY = 4;
 
-// WARP proxy for link/unlock to bypass AllDebrid datacenter IP blocking
-const WARP_PROXY_URL = process.env.ALLDEBRID_PROXY_URL || '';
-let warpAgent = null;
-if (WARP_PROXY_URL) {
-    try {
-        warpAgent = new SocksProxyAgent(WARP_PROXY_URL);
-        console.log(`[AllDebrid] WARP proxy configured: ${WARP_PROXY_URL}`);
-    } catch (e) {
-        console.warn(`[AllDebrid] Failed to configure WARP proxy: ${e.message}`);
+const endpoint = (version, path) => `${BASE}/${version}/${path}?agent=${AGENT}`;
+const auth = apiKey => ({ authorization: `Bearer ${apiKey}` });
+const posted = { 'content-type': 'application/x-www-form-urlencoded' };
+
+const form = fields => {
+    const body = new URLSearchParams();
+    for (const [key, values] of Object.entries(fields)) {
+        for (const value of [values].flat()) body.append(key, String(value));
     }
-} else {
-    console.warn('[AllDebrid] No WARP proxy configured (ALLDEBRID_PROXY_URL). link/unlock may get NO_SERVER errors on datacenter IPs.');
+    return body;
+};
+
+const chunk = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, i * size + size));
+
+export async function validateKey(apiKey) {
+    const { data } = await request({
+        provider: name, operation: 'validateKey', apiKey,
+        url: endpoint('v4', 'user'), headers: auth(apiKey)
+    });
+    const user = data.data?.user ?? {};
+    return { ok: true, username: user.username, premium: Boolean(user.isPremium), premiumUntil: user.premiumUntil };
 }
 
-class AllDebridProvider extends BaseProvider {
-    constructor() {
-        super('AllDebrid');
-        this.baseUrl = 'https://api.alldebrid.com/v4.1'; // Updated to v4.1
-    }
+export async function listTorrents(apiKey) {
+    const { data } = await request({
+        provider: name, operation: 'listTorrents', endpointClass: 'list', apiKey,
+        url: endpoint('v4.1', 'magnet/status'), headers: auth(apiKey)
+    });
 
-    /**
-     * Validate AllDebrid API key before encryption
-     * Static method for use in /encrypt-config endpoint
-     * @param {string} apiKey - API key to validate
-     * @returns {Promise<{valid: boolean, error?: string, username?: string, premium?: boolean}>}
-     */
-    static async validateApiKey(apiKey) {
-        const VALIDATION_TIMEOUT = 10000;
-        
-        try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT);
-
-            const validationUrl = new URL('https://api.alldebrid.com/v4/user');
-            validationUrl.searchParams.set('agent', ALL_DEBRID_CLIENT_NAME);
-
-            const response = await fetch(validationUrl, {
-                headers: { 'Authorization': `Bearer ${apiKey}` },
-                signal: controller.signal
-            });
-            clearTimeout(timeout);
-            
-            const data = await response.json();
-            
-            if (data.status === 'error') {
-                return {
-                    valid: false,
-                    error: data.error?.message || data.error?.code || 'Unknown error',
-                    errorCode: data.error?.code
-                };
-            }
-            
-            return {
-                valid: true,
-                username: data.data?.user?.username,
-                premium: data.data?.user?.isPremium,
-                premiumUntil: data.data?.user?.premiumUntil
-            };
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                return { valid: false, error: 'Validation timeout - try again' };
-            }
-            return { valid: false, error: error.message };
-        }
-    }
-
-    getHeaders(apiKey) {
-        return {
-            'Authorization': `Bearer ${apiKey}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-    }
-
-    // Enhanced API request
-    async makeAllDebridRequest(endpoint, params = {}, apiKey) {
-        const requestUrl = new URL(`${this.baseUrl}/${endpoint}`);
-        requestUrl.searchParams.set('agent', ALL_DEBRID_CLIENT_NAME);
-
-        const postData = {
-            ...params
-        };
-
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        while (retryCount <= maxRetries) {
-            try {
-                const axiosConfig = {
-                    method: 'POST',
-                    url: requestUrl.toString(),
-                    data: querystring.stringify(postData),
-                    headers: this.getHeaders(apiKey),
-                    timeout: 30000,
-                    responseType: 'text',
-                    decompress: true
-                };
-
-                // Route link/unlock through WARP proxy to bypass datacenter IP blocking
-                if (endpoint === 'link/unlock' && warpAgent) {
-                    axiosConfig.httpAgent = warpAgent;
-                    axiosConfig.httpsAgent = warpAgent;
-                }
-
-                const response = await limiter.schedule(() => axios(axiosConfig));
-
-                // Handle HTTP error status codes
-                if (response.status < 200 || response.status >= 300) {
-                    const headers = response.headers;
-                    if (response.status === 403) {
-                        if (headers['cf-ray']) {
-                            if (retryCount < maxRetries) {
-                                const delay = Math.pow(2, retryCount) * 500 + Math.random() * 500;
-                                await new Promise(resolve => setTimeout(resolve, delay));
-                                retryCount++;
-                                continue;
-                            }
-                            throw new Error(`Cloudflare blocking detected after ${maxRetries + 1} attempts`);
-                        }
-                        throw new Error(`HTTP 403 Forbidden - Anti-bot detection triggered`);
-                    } else if (response.status === 503 || response.status === 429) {
-                        const delay = Math.pow(2, retryCount) * 2000 + Math.random() * 1000;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        retryCount++;
-                        continue;
-                    }
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const text = response.data;
-                
-                // Check for HTML responses
-                if (typeof text === 'string' && (text.includes('<html>') || text.includes('<!DOCTYPE html>'))) {
-                    if (text.includes('cloudflare') || text.includes('Cloudflare')) {
-                        if (retryCount < maxRetries) {
-                            const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                            retryCount++;
-                            continue;
-                        }
-                        throw new Error('Cloudflare protection detected after retries');
-                    }
-                    throw new Error('Unexpected HTML response from API');
-                }
-
-                let parsedResponse;
-                try {
-                    parsedResponse = JSON.parse(text);
-                } catch (parseError) {
-                    throw new Error(`Failed to parse API response: ${parseError.message}`);
-                }
-
-                return parsedResponse;
-
-            } catch (error) {
-                if (retryCount >= maxRetries) {
-                    throw error;
-                }
-                retryCount++;
-                const delay = Math.pow(2, retryCount) * 1000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
-    }
-
-    async searchTorrents(apiKey, searchKey = null, threshold = 0.3) {
-        const torrentsResults = this.asList(await this.listTorrentsParallel(apiKey), 'searchTorrents');
-        const torrents = torrentsResults.map(item => this.normalizeTorrent(item, {
-            name: item.filename // AllDebrid uses 'filename' field
+    return (data.data?.magnets ?? [])
+        .filter(magnet => magnet.statusCode === READY && magnet.filename)
+        .map(magnet => toTorrent({
+            provider: name,
+            id: magnet.id,
+            name: magnet.filename,
+            hash: magnet.hash,
+            size: magnet.size,
+            created: magnet.completionDate,
+            fileCount: magnet.nbLinks
         }));
-        
-        if (!searchKey) {
-            return torrents;
-        }
-        
-        return this.performFuzzySearch(torrents, searchKey, threshold);
-    }
+}
 
-    normalizeTorrent(item, customFields = {}) {
-        const base = {
-            source: this.providerName,
-            id: item.id,
-            name: item.name || item.filename,
-            type: 'other',
-            size: item.size || item.bytes,
-            created: this.parseDate(item.created || item.added || item.completionDate || item.created_at),
-            ...customFields
-        };
-        
-        return base;
-    }
+/** One magnet's tree to canonical video files. The tree is the only place folder names exist. */
+function toVideos(magnet, torrent, apiKey) {
+    const leaves = flattenTree(magnet.files);
 
-    async getTorrentDetails(apiKey, id) {
-        return this.makeApiCall(async () => {
-            const statusResponse = await this.makeAllDebridRequest('magnet/status', { id }, apiKey);
-            this.validateApiResponse(statusResponse, ['data']);
-
-            if (!statusResponse?.data?.magnets) {
-                this.log('error', `No magnets found for ID ${id}`);
-                return null;
-            }
-
-            const magnetsData = statusResponse.data.magnets;
-            let magnetDetails = null;
-            
-            if (Array.isArray(magnetsData)) {
-                magnetDetails = magnetsData.find(m => m.id === parseInt(id));
-            } else if (magnetsData && typeof magnetsData === 'object') {
-                magnetDetails = magnetsData.id ? magnetsData : Object.values(magnetsData).find(m => m.id === parseInt(id));
-            }
-
-            if (!magnetDetails) {
-                this.log('warn', `No magnet details found for ID ${id}`);
-                return null;
-            }
-
-            if (magnetDetails.files && Array.isArray(magnetDetails.files)) {
-                this.log('debug', `Files included in status response for magnet ${id} - ${magnetDetails.filename}`);
-            } else {
-                try {
-                    const filesResponse = await this.makeAllDebridRequest('magnet/files', { id: [parseInt(id)] }, apiKey);
-                    this.validateApiResponse(filesResponse, ['data']);
-                    
-                    if (filesResponse?.data?.magnets && filesResponse.data.magnets.length > 0) {
-                        const magnetFiles = filesResponse.data.magnets[0];
-                        if (magnetFiles.files) {
-                            magnetDetails.files = magnetFiles.files;
-                            this.log('debug', `Got files from files endpoint for magnet ${id}`);
-                        }
-                    }
-                } catch (error) {
-                    this.log('warn', `Failed to get files for magnet ${id}: ${error.message}`);
-                }
-            }
-
-            return await this.toTorrentDetails(apiKey, magnetDetails);
-        }, 3, `getTorrentDetails(${id})`);
-    }
-
-    /**
-     * Universal AllDebrid file flattening function
-     * Handles all known AllDebrid file structure patterns
-     */
-    flattenAllDebridFiles(files) {
-        const flattenedFiles = [];
-        
-        if (!files || !Array.isArray(files) || files.length === 0) {
-            return flattenedFiles;
-        }
-
-        const extractFiles = (items) => {
-            if (!items) return;
-            
-            if (Array.isArray(items)) {
-                items.forEach((item) => {
-                    extractFiles(item);
-                });
-                return;
-            }
-            
-            if (typeof items === 'object') {
-                if (items.n && items.s && items.l) {
-                    flattenedFiles.push({
-                        name: items.n,
-                        size: items.s,
-                        allDebridFile: items
-                    });
-                }
-                
-                if (items.e && Array.isArray(items.e)) {
-                    extractFiles(items.e);
-                }
-            }
-        };
-        extractFiles(files);
-        
-        return flattenedFiles;
-    }
-
-    async toTorrentDetails(apiKey, item) {
-        const flattenedFiles = this.flattenAllDebridFiles(item.files);
-
-        const videoFiles = flattenedFiles.filter(file => isVideo(file.name));
-        
-        const videos = videoFiles.map((file, index) => ({
-            id: `${item.id}:${index}`,
-            name: file.name,
-            url: this.buildSecureStreamUrl(apiKey, item.id, file.allDebridFile, index),
-            size: file.size,
-            created: this.parseDate(item.completionDate)
+    return normalizeTorrentFiles(leaves.map(leaf => leaf.path), torrent?.name)
+        .map((address, index) => ({ address, leaf: leaves[index] }))
+        .filter(entry => isVideo(entry.address.fileName))
+        .map((entry, index) => toVideoFile({
+            provider: name,
+            torrentId: magnet.id,
+            fileId: index,
+            address: entry.address,
+            size: entry.leaf.size,
+            created: torrent?.created,
+            url: buildResolveUrl(name, apiKey, magnet.id, entry.leaf.link),
+            resolveRef: { link: entry.leaf.link }
         }));
+}
 
-        return this.normalizeTorrentDetails(item, videos, {
-            name: item.filename,
-            hash: item.hash,
-            created: this.parseDate(item.completionDate)
+export async function fetchFiles(apiKey, torrents) {
+    const byId = new Map(torrents.map(torrent => [String(torrent.id), torrent]));
+    const files = new Map();
+
+    await Promise.all(chunk([...byId.keys()], FILES_BATCH).map(async batch => {
+        const { data } = await request({
+            provider: name, operation: 'fetchFiles', endpointClass: 'files', apiKey,
+            url: endpoint('v4.1', 'magnet/files'), method: 'POST',
+            headers: { ...auth(apiKey), ...posted },
+            body: form({ 'id[]': batch })
         });
-    }
 
-    buildSecureStreamUrl(apiKey, torrentId, file, index = 0) {
-        if (!file || !file.l) {
-            return null;
+        for (const magnet of data.data?.magnets ?? []) {
+            const torrent = byId.get(String(magnet.id));
+
+            // A magnet deleted between listing and this call fails alone; the batch still answers.
+            if (magnet.error) {
+                const error = classify({ provider: name, operation: 'fetchFiles', status: 200, body: { status: 'error', error: magnet.error } });
+                logger.debug(`[${name}] dropping torrent ${magnet.id}: ${error.name} ${error.code}`);
+                continue;
+            }
+
+            files.set(String(magnet.id), toVideos(magnet, torrent, apiKey));
         }
+    }));
 
-        const hostUrl = file.l; // AllDebrid uses 'l' for file URL
-        const secureToken = ApiKeySecurityManager.generateSecureToken(this.providerName, apiKey);
-        return `${process.env.ADDON_URL}/resolve/${this.providerName}/${secureToken}/${torrentId}/${encode(hostUrl)}`;
-    }
-
-    /**
-     * Bulk optimization: Get details for multiple torrents
-     */
-    async bulkGetTorrentDetails(apiKey, torrentIds) {
-        return this.makeApiCall(async () => {
-            if (!torrentIds || torrentIds.length === 0) {
-                return new Map();
-            }
-
-            this.log('info', `Bulk fetching details for ${torrentIds.length} torrents`);
-            const resultMap = new Map();
-            const batchSize = 20;
-            const batches = [];
-            for (let i = 0; i < torrentIds.length; i += batchSize) {
-                batches.push(torrentIds.slice(i, i + batchSize));
-            }
-            
-            const batchPromises = batches.map(async (batch, batchIndex) => {
-                try {
-                    const batchPromises = batch.map(async (id) => {
-                        try {
-                            const statusResponse = await this.makeAllDebridRequest('magnet/status', { id }, apiKey);
-                            this.validateApiResponse(statusResponse, ['data']);
-
-                            if (!statusResponse?.data?.magnets) {
-                                this.log('debug', `No magnet data found for ID ${id}`);
-                                return { id, result: null };
-                            }
-
-                            const magnetsData = statusResponse.data.magnets;
-                            let magnetDetails = null;
-                            
-                            if (Array.isArray(magnetsData)) {
-                                magnetDetails = magnetsData.find(m => m.id === parseInt(id));
-                            } else if (magnetsData && typeof magnetsData === 'object') {
-                                magnetDetails = magnetsData.id ? magnetsData : Object.values(magnetsData).find(m => m.id === parseInt(id));
-                            }
-
-                            if (!magnetDetails) {
-                                this.log('debug', `No magnet details found for ID ${id}`);
-                                return { id, result: null };
-                            }
-
-                            if (magnetDetails.statusCode !== 4) {
-                                this.log('debug', `Skipping magnet ${id} - not ready (status: ${magnetDetails.statusCode})`);
-                                return { id, result: null };
-                            }
-
-                            if (!magnetDetails.files || magnetDetails.files.length === 0) {
-                                try {
-                                    const filesResponse = await this.makeAllDebridRequest('magnet/files', 
-                                        { id: [parseInt(id)] }, apiKey);
-                                    
-                                    if (filesResponse?.status === 'success' && 
-                                        filesResponse.data?.magnets?.[0]?.files) {
-                                        magnetDetails.files = filesResponse.data.magnets[0].files;
-                                        this.log('debug', `Got additional files for magnet ${id}`);
-                                    }
-                                } catch (error) {
-                                    this.log('warn', `Failed to get files for magnet ${id}: ${error.message}`);
-                                }
-                            } else {
-                                this.log('debug', `Files included in status response for magnet ${id}`);
-                            }
-
-                            const torrentDetails = await this.toTorrentDetails(apiKey, magnetDetails, 'stream');
-                            return { id, result: torrentDetails };
-                        } catch (error) {
-                            this.log('warn', `Failed to process magnet ${id}: ${error.message}`);
-                            return { id, result: null };
-                        }
-                    });
-                    
-                    const batchResults = await Promise.all(batchPromises);
-                    this.log('debug', `Batch ${batchIndex + 1}/${batches.length} completed: ${batchResults.filter(r => r.result !== null).length}/${batch.length} successful`);
-                    return batchResults;
-                } catch (error) {
-                    this.log('warn', `Batch ${batchIndex + 1} failed: ${error.message}`);
-                    return batch.map(id => ({ id, result: null }));
-                }
-            });
-            
-            const allBatchResults = await Promise.all(batchPromises);
-            
-            for (const batchResults of allBatchResults) {
-                for (const { id, result } of batchResults) {
-                    resultMap.set(id, result);
-                }
-            }
-
-            const successCount = Array.from(resultMap.values()).filter(v => v !== null).length;
-            this.log('info', `Bulk operation completed: ${successCount}/${torrentIds.length} successful (${batches.length} parallel batches)`);
-            return resultMap;
-
-        }, 3, `bulkGetTorrentDetails(${torrentIds.length} torrents)`);
-    }
-
-    async listTorrentsParallel(apiKey) {
-        return this.makeApiCall(async () => {
-            const response = await this.makeAllDebridRequest('magnet/status', {}, apiKey);
-            this.validateApiResponse(response, ['data']);
-
-            const magnets = response.data?.magnets || [];
-            
-            return magnets
-                .filter(magnet => magnet.statusCode === 4) // Ready torrents only
-                .filter(magnet => magnet.filename); // Ensure we have a name
-        }, 3, 'listTorrentsParallel');
-    }
-
-    async unrestrictUrl(apiKey, hostUrl) {
-        return this.makeApiCall(async () => {
-            const response = await this.makeAllDebridRequest('link/unlock', { link: hostUrl }, apiKey);
-            this.validateApiResponse(response, ['data']);
-            
-            return response.data.link;
-        }, 3, `unrestrictUrl(${hostUrl})`);
-    }
-
-    async listTorrents(apiKey) {
-        const torrents = this.asList(await this.listTorrentsParallel(apiKey), 'listTorrents');
-        return torrents.map(torrent => this.extractCatalogMeta({
-            id: torrent.id,
-            name: torrent.filename,
-            hash: torrent.hash || null,
-            size: torrent.size || null
-        }));
-    }
+    return files;
 }
 
-const allDebridProvider = new AllDebridProvider();
+/**
+ * One torrent with its files, for the meta route. `magnet/status?id=` answers with the magnet's
+ * name and its file tree in a single call.
+ */
+export async function fetchTorrent(apiKey, torrentId) {
+    const { data } = await request({
+        provider: name, operation: 'fetchTorrent', endpointClass: 'files', apiKey,
+        url: `${endpoint('v4.1', 'magnet/status')}&id=${encodeURIComponent(torrentId)}`,
+        headers: auth(apiKey)
+    });
 
-export default allDebridProvider;
-export { AllDebridProvider };
+    const found = data.data?.magnets;
+    const magnet = Array.isArray(found) ? found[0] : found;
+    if (!magnet?.filename) return null;
+
+    const torrent = toTorrent({
+        provider: name,
+        id: magnet.id,
+        name: magnet.filename,
+        hash: magnet.hash,
+        size: magnet.size,
+        created: magnet.completionDate,
+        fileCount: magnet.nbLinks
+    });
+
+    return { torrent, videos: toVideos(magnet, torrent, apiKey) };
+}
+
+export async function resolveStream(apiKey, resolveRef) {
+    if (!resolveRef?.link) {
+        throw new ProviderItemGoneError(`[${name}] resolveStream: the reference carries no link`, { provider: name, operation: 'resolveStream' });
+    }
+
+    const { data } = await request({
+        provider: name, operation: 'resolveStream', endpointClass: 'resolve', apiKey,
+        url: endpoint('v4', 'link/unlock'), method: 'POST',
+        headers: { ...auth(apiKey), ...posted },
+        body: form({ link: resolveRef.link }),
+        proxyUrl: process.env.ALLDEBRID_PROXY_URL || undefined
+    });
+
+    return data.data?.link;
+}

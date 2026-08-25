@@ -4,7 +4,11 @@
  * back to the legacy classes, so the migration runs one provider at a time.
  */
 
-const registry = new Map();
+import * as allDebrid from './all-debrid.js';
+
+const registry = new Map([
+    [allDebrid.name, allDebrid]
+]);
 
 export function getProvider(name) {
     return registry.get(name);
@@ -12,4 +16,17 @@ export function getProvider(name) {
 
 export function migratedProviders() {
     return [...registry.keys()];
+}
+
+/**
+ * Files for a batch of torrents, in the {id -> torrent with videos} form the stream and search
+ * phases already consume. Returns null when the provider has not migrated, so a caller can fall
+ * back without knowing anything about the registry.
+ */
+export async function fetchTorrentDetails(name, apiKey, torrents) {
+    const module = registry.get(name);
+    if (!module) return null;
+
+    const files = await module.fetchFiles(apiKey, torrents);
+    return new Map(torrents.map(torrent => [String(torrent.id), { ...torrent, videos: files.get(String(torrent.id)) ?? [] }]));
 }

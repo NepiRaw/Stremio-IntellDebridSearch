@@ -9,17 +9,16 @@ import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
 import { ApiKeySecurityManager } from './src/providers/BaseProvider.js'
+import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
 
 import { RealDebridProvider } from './src/providers/real-debrid.js'
-import { AllDebridProvider } from './src/providers/all-debrid.js'
 import { DebridLinkProvider } from './src/providers/debrid-link.js'
 import { PremiumizeProvider } from './src/providers/premiumize.js'
 import { TorBoxProvider } from './src/providers/torbox.js'
 
 const PROVIDER_CLASSES = {
     RealDebrid: RealDebridProvider,
-    AllDebrid: AllDebridProvider,
     DebridLink: DebridLinkProvider,
     Premiumize: PremiumizeProvider,
     TorBox: TorBoxProvider
@@ -82,17 +81,22 @@ router.post('/encrypt-config', async (req, res) => {
         }
         
         if (config.DebridProvider && config.DebridApiKey) {
+            const provider = getProvider(config.DebridProvider);
             const ProviderClass = PROVIDER_CLASSES[config.DebridProvider];
-            
-            if (!ProviderClass) {
+
+            if (!provider && !ProviderClass) {
                 logger.warn(`[encrypt-config] Unknown provider: ${config.DebridProvider}`);
                 return res.status(400).json({ 
                     error: `Unknown provider: ${config.DebridProvider}`,
                     validationFailed: true
                 });
             }
-            
-            const validation = await ProviderClass.validateApiKey(config.DebridApiKey);
+
+            const validation = provider
+                ? await provider.validateKey(config.DebridApiKey)
+                      .then(user => ({ valid: true, username: user.username, premium: user.premium, premiumUntil: user.premiumUntil }))
+                      .catch(error => ({ valid: false, error: error.userMessage ?? error.message, errorCode: error.code }))
+                : await ProviderClass.validateApiKey(config.DebridApiKey);
             
             if (!validation.valid) {
                 await new Promise(r => setTimeout(r, 500));

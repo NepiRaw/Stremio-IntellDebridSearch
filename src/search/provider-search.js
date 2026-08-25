@@ -3,7 +3,9 @@
  * Handles bulk torrent fetching with provider-specific optimizations
  */
 
+import Fuse from 'fuse.js';
 import { logger } from '../utils/logger.js';
+import { getProvider } from '../providers/index.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { configManager } from '../config/configuration.js';
 import { isSameWork } from './phase-1-title-matching.js';
@@ -11,32 +13,39 @@ import { parseName } from '../parsing/parser.js';
 
 /**
  * Fetch all torrents from provider using optimized bulk methods
- * @param {string} provider - Provider name
- * @param {Object} providerImpl - Provider implementation
+ * @param {string} providerName - Provider name
+ * @param {Object} legacyProvider - Legacy provider instance, used until the provider migrates
  * @param {string} apiKey - API key
  * @param {string|Promise<string>} normalizedSearchKey - Fallback search term, awaited only on the
  *   two paths that use it, so a caller can hand over a promise and let the listing start first
  * @param {number} threshold - Search threshold for fallback
  * @returns {Array} Array of normalized torrents
  */
-export async function fetchProviderTorrents(provider, providerImpl, apiKey, normalizedSearchKey, threshold) {
-    logger.info(`[provider-search] Fetching all torrents from ${provider}`);
-    
-    const config = configManager.getProviderConfig(provider);
-    if (!config) {
-        logger.error(`[provider-search] Unsupported provider: ${provider}`);
-        throw new Error(`Unsupported provider: ${provider}`);
+export async function fetchProviderTorrents(providerName, legacyProvider, apiKey, normalizedSearchKey, threshold) {
+    logger.info(`[provider-search] Fetching all torrents from ${providerName}`);
+
+    const provider = getProvider(providerName);
+    if (provider) {
+        const torrents = await provider.listTorrents(apiKey);
+        logger.info(`[provider-search] Retrieved ${torrents.length} total torrents from ${providerName}`);
+        return torrents;
     }
 
-    const bulkMethod = providerImpl[config.bulkMethod];
+    const config = configManager.getProviderConfig(providerName);
+    if (!config) {
+        logger.error(`[provider-search] Unsupported provider: ${providerName}`);
+        throw new Error(`Unsupported provider: ${providerName}`);
+    }
+
+    const bulkMethod = legacyProvider[config.bulkMethod];
     if (!bulkMethod) {
-        if (typeof providerImpl.searchTorrents !== 'function') {
-            logger.error(`[provider-search] ${provider} implementation error: Missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
-            throw new Error(`${provider} does not support torrent fetching - missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
+        if (typeof legacyProvider.searchTorrents !== 'function') {
+            logger.error(`[provider-search] ${providerName} implementation error: Missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
+            throw new Error(`${providerName} does not support torrent fetching - missing both '${config.bulkMethod}' and 'searchTorrents' methods`);
         }
-        
-        logger.info(`[provider-search] ${provider} using fallback searchTorrents method (no bulk support)`);
-        return await providerImpl.searchTorrents(apiKey, await normalizedSearchKey, threshold);
+
+        logger.info(`[provider-search] ${providerName} using fallback searchTorrents method (no bulk support)`);
+        return await legacyProvider.searchTorrents(apiKey, await normalizedSearchKey, threshold);
     }
 
     try {
@@ -44,26 +53,26 @@ export async function fetchProviderTorrents(provider, providerImpl, apiKey, norm
         if (config.methodArgs) {
             const args = [...config.methodArgs];
             args[1] = apiKey;
-            result = await bulkMethod.apply(providerImpl, args);
+            result = await bulkMethod.apply(legacyProvider, args);
         } else {
-            result = await bulkMethod.call(providerImpl, apiKey);
+            result = await bulkMethod.call(legacyProvider, apiKey);
         }
-        
+
         const safeResult = Array.isArray(result) ? result : [];
         const normalizedTorrents = safeResult.map(config.dataMapper);
-        
-        logger.info(`[provider-search] Retrieved ${normalizedTorrents.length} total torrents from ${provider}`);
+
+        logger.info(`[provider-search] Retrieved ${normalizedTorrents.length} total torrents from ${providerName}`);
         return normalizedTorrents;
-        
+
     } catch (error) {
-        logger.warn(`[provider-search] Failed to fetch torrents from ${provider}:`, error.message);
-        
+        logger.warn(`[provider-search] Failed to fetch torrents from ${providerName}:`, error.message);
+
         // Check if fallback method exists before calling it
-        if (typeof providerImpl.searchTorrents === 'function') {
-            logger.info(`[provider-search] Falling back to searchTorrents for ${provider}`);
-            return await providerImpl.searchTorrents(apiKey, await normalizedSearchKey, threshold);
+        if (typeof legacyProvider.searchTorrents === 'function') {
+            logger.info(`[provider-search] Falling back to searchTorrents for ${providerName}`);
+            return await legacyProvider.searchTorrents(apiKey, await normalizedSearchKey, threshold);
         }
-        
+
         // No fallback available, re-throw the error
         throw error;
     }
@@ -167,4 +176,21 @@ export async function preFilterTorrentsByKeywords(allTorrents, keywords, aliasVo
 
 export function getProviderConfig(provider) {
     return configManager.getProviderConfig(provider);
+}
+
+/**
+ * The catalog's own search, used when no advanced search is configured: list the library, then
+ * fuzzy match its names. Matching never belongs in a provider module, so it lives here.
+ */
+export async function searchProviderLibrary(providerName, legacyProvider, apiKey, searchKey, threshold = 0.3) {
+    if (!getProvider(providerName)) return legacyProvider.searchTorrents(apiKey, searchKey, threshold);
+
+    const torrents = await fetchProviderTorrents(providerName, legacyProvider, apiKey, searchKey, threshold);
+    if (!searchKey) return torrents;
+
+    const fuse = new Fuse(torrents, { keys: ['name', 'filename'], threshold, minMatchCharLength: 2, includeScore: true });
+    const found = fuse.search(searchKey).map(result => ({ ...result.item, searchScore: result.score }));
+
+    logger.debug(`[provider-search] Library search for "${searchKey}": ${found.length} of ${torrents.length} torrents`);
+    return found;
 }

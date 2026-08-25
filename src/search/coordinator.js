@@ -9,6 +9,7 @@ import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparati
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis } from './phase-2-content-analysis.js';
+import { getProvider } from '../providers/index.js';
 import { buildEpisodeAddresses, statesEpisode, statesSeasonWithoutEpisode, statesAmbiguousEpisode } from '../utils/episode-address.js';
 import { parseName, movieParseContext } from '../parsing/parser.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
@@ -57,7 +58,7 @@ export async function coordinateSearch(params) {
     const titleVariants = createTitleVariants(searchKey, type);
     
     const providerImpl = providers[provider];
-    if (!providerImpl) {
+    if (!providerImpl && !getProvider(provider)) {
         throw new Error(`Invalid provider or make sure you encoded the request: ${provider}`);
     }
 
@@ -172,7 +173,7 @@ export async function coordinateSearch(params) {
         });
 
         await tracker.span('fetch', () =>
-            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey, addresses));
+            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey, addresses, provider));
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
         matches = await tracker.span('phase2', () =>
