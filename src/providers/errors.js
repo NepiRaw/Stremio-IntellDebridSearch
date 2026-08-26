@@ -93,16 +93,19 @@ function readable(message) {
     }
 }
 
-/** Codes where the plan is the problem rather than the key, which is a different action entirely. */
-const PLAN_MESSAGES = {
+const AUTH_ACTIONS = {
     RealDebrid: { 20: 'account is not premium, so it cannot produce playable links.\nRenew it, then reload the app.' },
-    TorBox: { PLAN_RESTRICTED_FEATURE: 'plan does not include API access.\nUpgrade it, then reload the app.' }
+    TorBox: { PLAN_RESTRICTED_FEATURE: 'plan does not include API access.\nUpgrade it, then reload the app.' },
+    AllDebrid: {
+        AUTH_BLOCKED: 'sign-in was blocked because it came from a new place.\nConfirm it from the email they sent, then reload the app.',
+        AUTH_USER_BANNED: 'account has been suspended.\nContact their support, then reload the app.'
+    }
 };
 
 function authMessage(provider, code) {
-    const plan = PLAN_MESSAGES[provider]?.[code];
-    return plan
-        ? `Your ${provider} ${plan}`
+    const action = AUTH_ACTIONS[provider]?.[code];
+    return action
+        ? `Your ${provider} ${action}`
         : `Your ${provider} API key was rejected.\nOpen the addon configuration page to update it.`;
 }
 

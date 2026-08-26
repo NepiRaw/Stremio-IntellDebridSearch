@@ -4,7 +4,7 @@
  * link/unlock is refused from a datacenter address, so only that call takes the WARP proxy.
  */
 
-import { request } from './http.js';
+import { request, hostOf } from './http.js';
 import { toTorrent, toVideoFile } from './shapes.js';
 import { normalizeTorrentFiles, flattenTree } from './paths.js';
 import { classify, ProviderItemGoneError } from './errors.js';
@@ -17,6 +17,9 @@ export const capabilities = { filesInline: false, bulkFiles: true, directLinks: 
 
 /** Magnet ids are integers, so anything else in our id namespace was minted by someone else. */
 export const ownsId = id => /^\d+$/.test(id);
+
+/** Unlock takes a link this account was issued, so anything off the host was minted elsewhere. */
+export const ownsLink = link => hostOf(link) === 'alldebrid.com';
 
 const BASE = 'https://api.alldebrid.com';
 const AGENT = 'intell-debridsearch';

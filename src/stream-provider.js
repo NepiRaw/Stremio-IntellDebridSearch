@@ -5,7 +5,7 @@ import { coordinateSearch } from './search/coordinator.js';
 import { filterYear, optimizedStreamCreation } from './stream/stream-builder.js';
 import { sortStreamsByRank, deduplicateStreams } from './stream/quality-processor.js';
 import { logger } from './utils/logger.js';
-import { ValidationError } from './utils/error-handler.js';
+import { ValidationError, BadRequestError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
 import { createTracker } from './utils/perf-tracker.js';
 import { attachParse, movieParseContext } from './parsing/parser.js';
@@ -393,6 +393,12 @@ class StreamProvider {
         // The route logs the failure with the request that caused it, so nothing is caught here.
         const provider = getProvider(debridProvider);
         if (!provider) throw new Error(`Unsupported debrid provider: ${debridProvider}`);
+
+        // Clients rewrite this segment hunting for sidecar subtitles, and DebridLink redirects to
+        // whatever it is handed, so a reference the provider could not have issued never gets sent.
+        if (!provider.ownsLink(hostUrl)) {
+            throw new BadRequestError(`[${debridProvider}] resolveStream: the reference was not issued by this provider`, 'hostUrl');
+        }
 
         const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
         logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);

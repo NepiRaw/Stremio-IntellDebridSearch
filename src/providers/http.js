@@ -20,6 +20,14 @@ export const USER_AGENT = `IntellDebridSearch/${packageInfo.version}`;
 /** Measured recovery time after a rate limit or a transient block (5s default). */
 export const RATE_LIMIT_PAUSE_MS = 5000;
 
+export const hostOf = link => {
+    try {
+        return new URL(String(link)).hostname.toLowerCase();
+    } catch {
+        return '';
+    }
+};
+
 /** A large listing legitimately takes seconds, so the ceiling is generous (30s default). */
 const DEFAULT_TIMEOUT_MS = 30000;
 

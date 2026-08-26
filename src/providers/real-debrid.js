@@ -5,7 +5,7 @@
  * means RealDebrid packaged the torrent differently and no per-file link exists.
  */
 
-import { request } from './http.js';
+import { request, hostOf } from './http.js';
 import { toTorrent, toVideoFile } from './shapes.js';
 import { normalizeTorrentFiles } from './paths.js';
 import { ProviderAuthError, ProviderItemGoneError } from './errors.js';
@@ -18,6 +18,9 @@ export const capabilities = { filesInline: false, bulkFiles: false, directLinks:
 
 /** Torrent ids are upper-case alphanumeric, so anything else was minted by someone else. */
 export const ownsId = id => /^[A-Z0-9]+$/.test(id);
+
+/** Unrestrict takes a link this account was issued, so anything off the host was minted elsewhere. */
+export const ownsLink = link => hostOf(link) === 'real-debrid.com';
 
 const BASE = 'https://api.real-debrid.com/rest/1.0';
 

@@ -187,10 +187,18 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
     }
 })
 
+/** A request with no configuration still fills :configuration, shifting every segment along. */
+const RESOURCES = new Set(['catalog', 'meta', 'stream', 'subtitles', 'addon_catalog'])
+
 router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next) => {
-    const { resource, type, id } = req.params
-    const config = parseConfiguration(req.params.configuration)
-    const extra = req.params.extra ? qs.parse(req.url.split('/').pop().slice(0, -5)) : {}
+    const shifted = RESOURCES.has(req.params.configuration)
+    const resource = shifted ? req.params.configuration : req.params.resource
+    const type = shifted ? req.params.resource : req.params.type
+    const id = shifted ? req.params.type : req.params.id
+    const extraSegment = shifted ? req.params.id : req.params.extra
+
+    const config = parseConfiguration(shifted ? undefined : req.params.configuration)
+    const extra = extraSegment ? qs.parse(req.url.split('/').pop().slice(0, -5)) : {}
 
     addonInterface.get(resource, type, id, extra, config)
         .then(resp => {

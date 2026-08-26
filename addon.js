@@ -4,6 +4,7 @@ import { getManifest } from './src/config/manifest.js'
 import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
 import { logger } from './src/utils/logger.js';
 import { getProvider } from './src/providers/index.js';
+import { ProviderItemGoneError } from './src/providers/errors.js';
 import { searchProviderLibrary } from './src/search/provider-search.js';
 
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
@@ -99,7 +100,11 @@ builder.defineMetaHandler(async (args) => {
         return { meta: null };
     }
 
-    const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId);
+    const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId)
+        .catch(error => {
+            if (error instanceof ProviderItemGoneError) return null;
+            throw error;
+        });
     const torrentDetails = found && { ...found.torrent, videos: found.videos };
 
     if (!torrentDetails) {

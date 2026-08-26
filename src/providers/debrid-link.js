@@ -5,7 +5,7 @@
  * and play time is an identity function.
  */
 
-import { request } from './http.js';
+import { request, hostOf } from './http.js';
 import { toTorrent, toVideoFile } from './shapes.js';
 import { normalizeTorrentFiles } from './paths.js';
 import { ProviderAuthError, ProviderItemGoneError } from './errors.js';
@@ -18,6 +18,12 @@ export const capabilities = { filesInline: true, bulkFiles: false, directLinks: 
 
 /** Seedbox ids are lower-case alphanumeric, optionally suffixed with the item index. */
 export const ownsId = id => /^[a-z0-9]+(-\d+)?$/.test(id);
+
+/** This provider redirects to the link as given, so an unchecked one is an open redirect. */
+export const ownsLink = link => {
+    const host = hostOf(link);
+    return host === 'debrid.link' || host.endsWith('.debrid.link');
+};
 
 const BASE = 'https://debrid-link.com/api/v2';
 

@@ -19,6 +19,8 @@ export const capabilities = { filesInline: false, bulkFiles: false, directLinks:
 /** Transfer ids are base64url. A broad alphabet, so this rejects little beyond punctuation. */
 export const ownsId = id => /^[A-Za-z0-9_-]+$/.test(id);
 
+export const ownsLink = link => /^[A-Za-z0-9_-]+$/.test(link);
+
 const BASE = 'https://www.premiumize.me/api';
 
 const WALK_CONCURRENCY = 6;
