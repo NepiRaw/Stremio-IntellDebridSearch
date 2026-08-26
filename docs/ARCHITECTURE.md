@@ -47,7 +47,7 @@ The addon is built on a modular, service-oriented architecture. Each layer is re
 │   Extractor      │   Optimizer       │   Processor            │
 ├───────────────────────────────────────────────────────────────┤
 │              Debrid Service Integrations                      │
-│                    (BaseProvider Pattern)                     │
+│                   (one module per provider)                   │
 ├───────────────────────────────────────────────────────────────┤
 │  Real-Debrid │ AllDebrid │ Premiumize │ Debrid-Link │ TorBox  │
 └───────────────────────────────────────────────────────────────┘
@@ -63,30 +63,36 @@ The addon is built on a modular, service-oriented architecture. Each layer is re
 - **Multi-Phase Search Engine**: 3-phase search process (preparation, title matching, content analysis).
 - **Unified Parsing Engine**: Centralized logic for parsing torrent and video filenames, used by all providers.
 - **Metadata/Performance/Quality Modules**: Extracts technical details, optimizes performance, and processes quality.
-- **Debrid Service Integrations**: BaseProvider pattern for consistent provider implementation.
+- **Debrid Service Integrations**: one module per provider on a shared contract and a shared HTTP layer.
 
 ## Provider Integration & Extensibility
 
-Providers are implemented using the **BaseProvider pattern** in `/src/providers/`. <br>
-Each provider extends the abstract `BaseProvider` class which provides common functionality including:
+A provider is a **plain ES module** in `/src/providers/`. It exports a fixed contract and shares five files with every other provider, so a provider module holds only what its API does differently. There is no inheritance and no base class.
 
-- Unified error handling and HTML error detection
-- Standard fuzzy search implementation using Fuse.js
-- Common torrent object normalization
-- Standard video file extraction
-- Consistent date parsing and validation
-- Centralized configuration management
+The contract, enforced by `tests/unit/providers-registry.test.js`:
 
-Adding a new provider requires:
+| Export | Answers |
+|---|---|
+| `name` | the provider name as the config blob spells it |
+| `capabilities` | `{filesInline, bulkFiles, directLinks}` |
+| `validateKey(apiKey)` | is this key usable, and is the account premium |
+| `listTorrents(apiKey)` | the whole library, as canonical `Torrent` objects |
+| `fetchFiles(apiKey, torrents)` | `Map<torrentId, VideoFile[]>` for the torrents given |
+| `fetchTorrent(apiKey, id)` | one torrent with its files, for the meta route |
+| `resolveStream(apiKey, ref, clientIp)` | a playable URL, at play time |
 
-1. Creating a new file in `/src/providers/` extending `BaseProvider`
-2. Implementing required abstract methods: `searchTorrents`, `listTorrents`, `getTorrentDetails`
-3. Optionally implementing: `unrestrictUrl`, `searchDownloads`, `listTorrentsParallel`
-4. Registering the provider in the main configuration
-5. Ensuring consistent error handling through the ErrorManager
+The shared files it builds on:
 
-**BaseProvider Architecture:**
-All providers inherit from `BaseProvider` which consolidates common functionality and ensures consistent behavior across all debrid services.
+- `http.js` - the single HTTP path: rate limiting, timeout, one retry, typed errors. Limits are per token AND per endpoint, so each limiter is keyed `provider:endpointClass:hash(key)`.
+- `errors.js` - turns any response into `ProviderAuthError`, `ProviderRateLimitError`, `ProviderUnavailableError` or `ProviderItemGoneError`. Status alone cannot classify these: AllDebrid and Premiumize report auth failures inside HTTP 200, and TorBox's 403 means both "bad token" and "no User-Agent".
+- `shapes.js` - the canonical `Torrent` and `VideoFile` every provider returns.
+- `paths.js` - one file address out of five path formats. The container strip uses **sibling evidence**, not the torrent name.
+- `resolve-url.js` - the addon URL a stream points at, and the token standing in for the API key.
+
+Adding a provider:
+
+1. Write `/src/providers/<name>.js` exporting the contract above.
+2. Register it in `/src/providers/index.js`, the single import site. A unit test asserts that no provider module is imported anywhere outside that folder.
 
 
 ## Request Lifecycle (End-to-End Flow)
@@ -109,7 +115,7 @@ The following steps describe how a Stremio client request is processed from entr
      - Phase 2: Deep content analysis and episode matching
      ↓
 5. Provider Selection & Integration
-     - Chooses appropriate BaseProvider implementation
+     - Looks the provider module up in the registry
      - Executes provider-specific logic through unified interface
      ↓
 6. Parsing Seam (parseName, parsium-media)
@@ -148,7 +154,7 @@ The following steps describe how a Stremio client request is processed from entr
 
 **Key Improvements:**
 - **Multi-phase search** provides intelligent ranking and filtering
-- **BaseProvider pattern** ensures consistent provider behavior
+- **One provider contract** ensures consistent provider behavior
 - **UnifiedCacheManager** provides enterprise-grade caching across all components
 - **Performance optimization layer** dramatically improves response times
 
@@ -179,7 +185,7 @@ The system uses comprehensive logging via `/src/utils/logger.js` with different 
 ## Extending & Debugging
 
 **To Add a New Provider:**
-- Extend the `BaseProvider` class in `/src/providers/`
+- Add a module in `/src/providers/` and register it in `index.js`
 - Implement required abstract methods following the established interface
 - Register the provider in the shared provider instances
 - Add integration tests to validate functionality
@@ -198,7 +204,7 @@ The system uses comprehensive logging via `/src/utils/logger.js` with different 
 ## Real-World Usage Notes
 
 - The addon is completely content-agnostic and provider-agnostic, supporting all content types through unified patterns
-- The BaseProvider architecture ensures consistent behavior across all debrid services
+- The provider contract ensures consistent behavior across all debrid services
 - Multi-phase search provides intelligent ranking without sacrificing performance
 - Enterprise-grade caching dramatically improves response times while reducing API calls
 - All components are designed for graceful degradation and robust error handling
@@ -213,7 +219,7 @@ The system uses comprehensive logging via `/src/utils/logger.js` with different 
 ## FAQ
 
 **Q: How do I add a new debrid provider?**
-A: Extend the BaseProvider class, implement required methods, register in shared provider instances, and add tests.
+A: Add a module exporting the provider contract, register it in `src/providers/index.js`, and add tests.
 
 **Q: How do I support a new content type?**
 A: Update the unified parser and metadata extractor with new patterns, then add comprehensive tests.
@@ -360,30 +366,24 @@ performContentAnalysis(titleMatches, season, episode, absoluteEpisode)
 reAnalyzeWithMapping(titleMatches, episodeMapping)
 ```
 
-### 7. BaseProvider Architecture
-**Location**: `src/providers/BaseProvider.js`
+### 7. The Provider Layer
+**Location**: `src/providers/`, entered only through `index.js`
 
-Abstract base class providing consistent functionality across all debrid providers:
+Five modules on one contract and five shared files. What differs between providers is how many calls a library costs and where the files come from, and that is the whole reason each module exists:
 
-```javascript
-// Universal API call wrapper with retry logic and error handling
-makeApiCall(apiCall, retries, context)
-// HTML error response detection for all providers
-detectHtmlErrorResponse(response, context)
-// Standard fuzzy search using Fuse.js
-performFuzzySearch(items, searchKey, threshold)
-// Unified torrent object normalization
-normalizeTorrent(item, customFields)
-// Standard video file extraction with URL building
-extractVideoFiles(item, apiKey, urlBuilder)
-```
+| Provider | Library | Files | Play time |
+|---|---|---|---|
+| **AllDebrid** | 1 call | bulk, 20 ids per call | `link/unlock`, through WARP: the endpoint refuses a datacenter address |
+| **RealDebrid** | 1 call under 2500 torrents, then **sequential** pages | 1 call per torrent | `unrestrict/link` |
+| **TorBox** | 1 call per 1000 torrents, 4 pages at a time | **inline, zero calls** | `requestdl` |
+| **DebridLink** | 1 call per reported page, 4 at a time | **inline, zero calls** | none, `downloadUrl` is direct |
+| **Premiumize** | 1 call | a folder walk per torrent, by id | `item/details` |
 
-**Provider Implementations**:
-- **Real-Debrid**: `src/providers/real-debrid.js` - Full implementation with bulk operations
-- **AllDebrid**: `src/providers/all-debrid.js` - Clean implementation with optimized caching
-- **Premiumize**: `src/providers/premiumize.js` - File-based operations
-- **Debrid-Link**: `src/providers/debrid-link.js` - Standard implementation
-- **TorBox**: `src/providers/torbox.js` - Download-focused implementation
+Three rules in there are important and were each measured:
+
+- **RealDebrid's `/torrents` caps concurrency, not rate.** It rejects at about three concurrent requests, so its paging is sequential. It is the one place parallelism is forbidden rather than tuned.
+- **RealDebrid pairs links to SELECTED files, before the video filter.** When the counts disagree the torrent was packaged as one archive and holds no per-file link, so it is dropped rather than indexed around. A count mismatch is a classification signal.
+- **Premiumize is grouped by id, never by path.** A transfer's folder can sit anywhere in the drive, so its files carry an ancestor's path and no prefix identifies them.
 
 ### 8. Episode Addressing
 **Location**: `src/utils/episode-address.js`
@@ -433,12 +433,13 @@ A flat set returns the wrong episode when a release labels absolute numbering as
 - `manifest.js` - Addon manifest and metadata
 
 #### `/src/providers/`
-- `BaseProvider.js` - Abstract base class with common functionality
-- `all-debrid.js` - AllDebrid implementation
-- `real-debrid.js` - RealDebrid implementation
-- `debrid-link.js` - DebridLink implementation
-- `premiumize.js` - Premiumize implementation
-- `torbox.js` - TorBox implementation
+- `index.js` - the registry, and the only import site consumers use
+- `http.js` - the single HTTP path: per-token, per-endpoint rate limiting, retry, typed errors
+- `errors.js` - the error taxonomy and the table that classifies every provider's answer
+- `shapes.js` - the canonical `Torrent` and `VideoFile`
+- `paths.js` - one file address out of five path formats, using sibling evidence
+- `resolve-url.js` - the resolve URL and the token standing in for the API key
+- `all-debrid.js`, `real-debrid.js`, `torbox.js`, `debrid-link.js`, `premiumize.js`
 
 #### `/src/search/`
 - `coordinator.js` - Multi-phase search orchestration and result aggregation
@@ -462,7 +463,6 @@ A flat set returns the wrong episode when a release labels absolute numbering as
 - `cache-manager.js` - UnifiedCacheManager for enterprise-grade caching
 - `cache-recorder.js` - Hash-keyed torrent/file SQLite DB, consumed by an external addon
 - `error-handler.js` - ErrorManager for centralized error processing
-- `debrid-processor.js` - Debrid service integration utilities
 - `file-types.js` - Video file-extension helpers
 - `logger.js` - Centralized logging system
 - `perf-tracker.js` - Per-stage timings behind the `[perf]` debug line
@@ -613,7 +613,7 @@ class ErrorManager {
 5. **Cache Errors**: TTL expiration, memory limitations
 
 ### Error Recovery
-- **BaseProvider**: Universal HTML error detection and retry logic
+- **Provider errors**: classified by `providers/errors.js`; only an auth failure reaches the user, as one stream row
 - **Graceful degradation**: Partial failures don't break entire responses
 - **Fallback strategies**: Multi-phase search provides alternative paths
 - **Comprehensive logging**: Context preservation for debugging
