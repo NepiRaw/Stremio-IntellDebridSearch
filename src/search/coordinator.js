@@ -10,6 +10,7 @@ import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-s
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
 import { batchFetchTorrentDetails, performContentAnalysis } from './phase-2-content-analysis.js';
 import { getProvider } from '../providers/index.js';
+import { ProviderAuthError } from '../providers/errors.js';
 import { buildEpisodeAddresses, statesEpisode, statesSeasonWithoutEpisode, statesAmbiguousEpisode } from '../utils/episode-address.js';
 import { parseName, movieParseContext } from '../parsing/parser.js';
 import { disabledTracker } from '../utils/perf-tracker.js';
@@ -94,6 +95,9 @@ export async function coordinateSearch(params) {
     try {
         allTorrents = await listing;
     } catch (error) {
+        // A rejected key is the one failure the user can act on, so it must reach the stream
+        // handler and become a visible row. Everything else stays logged and silent.
+        if (error instanceof ProviderAuthError) throw error;
         logger.warn(`[coordinator] Failed to fetch torrents: ${error.message}`);
         return [];
     }

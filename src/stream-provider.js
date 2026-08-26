@@ -12,14 +12,10 @@ import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { getProvider, fetchTorrentDetails } from './providers/index.js';
 import { authErrorStreams } from './stream/error-stream.js';
-import { PremiumizeProvider } from './providers/premiumize.js';
 
 import { getCacheRecorder } from './utils/cache-recorder.js';
 
-// Create provider instances once to avoid duplicate initialization logging
-const sharedProviders = { 
-    Premiumize: new PremiumizeProvider()
-};
+const sharedProviders = {};
 
 const StreamHelpers = {
     logBulkProcessing(provider, torrentCount, contentType) {
@@ -520,10 +516,6 @@ class StreamProvider {
             }
 
             switch (debridProvider) {
-                case 'Premiumize':
-                    // These providers return direct URLs, no unrestricting needed
-                    unrestricted = hostUrl;
-                    break;
                 default:
                     throw new Error(`Unsupported debrid provider: ${debridProvider}`);
             }

@@ -31,10 +31,6 @@ builder.defineCatalogHandler(async (args) => {
             switch (provider ? null : providerName) {
                 case null:
                     break;
-                case 'Premiumize':
-                    const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
-                    legacyProvider = new PremiumizeProvider();
-                    break;
                 default:
                     throw new Error(`Unsupported provider: ${providerName}`);
             }
@@ -122,10 +118,6 @@ builder.defineMetaHandler(async (args) => {
 
         switch (provider ? null : providerName) {
             case null:
-                break;
-            case 'Premiumize':
-                const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
-                legacyProvider = new PremiumizeProvider();
                 break;
             default:
                 throw new Error(`Unsupported provider: ${providerName}`);
