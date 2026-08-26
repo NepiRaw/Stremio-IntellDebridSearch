@@ -154,21 +154,25 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
     
     try {
         let actualApiKey = req.params.debridApiKey;
-        
-        if (ApiKeySecurityManager.isSecureToken(req.params.debridApiKey)) {
-            
+
+        const carried = parseConfiguration(req.params.configuration);
+        const carriedKey = carried?.DebridProvider === req.params.debridProvider ? carried.DebridApiKey : null;
+
+        if (carriedKey) {
+            actualApiKey = carriedKey;
+        } else if (ApiKeySecurityManager.isSecureToken(req.params.debridApiKey)) {
+
             const resolvedKey = ApiKeySecurityManager.resolveSecureToken(req.params.debridProvider, req.params.debridApiKey);
-            
+
             if (resolvedKey === null && req.params.debridApiKey !== 'null') {
                 logger.error(`[SECURITY] Secure token resolution failed for ${req.params.debridProvider}: ${req.params.debridApiKey}`);
                 res.status(401).json({ error: 'Invalid or expired security token' });
                 return;
             }
-            
+
             actualApiKey = resolvedKey || 'null';
-        } else {
         }
-        
+
         StreamProvider.resolveUrl(req.params.debridProvider, actualApiKey, req.params.id, decode(req.params.hostUrl), clientIp)
             .then(url => {
                 res.redirect(url)
