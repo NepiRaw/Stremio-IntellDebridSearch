@@ -106,7 +106,7 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
             .flatMap(result => {
                 if (result.identityMatch) {
                     const names = result.analysis.isContainer
-                        ? result.analysis.matchingFiles.map(video => video.name)
+                        ? result.analysis.matchingFiles.map(video => video.fileName)
                         : [result.torrent.name];
 
                     if (!names.some(name => isSameWorkStrict(parseName(name)?.title, aliasVocabularies))) {
@@ -130,8 +130,8 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                 if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
                     return result.analysis.matchingFiles.map(video => ({
                         id: result.torrent.id,
-                        source: result.torrent.source,
-                        name: video.name,
+                        provider: result.torrent.provider,
+                        name: video.fileName,
                         size: video.size,
                         url: video.url,
                         containerName: result.torrent.name,

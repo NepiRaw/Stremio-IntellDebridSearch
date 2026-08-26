@@ -121,15 +121,15 @@ builder.defineMetaHandler(async (args) => {
 
     const videos = [];
     videoFiles.forEach((file, index) => {
-        const stream = byFilename.get(file.name);
+        const stream = byFilename.get(file.fileName);
         if (!stream) {
-            logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.name ?? '<no name>'}", ${dropReason(file, built)}`);
+            logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.fileName ?? '<no name>'}", ${dropReason(file, built)}`);
             return;
         }
 
         videos.push({
             id: `${args.id}:file:${index}`,
-            title: file.name || `File ${index + 1}`,
+            title: file.fileName || `File ${index + 1}`,
             streams: [stream]
         });
     });
@@ -207,7 +207,7 @@ function enrichCacheParams() {
 }
 
 function dropReason(file, built) {
-    if (!file?.name) return 'the file has no name'
+    if (!file?.fileName) return 'the file has no name'
     if (!file.url) return 'the file has no url, buildSecureStreamUrl returned null'
     return `no built stream carries that filename, built: ${built.map(stream => stream.behaviorHints?.filename).join(' | ')}`
 }

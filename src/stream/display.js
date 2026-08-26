@@ -168,10 +168,10 @@ function formatSize(size) {
 function extractBasicInfo(details, video) {
     return {
         containerName: details.containerName || details.name || 'Unknown',
-        videoName: video.name || '',
+        videoName: video.fileName || '',
         size: formatSize(video?.size || 0),
         matchedTerm: details.matchedTerm || null,
-        parsed: (video.name ? video.parsed : null) ?? details.parsed ?? null,
+        parsed: (video.fileName ? video.parsed : null) ?? details.parsed ?? null,
         containerParsed: details.parsed ?? null
     };
 }

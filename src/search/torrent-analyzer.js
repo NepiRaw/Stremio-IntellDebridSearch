@@ -20,11 +20,11 @@ export function selectEpisodeFiles(videos = [], addresses) {
     const candidates = [];
 
     for (const video of videos) {
-        if (!video || isRedownloadCopy(video.name)) {
+        if (!video || isRedownloadCopy(video.fileName)) {
             continue;
         }
 
-        video.match = matchEpisodeAddress(video.parsed ?? frozenParse(video.name), addresses);
+        video.match = matchEpisodeAddress(video.parsed ?? frozenParse(video.fileName), addresses);
         if (video.match) {
             candidates.push(video);
         }

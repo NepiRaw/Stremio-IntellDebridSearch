@@ -77,11 +77,11 @@ function toMeta(torrent, options = {}) {
     if (typeof torrent.id === 'string' && torrent.id.includes(':')) {
         const [currentProvider, currentId] = torrent.id.split(':');
         metaId = `${currentProvider.toLowerCase()}:${currentId}`;
-    } else if (torrent.source && torrent.id) {
-        const providerLowercase = torrent.source.toLowerCase(); // Convert provider name to lowercase for other addon metadata sync
+    } else if (torrent.provider && torrent.id) {
+        const providerLowercase = torrent.provider.toLowerCase(); // Convert provider name to lowercase for other addon metadata sync
         metaId = providerLowercase + ':' + torrent.id;
     } else {
-        console.warn('Warning: torrent object missing proper ID or source fields:', torrent);
+        console.warn('Warning: torrent object missing proper ID or provider fields:', torrent);
         metaId = torrent.id || 'unknown';
     }
 

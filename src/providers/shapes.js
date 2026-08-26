@@ -6,7 +6,6 @@
 /**
  * @typedef {object} Torrent
  * @property {string} provider
- * @property {string} source alias of provider, read by the stream builder and the catalog
  * @property {string} id
  * @property {string} name
  * @property {string} [hash]
@@ -23,9 +22,8 @@
  * @property {string} id `torrentId:fileId`
  * @property {string} container torrent display name
  * @property {string} subPath folder inside the torrent, '' when the file sits at its root
- * @property {string} fileName leaf name
+ * @property {string} fileName leaf name, what the parser and the display read
  * @property {string} relPath subPath + '/' + fileName
- * @property {string} name alias of fileName, what the parser and the display read
  * @property {number} size
  * @property {Date} created
  * @property {string} [url] addon resolve URL
@@ -44,7 +42,6 @@ export function parseDate(value) {
 export function toTorrent({ provider, id, name, hash, size, created, fileCount }) {
     return {
         provider,
-        source: provider, // the stream builder's bingeGroup and the catalog read this name
         id: String(id),
         name: String(name ?? ''),
         hash: hash ?? null,
@@ -62,7 +59,6 @@ export function toVideoFile({ provider, torrentId, fileId, address, size, create
         fileId,
         id: `${torrentId}:${fileId}`,
         ...address,
-        name: address.fileName,
         size: Number(size) || 0,
         created: parseDate(created),
         url,
