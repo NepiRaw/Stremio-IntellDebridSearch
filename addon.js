@@ -24,16 +24,9 @@ builder.defineCatalogHandler(async (args) => {
                 return { metas: [] }
             }
 
-            let legacyProvider;
             const providerName = args.config.DebridProvider;
             const provider = getProvider(providerName);
-
-            switch (provider ? null : providerName) {
-                case null:
-                    break;
-                default:
-                    throw new Error(`Unsupported provider: ${providerName}`);
-            }
+            if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
 
             let torrents = [];
 
@@ -45,29 +38,23 @@ builder.defineCatalogHandler(async (args) => {
                 const apiConfig = getApiConfig();
                 
                 if (apiConfig.hasAdvancedSearch) {
-                    const providers = { [providerName]: legacyProvider };
-                    
-                    const params = { 
-                        apiKey: args.config.DebridApiKey, 
-                        searchKey: args.extra.search, 
-                        provider: providerName, 
-                        tmdbApiKey: apiConfig.tmdbApiKey, 
-                        tvdbApiKey: apiConfig.tvdbApiKey, 
-                        providers
-                    };
-                    const searchResult = await coordinateSearch(params);
+                    const searchResult = await coordinateSearch({
+                        apiKey: args.config.DebridApiKey,
+                        searchKey: args.extra.search,
+                        provider: providerName,
+                        tmdbApiKey: apiConfig.tmdbApiKey,
+                        tvdbApiKey: apiConfig.tvdbApiKey
+                    });
                     torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
                     logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
                 } else {
-                    torrents = await searchProviderLibrary(providerName, legacyProvider, args.config.DebridApiKey, args.extra.search);
-                    logger.debug(`[CatalogHandler] searchTorrents search returned ${torrents.length} torrents`);
+                    torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
+                    logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
                 }
             } else {
                 // Standard catalog request
                 if (args.config.ShowCatalog) {
-                    torrents = provider
-                        ? await provider.listTorrents(args.config.DebridApiKey)
-                        : await legacyProvider.listTorrents(args.config.DebridApiKey, args.extra.skip || 0);
+                    torrents = await provider.listTorrents(args.config.DebridApiKey);
                     logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
                 }
             }
@@ -108,47 +95,18 @@ builder.defineMetaHandler(async (args) => {
         }
 
         const providerName = args.config.DebridProvider;
-        
-        if (!providerName) {
-            throw new Error(`Unsupported provider: ${providerNameLower}`);
-        }
-        
-        let legacyProvider;
         const provider = getProvider(providerName);
+        if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
 
-        switch (provider ? null : providerName) {
-            case null:
-                break;
-            default:
-                throw new Error(`Unsupported provider: ${providerName}`);
-        }
-        
-        const found = provider ? await provider.fetchTorrent(args.config.DebridApiKey, torrentId) : null;
-        const torrentDetails = provider
-            ? found && { ...found.torrent, videos: found.videos }
-            : await legacyProvider.getTorrentDetails(args.config.DebridApiKey, torrentId);
-        
+        const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId);
+        const torrentDetails = found && { ...found.torrent, videos: found.videos };
+
         if (!torrentDetails) {
             logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
             return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
         }
         
         const videoFiles = torrentDetails.videos || [];
-
-        for (const file of videoFiles) {
-            if (!legacyProvider?.resolveStreamUrl || !file.url) continue;
-
-            logger.info(`[MetaHandler] 🔄 Resolving stream URL for ${file.name}`);
-            try {
-                const resolved = await legacyProvider.resolveStreamUrl(args.config.DebridApiKey, file.url);
-                if (resolved) {
-                    file.url = resolved;
-                    logger.info(`[MetaHandler] ✅ Resolved to direct stream URL`);
-                }
-            } catch (resolveError) {
-                logger.warn(`[MetaHandler] Could not resolve URL, using original: ${resolveError.message}`);
-            }
-        }
 
         const { attachParse } = await import('./src/parsing/parser.js');
         const { toStreams } = await import('./src/stream/stream-builder.js');

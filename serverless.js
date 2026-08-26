@@ -8,13 +8,10 @@ import requestIp from 'request-ip'
 import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
-import { ApiKeySecurityManager } from './src/providers/BaseProvider.js'
+import { ApiKeySecurityManager } from './src/providers/resolve-url.js'
 import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
 
-
-const PROVIDER_CLASSES = {
-};
 
 const router = new Router();
 
@@ -74,9 +71,8 @@ router.post('/encrypt-config', async (req, res) => {
         
         if (config.DebridProvider && config.DebridApiKey) {
             const provider = getProvider(config.DebridProvider);
-            const ProviderClass = PROVIDER_CLASSES[config.DebridProvider];
 
-            if (!provider && !ProviderClass) {
+            if (!provider) {
                 logger.warn(`[encrypt-config] Unknown provider: ${config.DebridProvider}`);
                 return res.status(400).json({ 
                     error: `Unknown provider: ${config.DebridProvider}`,
@@ -84,11 +80,9 @@ router.post('/encrypt-config', async (req, res) => {
                 });
             }
 
-            const validation = provider
-                ? await provider.validateKey(config.DebridApiKey)
-                      .then(user => ({ valid: true, username: user.username, premium: user.premium, premiumUntil: user.premiumUntil }))
-                      .catch(error => ({ valid: false, error: error.userMessage ?? error.message, errorCode: error.code }))
-                : await ProviderClass.validateApiKey(config.DebridApiKey);
+            const validation = await provider.validateKey(config.DebridApiKey)
+                .then(user => ({ valid: true, username: user.username, premium: user.premium, premiumUntil: user.premiumUntil }))
+                .catch(error => ({ valid: false, error: error.userMessage ?? error.message, errorCode: error.code }));
             
             if (!validation.valid) {
                 await new Promise(r => setTimeout(r, 500));

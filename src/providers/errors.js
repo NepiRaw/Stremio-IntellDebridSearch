@@ -80,11 +80,13 @@ const GONE_CODES = {
 
 const RATE_CODES = { RealDebrid: [34] };
 
-/** A free or expired account calls for a different action than a wrong key. */
+/**
+ * A free or expired account calls for a different action than a wrong key
+ */
 function authMessage(provider, code) {
     return provider === 'RealDebrid' && code === 20
-        ? `Your ${provider} account is not premium, so it cannot produce playable links. Renew it, then reload the app.`
-        : `Your ${provider} API key was rejected. Open the addon configuration page to update it.`;
+        ? `Your ${provider} account is not premium, so it cannot produce playable links.\nRenew it, then reload the app.`
+        : `Your ${provider} API key was rejected.\nOpen the addon configuration page to update it.`;
 }
 
 /** Seconds or an HTTP date, per RFC 9110. */

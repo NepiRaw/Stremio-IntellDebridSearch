@@ -15,15 +15,9 @@ import { authErrorStreams } from './stream/error-stream.js';
 
 import { getCacheRecorder } from './utils/cache-recorder.js';
 
-const sharedProviders = {};
-
 const StreamHelpers = {
-    logBulkProcessing(provider, torrentCount, contentType) {
-        if (provider?.bulkGetTorrentDetails || provider?.fetchFiles) {
-            logger.info(`[stream-provider] 🚀 Using BULK OPTIMIZATION for ${torrentCount} ${contentType} torrents`);
-        } else {
-            logger.info(`[stream-provider] ⚠️ Using INDIVIDUAL CALLS for ${torrentCount} ${contentType} torrents (no bulk support)`);
-        }
+    logBulkProcessing(torrentCount, contentType) {
+        logger.info(`[stream-provider] 🚀 Bulk fetching ${torrentCount} ${contentType} torrents`);
     },
 
     performDeduplication(searchResults, contentType) {
@@ -94,8 +88,6 @@ class StreamProvider {
                 return [];
             }
 
-            const providers = sharedProviders;
-            
             const apiConfig = getApiConfig();
             
             const searchResponse = await coordinateSearch({
@@ -107,7 +99,6 @@ class StreamProvider {
                 season: null,
                 episode: null,
                 threshold: 0.4,
-                providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
                 tvdbApiKey: apiConfig.tvdbApiKey,
                 tracker
@@ -127,83 +118,41 @@ class StreamProvider {
 
             logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
 
-            const legacyProvider = providers[config.DebridProvider];
-            const provider = getProvider(config.DebridProvider);
-            if (!provider && !legacyProvider?.getTorrentDetails) {
-                logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
-                return [];
-            }
-
             const streamData = [];
 
             // The same corroboration the movie filter used, so what is displayed agrees with what
             // was kept: a film the filter recognised is not then titled as an episode.
             const parseContext = movieParseContext(cinemetaDetails.name);
 
-            StreamHelpers.logBulkProcessing(provider ?? legacyProvider, deduplicatedResults.length, 'movie');
+            StreamHelpers.logBulkProcessing(deduplicatedResults.length, 'movie');
 
-            if (provider || legacyProvider.bulkGetTorrentDetails) {
+            const bulkDetails = await tracker.span('fetch', () =>
+                fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, deduplicatedResults));
 
-                const bulkDetails = await tracker.span('fetch', () => provider
-                    ? fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, deduplicatedResults)
-                    : legacyProvider.bulkGetTorrentDetails(config.DebridApiKey, deduplicatedResults.map(result => result.id)));
-                
-                for (const result of deduplicatedResults) {
-                    try {
-                        const torrentDetails = attachParse(bulkDetails.get(result.id), parseContext);
+            for (const result of deduplicatedResults) {
+                try {
+                    const torrentDetails = attachParse(bulkDetails.get(result.id), parseContext);
 
-                        if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                            logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
-                            continue;
-                        }
-
-                        if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.parsed?.year;
-                            const movieYear = cinemetaDetails?.year;
-                            logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
-                            continue;
-                        }
-
-                        streamData.push({
-                            details: torrentDetails,
-                            type: 'movie',
-                            knownSeasonEpisode: null,
-                            searchContext: searchContext
-                        });
-                    } catch (error) {
-                        logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
+                    if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
+                        logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
+                        continue;
                     }
-                }
-            } else {
-                
-                for (const result of deduplicatedResults) {
-                    try {
-                        const torrentDetails = attachParse(
-                            await legacyProvider.getTorrentDetails(config.DebridApiKey, result.id),
-                            parseContext
-                        );
 
-                        if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                            logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
-                            continue;
-                        }
-
-                        if (!filterYear(torrentDetails, cinemetaDetails)) {
-                            const torrentYear = torrentDetails?.parsed?.year;
-                            const movieYear = cinemetaDetails?.year;
-                            logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
-                            continue;
-                        }
-
-                        streamData.push({
-                            details: torrentDetails,
-                            type: 'movie',
-                            knownSeasonEpisode: null,
-                            searchContext: searchContext
-                        });
-                    } catch (error) {
-                        logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
+                    if (!filterYear(torrentDetails, cinemetaDetails)) {
+                        const torrentYear = torrentDetails?.parsed?.year;
+                        const movieYear = cinemetaDetails?.year;
+                        logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
+                        continue;
                     }
+
+                    streamData.push({
+                        details: torrentDetails,
+                        type: 'movie',
+                        knownSeasonEpisode: null,
+                        searchContext: searchContext
+                    });
+                } catch (error) {
+                    logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
                 }
             }
 
@@ -300,8 +249,6 @@ class StreamProvider {
                 return [];
             }
 
-            const providers = sharedProviders;
-
             const apiConfig = getApiConfig();
 
             const searchResponse = await coordinateSearch({
@@ -313,7 +260,6 @@ class StreamProvider {
                 season,
                 episode,
                 threshold: 0.3,
-                providers,
                 tmdbApiKey: apiConfig.tmdbApiKey,
                 tvdbApiKey: apiConfig.tvdbApiKey,
                 tracker
@@ -348,30 +294,17 @@ class StreamProvider {
 
             logger.debug(`[stream-provider] Starting controlled concurrent stream processing for ${deduplicatedResults.length} series results`);
 
-            // Use controlled concurrency to prevent debrid API overwhelm
-            // Limit concurrent debrid API calls to prevent rate limiting issues
-            const { executeWithControlledConcurrency } = await import('./utils/debrid-processor.js');
-            
-            const legacyProvider = providers[config.DebridProvider];
-            const provider = getProvider(config.DebridProvider);
-            if (!provider && !legacyProvider?.getTorrentDetails) {
-                logger.warn(`[stream-provider] Provider ${config.DebridProvider} doesn't have getTorrentDetails method`);
-                return [];
-            }
-
             let streamTasks = [];
             const collectedTorrents = []; // Collect torrent details for cache recording
 
-            StreamHelpers.logBulkProcessing(provider ?? legacyProvider, deduplicatedResults.length, 'series');
+            StreamHelpers.logBulkProcessing(deduplicatedResults.length, 'series');
 
-            if (provider || legacyProvider.bulkGetTorrentDetails) {
+            const missing = deduplicatedResults.filter(result => !result.torrentDetails);
+            const bulkDetails = missing.length
+                ? await fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, missing)
+                : new Map();
 
-                const missing = deduplicatedResults.filter(result => !result.torrentDetails);
-                const bulkDetails = !missing.length ? new Map() : await (provider
-                    ? fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, missing)
-                    : legacyProvider.bulkGetTorrentDetails(config.DebridApiKey, missing.map(result => result.id)));
-
-                const streamPromises = deduplicatedResults.map(async (result) => {
+            const streamPromises = deduplicatedResults.map(async (result) => {
                     try {
                         const torrentDetails = result.torrentDetails ?? attachParse(bulkDetails.get(result.id));
 
@@ -404,58 +337,9 @@ class StreamProvider {
                     }
                 });
                 
-                const allStreamResults = await tracker.span('build', () => Promise.all(streamPromises));
-                streamTasks = allStreamResults.filter(result => result !== null).flat();
-            } else {
-                streamTasks = deduplicatedResults.map(result => async () => {
-                    try {
-                        const torrentDetails = result.torrentDetails
-                            ?? attachParse(await legacyProvider.getTorrentDetails(config.DebridApiKey, result.id));
+            const allStreamResults = await tracker.span('build', () => Promise.all(streamPromises));
+            streamTasks = allStreamResults.filter(result => result !== null).flat();
 
-                        if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                            logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
-                            return null;
-                        }
-
-                        collectedTorrents.push(torrentDetails);
-
-                        // Use mapped values for knownSeasonEpisode when anime mapping is active
-                        const knownSeasonEpisode = {
-                            season,
-                            episode,
-                            absoluteEpisode: searchResponse.absoluteEpisode
-                        };
-
-                        const streamData = {
-                            details: {
-                                ...torrentDetails,
-                                matchedTerm: result.matchedTerm // Preserve the matched term from search
-                            },
-                            type: 'series',
-                            knownSeasonEpisode,
-                            searchContext: searchContext
-                        };
-
-                        return optimizedStreamCreation(streamData.details, streamData.type, streamData.knownSeasonEpisode, streamData.searchContext);
-
-                    } catch (error) {
-                        logger.warn(`[stream-provider] Failed to build stream for ${result.id}: ${error.message}`);
-                        return null;
-                    }
-                });
-                
-                const concurrencyLimit = config.ConcurrencyLimit || 6;
-                logger.info(`[stream-provider] Processing ${streamTasks.length} streams with max ${concurrencyLimit} concurrent individual operations`);
-                
-                const streamResults = await tracker.span('build', () =>
-                    executeWithControlledConcurrency(streamTasks, concurrencyLimit));
-
-                streamTasks = streamResults
-                    .filter(result => result.status === 'fulfilled' && result.value !== null)
-                    .map(result => result.value)
-                    .flat();
-            }
-            
             logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
             const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
 
@@ -507,21 +391,12 @@ class StreamProvider {
         logger.info(`[stream-provider] Resolving URL for ${debridProvider}: ${hostUrl}`);
         
         try {
-            let unrestricted;
             const provider = getProvider(debridProvider);
-            if (provider) {
-                const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
-                logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
-                return url;
-            }
+            if (!provider) throw new Error(`Unsupported debrid provider: ${debridProvider}`);
 
-            switch (debridProvider) {
-                default:
-                    throw new Error(`Unsupported debrid provider: ${debridProvider}`);
-            }
-            
+            const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
             logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
-            return unrestricted;
+            return url;
         } catch (error) {
             logger.error(`[stream-provider] Failed to resolve URL for ${debridProvider}:`, error);
             throw error;

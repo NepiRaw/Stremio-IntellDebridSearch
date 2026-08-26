@@ -41,7 +41,7 @@ export async function coordinateSearch(params) {
     const {
         apiKey, provider, searchKey, type, imdbId,
         season, episode,
-        threshold = 0.3, providers,
+        threshold = 0.3,
         tracker = disabledTracker
     } = params;
     
@@ -58,24 +58,19 @@ export async function coordinateSearch(params) {
     // Create title variants for enhanced search (movie-only)
     const titleVariants = createTitleVariants(searchKey, type);
     
-    const providerImpl = providers[provider];
-    if (!providerImpl && !getProvider(provider)) {
+    if (!getProvider(provider)) {
         throw new Error(`Invalid provider or make sure you encoded the request: ${provider}`);
     }
 
     // ========== PHASE 0 AND THE LIBRARY LISTING, CONCURRENTLY ==========
-    // The listing needs a search key only on its two fallback paths, so it takes a promise and
-    // starts now; a provider that has to fall back still waits for phase 0
+    // The listing does not need the search key, so it starts alongside phase 0 rather than after it
     const preparation = tracker.span('phase0', () => prepareSearchTerms({
         searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
     }));
 
-    // Both derived promises absorb a rejection: once these run concurrently, a phase-0 failure
-    // would otherwise surface as an unhandled rejection rather than as the error thrown below.
-    const fallbackSearchKey = preparation.then(result => result.normalizedSearchKey, () => '');
-
-    const listing = tracker.span('list', () =>
-        fetchProviderTorrents(provider, providerImpl, apiKey, fallbackSearchKey, threshold));
+    // The listing absorbs its own rejection: running concurrently with phase 0, it would otherwise
+    // surface as an unhandled rejection rather than as the error raised where it is awaited.
+    const listing = tracker.span('list', () => fetchProviderTorrents(provider, apiKey));
     listing.catch(() => {});
 
     const preparationResult = await preparation;
@@ -177,7 +172,7 @@ export async function coordinateSearch(params) {
         });
 
         await tracker.span('fetch', () =>
-            batchFetchTorrentDetails(titleMatches, providers[provider], apiKey, addresses, provider));
+            batchFetchTorrentDetails(titleMatches, apiKey, addresses, provider));
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
         matches = await tracker.span('phase2', () =>

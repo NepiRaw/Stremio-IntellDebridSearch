@@ -6,7 +6,7 @@
 
 import { ProviderAuthError } from '../providers/errors.js';
 
-const STREAM_NAME = '⚠️ IntellDebridSearch';
+const STREAM_NAME = '⚠️ Intell DebridSearch';
 
 /** @returns {Array} one stream for an auth failure, nothing for anything else. */
 export function authErrorStreams(error) {
@@ -15,7 +15,7 @@ export function authErrorStreams(error) {
     const configureUrl = process.env.ADDON_URL ? `${process.env.ADDON_URL}/configure` : null;
     const stream = {
         name: STREAM_NAME,
-        title: error.userMessage ?? `Your ${error.provider} API key was rejected. Open the addon configuration page to update it.`
+        title: error.userMessage ?? `Your ${error.provider} API key was rejected.\nOpen the addon configuration page to update it.`
     };
     if (configureUrl) stream.externalUrl = configureUrl;
 
