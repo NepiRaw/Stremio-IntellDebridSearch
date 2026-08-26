@@ -65,7 +65,7 @@ const ENVELOPES = {
 const AUTH_CODES = {
     AllDebrid: ['AUTH_BAD_APIKEY', 'AUTH_MISSING_APIKEY', 'AUTH_BLOCKED', 'AUTH_USER_BANNED'],
     RealDebrid: [8, 20],
-    TorBox: ['BAD_TOKEN', 'AUTH_ERROR'],
+    TorBox: ['BAD_TOKEN', 'AUTH_ERROR', 'PLAN_RESTRICTED_FEATURE'],
     DebridLink: ['badToken'],
     Premiumize: ['authentication_failed']
 };
@@ -93,12 +93,16 @@ function readable(message) {
     }
 }
 
-/**
- * A free or expired account calls for a different action than a wrong key
- */
+/** Codes where the plan is the problem rather than the key, which is a different action entirely. */
+const PLAN_MESSAGES = {
+    RealDebrid: { 20: 'account is not premium, so it cannot produce playable links.\nRenew it, then reload the app.' },
+    TorBox: { PLAN_RESTRICTED_FEATURE: 'plan does not include API access.\nUpgrade it, then reload the app.' }
+};
+
 function authMessage(provider, code) {
-    return provider === 'RealDebrid' && code === 20
-        ? `Your ${provider} account is not premium, so it cannot produce playable links.\nRenew it, then reload the app.`
+    const plan = PLAN_MESSAGES[provider]?.[code];
+    return plan
+        ? `Your ${provider} ${plan}`
         : `Your ${provider} API key was rejected.\nOpen the addon configuration page to update it.`;
 }
 

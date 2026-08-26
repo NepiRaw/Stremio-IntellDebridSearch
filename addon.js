@@ -12,148 +12,138 @@ const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
 const builder = new addonBuilder(getManifest())
 
 builder.defineCatalogHandler(async (args) => {
-    try {
-        const debugArgs = structuredClone(args)
-        if (args.config?.DebridApiKey)
-            debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-        logger.info("Request for catalog with args: " + JSON.stringify(debugArgs))
+    const debugArgs = structuredClone(args)
+    if (args.config?.DebridApiKey)
+        debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
+    logger.info("Request for catalog with args: " + JSON.stringify(debugArgs))
 
-        if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
-            if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
-                logger.debug('[CatalogHandler] No debrid configuration, returning an empty catalog')
-                return { metas: [] }
-            }
-
-            const providerName = args.config.DebridProvider;
-            const provider = getProvider(providerName);
-            if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
-
-            let torrents = [];
-
-            // Search catalog request
-            if (args.extra.search) {
-                const { coordinateSearch } = await import('./src/search/coordinator.js');
-                const { getApiConfig } = await import('./src/config/configuration.js');
-                
-                const apiConfig = getApiConfig();
-                
-                if (apiConfig.hasAdvancedSearch) {
-                    const searchResult = await coordinateSearch({
-                        apiKey: args.config.DebridApiKey,
-                        searchKey: args.extra.search,
-                        provider: providerName,
-                        tmdbApiKey: apiConfig.tmdbApiKey,
-                        tvdbApiKey: apiConfig.tvdbApiKey
-                    });
-                    torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
-                    logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
-                } else {
-                    torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
-                    logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
-                }
-            } else {
-                // Standard catalog request
-                if (args.config.ShowCatalog) {
-                    torrents = await provider.listTorrents(args.config.DebridApiKey);
-                    logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
-                }
-            }
-
-            const { toMetas } = await import('./src/catalog-provider.js');
-            const metas = await toMetas(torrents);
-
-            logger.info(`[CatalogHandler] Returning ${metas.length} catalog metas`);
-            
-            return {
-                metas,
-                ...enrichCacheParams()
-            };
-        } else {
-            throw new Error('Invalid catalog request')
-        }
-    } catch (error) {
-        logger.error(`Catalog handler error: ${error.message}`);
-        throw error;
-    }
-})
-
-builder.defineMetaHandler(async (args) => {
-    try {
-        const debugArgs = structuredClone(args)
-        if (args.config?.DebridApiKey)
-            debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-        logger.info("Request for meta with args: " + JSON.stringify(debugArgs))
-
-        if (!args.id.includes(':')) {
-            return { meta: null };
-        }
-        
-        const [providerNameLower, torrentId] = args.id.split(':');
-        
-        if (!args.config?.DebridApiKey) {
-            throw new Error('No API key configured');
+    if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
+        if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
+            logger.debug('[CatalogHandler] No debrid configuration, returning an empty catalog')
+            return { metas: [] }
         }
 
         const providerName = args.config.DebridProvider;
         const provider = getProvider(providerName);
         if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
 
-        // The manifest claims the whole `<provider>:` id namespace, so client also routes us ids
-        // other addons minted. Answering for one costs a call the provider can only reject.
-        if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId)) {
-            logger.debug(`[MetaHandler] ${args.id} is not a ${providerName} id, answering without a call`);
-            return { meta: null };
-        }
+        let torrents = [];
 
-        const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId);
-        const torrentDetails = found && { ...found.torrent, videos: found.videos };
-
-        if (!torrentDetails) {
-            logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
-            return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
-        }
-        
-        const videoFiles = torrentDetails.videos || [];
-
-        const { attachParse } = await import('./src/parsing/parser.js');
-        const { toStreams } = await import('./src/stream/stream-builder.js');
-        const built = toStreams(attachParse(torrentDetails), 'series', null, null);
-        const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
-
-        const videos = [];
-        videoFiles.forEach((file, index) => {
-            const stream = byFilename.get(file.name);
-            if (!stream) {
-                logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.name ?? '<no name>'}", ${dropReason(file, built)}`);
-                return;
+        // Search catalog request
+        if (args.extra.search) {
+            const { coordinateSearch } = await import('./src/search/coordinator.js');
+            const { getApiConfig } = await import('./src/config/configuration.js');
+            
+            const apiConfig = getApiConfig();
+            
+            if (apiConfig.hasAdvancedSearch) {
+                const searchResult = await coordinateSearch({
+                    apiKey: args.config.DebridApiKey,
+                    searchKey: args.extra.search,
+                    provider: providerName,
+                    tmdbApiKey: apiConfig.tmdbApiKey,
+                    tvdbApiKey: apiConfig.tvdbApiKey
+                });
+                torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
+                logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
+            } else {
+                torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
+                logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
             }
+        } else {
+            // Standard catalog request
+            if (args.config.ShowCatalog) {
+                torrents = await provider.listTorrents(args.config.DebridApiKey);
+                logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
+            }
+        }
 
-            videos.push({
-                id: `${args.id}:file:${index}`,
-                title: file.name || `File ${index + 1}`,
-                streams: [stream]
-            });
-        });
+        const { toMetas } = await import('./src/catalog-provider.js');
+        const metas = await toMetas(torrents);
+
+        logger.info(`[CatalogHandler] Returning ${metas.length} catalog metas`);
         
-        const baseMeta = {
-            id: args.id,
-            type: 'other',
-            name: torrentDetails.name || 'Unknown Torrent',
-            description: `${providerName} cached file ➡️ ${torrentDetails.name} 🔍 ${videos.length} video file(s)`,
-            videos: videos
+        return {
+            metas,
+            ...enrichCacheParams()
         };
-
-        const meta = await enrichTorrentMeta(baseMeta, {
-            providerName,
-            torrentDetails
-        });
-
-        return { meta };
-        
-    } catch (error) {
-        logger.error(`Meta handler error: ${error.message}`);
-        throw error;
+    } else {
+        throw new Error('Invalid catalog request')
     }
+})
+
+builder.defineMetaHandler(async (args) => {
+    const debugArgs = structuredClone(args)
+    if (args.config?.DebridApiKey)
+        debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
+    logger.info("Request for meta with args: " + JSON.stringify(debugArgs))
+
+    if (!args.id.includes(':')) {
+        return { meta: null };
+    }
+    
+    const [providerNameLower, torrentId] = args.id.split(':');
+    
+    if (!args.config?.DebridApiKey) {
+        throw new Error('No API key configured');
+    }
+
+    const providerName = args.config.DebridProvider;
+    const provider = getProvider(providerName);
+    if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
+
+    // The manifest claims the whole `<provider>:` id namespace, so client also routes us ids
+    // other addons minted. Answering for one costs a call the provider can only reject.
+    if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId)) {
+        logger.debug(`[MetaHandler] ${args.id} is not a ${providerName} id, answering without a call`);
+        return { meta: null };
+    }
+
+    const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId);
+    const torrentDetails = found && { ...found.torrent, videos: found.videos };
+
+    if (!torrentDetails) {
+        logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
+        return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
+    }
+    
+    const videoFiles = torrentDetails.videos || [];
+
+    const { attachParse } = await import('./src/parsing/parser.js');
+    const { toStreams } = await import('./src/stream/stream-builder.js');
+    const built = toStreams(attachParse(torrentDetails), 'series', null, null);
+    const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
+
+    const videos = [];
+    videoFiles.forEach((file, index) => {
+        const stream = byFilename.get(file.name);
+        if (!stream) {
+            logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.name ?? '<no name>'}", ${dropReason(file, built)}`);
+            return;
+        }
+
+        videos.push({
+            id: `${args.id}:file:${index}`,
+            title: file.name || `File ${index + 1}`,
+            streams: [stream]
+        });
+    });
+    
+    const baseMeta = {
+        id: args.id,
+        type: 'other',
+        name: torrentDetails.name || 'Unknown Torrent',
+        description: `${providerName} cached file ➡️ ${torrentDetails.name} 🔍 ${videos.length} video file(s)`,
+        videos: videos
+    };
+
+    const meta = await enrichTorrentMeta(baseMeta, {
+        providerName,
+        torrentDetails
+    });
+
+    return { meta };
+    
 })
 
 

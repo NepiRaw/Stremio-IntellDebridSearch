@@ -389,18 +389,14 @@ class StreamProvider {
      */
     static async resolveUrl(debridProvider, debridApiKey, itemId, hostUrl, clientIp) {
         logger.info(`[stream-provider] Resolving URL for ${debridProvider}: ${hostUrl}`);
-        
-        try {
-            const provider = getProvider(debridProvider);
-            if (!provider) throw new Error(`Unsupported debrid provider: ${debridProvider}`);
 
-            const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
-            logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
-            return url;
-        } catch (error) {
-            logger.error(`[stream-provider] Failed to resolve URL for ${debridProvider}:`, error);
-            throw error;
-        }
+        // The route logs the failure with the request that caused it, so nothing is caught here.
+        const provider = getProvider(debridProvider);
+        if (!provider) throw new Error(`Unsupported debrid provider: ${debridProvider}`);
+
+        const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
+        logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
+        return url;
     }
 }
 
