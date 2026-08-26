@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { logger } from '../utils/logger.js';
 import { isTransientNetworkError } from '../api/http.js';
-import { classify, isErrorBody, retryAfterMs } from './errors.js';
+import { classify, isDefinitiveFailure, isErrorBody, retryAfterMs } from './errors.js';
 
 /** A provider behind Cloudflare answers 403 without one. */
 export const USER_AGENT = `IntellDebridSearch/${packageInfo.version}`;
@@ -161,8 +161,11 @@ export async function request({ provider, operation, endpointClass = 'default', 
         }
 
         if (RETRIED_STATUSES.has(response.status) && attempt === 1) {
+            const failure = classify({ ...context, status: response.status, headers: response.headers, body: data ?? text });
+            if (isDefinitiveFailure(failure)) throw failure;
+
             const pause = retryAfterMs(response.headers) ?? RATE_LIMIT_PAUSE_MS;
-            logger.warn(`[${provider}] ${operation} got ${response.status}, retrying once in ${pause}ms`);
+            logger.warn(`[${provider}] ${operation} got ${response.status} ${failure.code ?? ''}, retrying once in ${pause}ms`);
             await wait(pause);
             continue;
         }

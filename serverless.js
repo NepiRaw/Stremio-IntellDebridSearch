@@ -8,6 +8,7 @@ import requestIp from 'request-ip'
 import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
+import { ProviderItemGoneError } from './src/providers/errors.js'
 import { ApiKeySecurityManager } from './src/providers/resolve-url.js'
 import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
@@ -231,6 +232,9 @@ function handleError(err, res) {
     if (err instanceof BadTokenError) {
         res.writeHead(401)
         res.end(JSON.stringify({ err: 'Bad token' }))
+    } else if (err instanceof ProviderItemGoneError) {
+        res.writeHead(404)
+        res.end(JSON.stringify({ err: 'Not available' }))
     } else if (err instanceof AccessDeniedError) {
         res.writeHead(403)
         res.end(JSON.stringify({ err: 'Access denied' }))

@@ -146,3 +146,19 @@ export function classify({ provider, operation, status, headers, body, cause }) 
 export function isErrorBody(provider, body) {
     return body && typeof body === 'object' ? ENVELOPES[provider]?.(body).failed === true : false;
 }
+
+/**
+ * A failure the provider owns rather than the request. Catalog and meta have no error channel, so
+ * answering one with a status only makes the client retry a call that cannot succeed.
+ */
+export function isProviderError(error) {
+    return error instanceof ProviderAuthError
+        || error instanceof ProviderRateLimitError
+        || error instanceof ProviderUnavailableError
+        || error instanceof ProviderItemGoneError;
+}
+
+/** An answer a second ask cannot change, so pausing before one buys the caller nothing. */
+export function isDefinitiveFailure(error) {
+    return error instanceof ProviderItemGoneError || error instanceof ProviderAuthError;
+}

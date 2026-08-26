@@ -4,11 +4,13 @@ import { getManifest } from './src/config/manifest.js'
 import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
 import { logger } from './src/utils/logger.js';
 import { getProvider } from './src/providers/index.js';
-import { ProviderItemGoneError } from './src/providers/errors.js';
+import { ProviderItemGoneError, isProviderError } from './src/providers/errors.js';
 import { searchProviderLibrary } from './src/search/provider-search.js';
 
 const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE) || 1 * 60 // 1 min
 const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
+
+const UNANSWERED = Symbol('unanswered')
 
 const builder = new addonBuilder(getManifest())
 
@@ -30,33 +32,39 @@ builder.defineCatalogHandler(async (args) => {
 
         let torrents = [];
 
-        // Search catalog request
-        if (args.extra.search) {
-            const { coordinateSearch } = await import('./src/search/coordinator.js');
-            const { getApiConfig } = await import('./src/config/configuration.js');
-            
-            const apiConfig = getApiConfig();
-            
-            if (apiConfig.hasAdvancedSearch) {
-                const searchResult = await coordinateSearch({
-                    apiKey: args.config.DebridApiKey,
-                    searchKey: args.extra.search,
-                    provider: providerName,
-                    tmdbApiKey: apiConfig.tmdbApiKey,
-                    tvdbApiKey: apiConfig.tvdbApiKey
-                });
-                torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
-                logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
+        try {
+            // Search catalog request
+            if (args.extra.search) {
+                const { coordinateSearch } = await import('./src/search/coordinator.js');
+                const { getApiConfig } = await import('./src/config/configuration.js');
+
+                const apiConfig = getApiConfig();
+
+                if (apiConfig.hasAdvancedSearch) {
+                    const searchResult = await coordinateSearch({
+                        apiKey: args.config.DebridApiKey,
+                        searchKey: args.extra.search,
+                        provider: providerName,
+                        tmdbApiKey: apiConfig.tmdbApiKey,
+                        tvdbApiKey: apiConfig.tvdbApiKey
+                    });
+                    torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
+                    logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
+                } else {
+                    torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
+                    logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
+                }
             } else {
-                torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
-                logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
+                // Standard catalog request
+                if (args.config.ShowCatalog) {
+                    torrents = await provider.listTorrents(args.config.DebridApiKey);
+                    logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
+                }
             }
-        } else {
-            // Standard catalog request
-            if (args.config.ShowCatalog) {
-                torrents = await provider.listTorrents(args.config.DebridApiKey);
-                logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
-            }
+        } catch (error) {
+            if (!isProviderError(error)) throw error;
+            logger.warn(`[CatalogHandler] ${providerName} answered nothing: ${error.message}`);
+            return { metas: [], ...enrichCacheParams() };
         }
 
         const { toMetas } = await import('./src/catalog-provider.js');
@@ -103,8 +111,15 @@ builder.defineMetaHandler(async (args) => {
     const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId)
         .catch(error => {
             if (error instanceof ProviderItemGoneError) return null;
+            if (isProviderError(error)) {
+                logger.warn(`[MetaHandler] ${providerName}:${torrentId} left unanswered: ${error.message}`);
+                return UNANSWERED;
+            }
             throw error;
         });
+
+    if (found === UNANSWERED) return { meta: null };
+
     const torrentDetails = found && { ...found.torrent, videos: found.videos };
 
     if (!torrentDetails) {
