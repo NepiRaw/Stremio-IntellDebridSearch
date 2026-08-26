@@ -63,7 +63,7 @@ builder.defineCatalogHandler(async (args) => {
             }
         } catch (error) {
             if (!isProviderError(error)) throw error;
-            logger.warn(`[CatalogHandler] ${providerName} answered nothing: ${error.message}`);
+            logger.warn(`[CatalogHandler] ${providerName} answered nothing: ${error.name}: ${error.message}`);
             return { metas: [], ...enrichCacheParams() };
         }
 
@@ -112,7 +112,7 @@ builder.defineMetaHandler(async (args) => {
         .catch(error => {
             if (error instanceof ProviderItemGoneError) return null;
             if (isProviderError(error)) {
-                logger.warn(`[MetaHandler] ${providerName}:${torrentId} left unanswered: ${error.message}`);
+                logger.warn(`[MetaHandler] ${providerName}:${torrentId} left unanswered: ${error.name}: ${error.message}`);
                 return UNANSWERED;
             }
             throw error;

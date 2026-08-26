@@ -75,6 +75,8 @@ The contract, enforced by `tests/unit/providers-registry.test.js`:
 |---|---|
 | `name` | the provider name as the config blob spells it |
 | `capabilities` | `{filesInline, bulkFiles, directLinks}` |
+| `ownsId(id)` | could this provider have minted this torrent id |
+| `ownsLink(link)` | could this provider have issued this playback link |
 | `validateKey(apiKey)` | is this key usable, and is the account premium |
 | `listTorrents(apiKey)` | the whole library, as canonical `Torrent` objects |
 | `fetchFiles(apiKey, torrents)` | `Map<torrentId, VideoFile[]>` for the torrents given |
@@ -83,11 +85,11 @@ The contract, enforced by `tests/unit/providers-registry.test.js`:
 
 The shared files it builds on:
 
-- `http.js` - the single HTTP path: rate limiting, timeout, one retry, typed errors. Limits are per token AND per endpoint, so each limiter is keyed `provider:endpointClass:hash(key)`.
+- `http.js` - the single HTTP path: rate limiting, timeout, one retry, typed errors. Limits are per token AND per endpoint, so each limiter is keyed `provider:endpointClass:hash(key)`. The retry is skipped when the answer is already definitive, since a second ask cannot change a gone item or a rejected key.
 - `errors.js` - turns any response into `ProviderAuthError`, `ProviderRateLimitError`, `ProviderUnavailableError` or `ProviderItemGoneError`. Status alone cannot classify these: AllDebrid and Premiumize report auth failures inside HTTP 200, and TorBox's 403 means both "bad token" and "no User-Agent".
-- `shapes.js` - the canonical `Torrent` and `VideoFile` every provider returns.
+- `shapes.js` - the canonical `Torrent` and `VideoFile` every provider returns. Consumers read `provider` and `fileName`.
 - `paths.js` - one file address out of five path formats. The container strip uses **sibling evidence**, not the torrent name.
-- `resolve-url.js` - the addon URL a stream points at, and the token standing in for the API key.
+- `resolve-url.js` - the addon URL a stream points at. It carries the same encrypted configuration the addon URL carries, so a process that never built the stream row can still serve it, which is what makes the serverless deployment work. A short token rides alongside as an in-process fallback and is removed next release.
 
 Adding a provider:
 
@@ -161,7 +163,7 @@ The following steps describe how a Stremio client request is processed from entr
 ## Getting Started (Onboarding)
 
 **For New Developers:**
-1. Clone the repository and install dependencies (`npm install` or `pnpm install`).
+1. Clone the repository and install dependencies (`corepack enable && pnpm install`). This project is pnpm only; there is no npm lockfile.
 2. Copy `.env.example` to `.env` and fill in your debrid API keys and server config.
 3. Start the server (`node server.js`).
 4. Run tests from the `/tests/` folder to validate your setup.
@@ -185,10 +187,8 @@ The system uses comprehensive logging via `/src/utils/logger.js` with different 
 ## Extending & Debugging
 
 **To Add a New Provider:**
-- Add a module in `/src/providers/` and register it in `index.js`
-- Implement required abstract methods following the established interface
-- Register the provider in the shared provider instances
-- Add integration tests to validate functionality
+- Add a module in `/src/providers/` exporting the contract above, and register it in `index.js`, the single import site
+- There is no base class and nothing to subclass: a provider module holds only what its API does differently
 
 **To Add a New Content Type:**
 - Parsing patterns are **not** changed here: refer to the Parsium repo and re-pin `parsium-media`
@@ -438,7 +438,7 @@ A flat set returns the wrong episode when a release labels absolute numbering as
 - `errors.js` - the error taxonomy and the table that classifies every provider's answer
 - `shapes.js` - the canonical `Torrent` and `VideoFile`
 - `paths.js` - one file address out of five path formats, using sibling evidence
-- `resolve-url.js` - the resolve URL and the token standing in for the API key
+- `resolve-url.js` - the resolve URL, which carries its own encrypted configuration
 - `all-debrid.js`, `real-debrid.js`, `torbox.js`, `debrid-link.js`, `premiumize.js`
 
 #### `/src/search/`
@@ -613,10 +613,12 @@ class ErrorManager {
 5. **Cache Errors**: TTL expiration, memory limitations
 
 ### Error Recovery
-- **Provider errors**: classified by `providers/errors.js`; only an auth failure reaches the user, as one stream row
+- **Provider errors**: classified by `providers/errors.js`; only an auth failure reaches the user, as one stream row, carrying the action its cause calls for (reconfigure a key, renew a subscription, upgrade a plan, confirm a sign-in from a new location)
+- **Routes with no error channel answer rather than raise**: a catalog returns no items and a meta returns none, because a status there only makes the client retry a call that cannot succeed
+- **Play time has only a status**: a file the hoster cannot serve answers 404, not a server error
 - **Graceful degradation**: Partial failures don't break entire responses
 - **Fallback strategies**: Multi-phase search provides alternative paths
-- **Comprehensive logging**: Context preservation for debugging
+- **Comprehensive logging**: Context preservation for debugging. A failure is logged once, by the route that knows which request caused it
 
 ## Caching Strategy
 

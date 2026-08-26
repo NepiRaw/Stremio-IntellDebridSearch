@@ -8,7 +8,7 @@ import requestIp from 'request-ip'
 import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
-import { ProviderItemGoneError } from './src/providers/errors.js'
+import { ProviderItemGoneError, isProviderError } from './src/providers/errors.js'
 import { ApiKeySecurityManager } from './src/providers/resolve-url.js'
 import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
@@ -179,7 +179,8 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
                 res.redirect(url)
             })
             .catch(err => {
-                logger.error(`[resolve] ${req.params.debridProvider}:`, err)
+                const log = isProviderError(err) ? logger.warn : logger.error
+                log(`[resolve] ${req.params.debridProvider}:`, err)
                 handleError(err, res)
             })
     } catch (error) {

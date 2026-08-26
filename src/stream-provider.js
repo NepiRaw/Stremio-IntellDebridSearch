@@ -11,6 +11,7 @@ import { createTracker } from './utils/perf-tracker.js';
 import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { getProvider, fetchTorrentDetails } from './providers/index.js';
+import { isProviderError } from './providers/errors.js';
 import { authErrorStreams } from './stream/error-stream.js';
 
 import { getCacheRecorder } from './utils/cache-recorder.js';
@@ -192,7 +193,8 @@ class StreamProvider {
 
         } catch (error) {
             const duration = Date.now() - startTime;
-            logger.error(`[stream-provider] Movie search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
+            const log = isProviderError(error) ? logger.warn : logger.error;
+            log(`[stream-provider] Movie search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
@@ -369,7 +371,8 @@ class StreamProvider {
 
         } catch (error) {
             const duration = Date.now() - startTime;
-            logger.error(`[stream-provider] Series search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
+            const log = isProviderError(error) ? logger.warn : logger.error;
+            log(`[stream-provider] Series search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);

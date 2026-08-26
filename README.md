@@ -25,18 +25,19 @@ Addon currently available at:
 
 
 
-## 🎯 Features
+## Features
 
-- 🔎 **Search your Debrid cloud**: Find and stream torrents already present in your Debrid account
-- 🏷️ **Advanced parsing**: 
+- **Search your Debrid cloud**: Find and stream torrents already present in your Debrid account
+- **Advanced parsing**: 
   - Handles alternate titles, 
   - Absolute episode numbers (for anime)
   - Better season parsing (catalogs may display anime as S01, instead of accurate season number)
   - Quality detection
-- 🧠 **Intelligent episode/title matching**: Uses TheTVDB and TMDb APIs for improved accuracy
-- 🖼️ **Optional poster + metadata enrichment**: Reuses TMDb/Cinemeta poster and metadata
-- 🌍 **Multi-provider support**: AllDebrid, RealDebrid, Premiumize, Torbox, Debrid-Link
-- 🗂️ **Content-agnostic**: Works for movies, series, anime, and more
+- **Intelligent episode/title matching**: Uses TheTVDB and TMDb APIs for improved accuracy
+- **Optional poster + metadata enrichment**: Reuses TMDb/Cinemeta poster and metadata
+- **Multi-provider support**: AllDebrid, RealDebrid, Premiumize, Torbox, Debrid-Link
+- **Tells you when your API key is the problem**: a rejected, expired or blocked key shows a message in the client with the action to take
+- **Content-agnostic**: Works for movies, series, anime, and more
 
 **Examples**
 - Classic serie : <p>
@@ -158,7 +159,8 @@ cd Stremio-IntellDebridSearch
 ```
 2. **Install dependencies (with Node 24 active):**
 ```bash
-npm install
+corepack enable
+pnpm install
 ```
 3. **Configure environment:**
 ```bash
@@ -167,11 +169,13 @@ cp .env.example .env
 ```
 4. **Start the addon:**
 ```bash
-npm start
+pnpm start
 ```
 5. **Access your addon at `http://localhost:3001` (or your configured domain)**
 
-> **If you see a `NODE_MODULE_VERSION` mismatch for `better-sqlite3`:** you started the addon with a different Node version than the one used to install/rebuild dependencies. Switch back to Node 24 and run `npm install` or `npm rebuild better-sqlite3`.
+> **This project is pnpm only.** There is no npm lockfile, and the Docker image installs with `pnpm install --frozen-lockfile`.
+
+> **If you see a `NODE_MODULE_VERSION` mismatch for `better-sqlite3`:** you started the addon with a different Node version than the one used to install/rebuild dependencies. Switch back to Node 24 and run `pnpm install` or `pnpm rebuild better-sqlite3`.
 
 
 ### 🔺 Vercel Deployment
@@ -206,6 +210,10 @@ npm start
 | `ENABLE_RELEASE_GROUP`  | ❌       | false            | True/False - Controls release group extraction and display. When true: shows release group info (e.g. "👥 [RARBG]"). When false (default): skips release group processing for better performance |
 | `ADDON_URL`             | ❌       | http://127.0.0.1:3001 | Complete addon URL including port. Examples: `http://127.0.0.1:3002`, `https://my-addon.vercel.app` |
 | `LOG_LEVEL`             | ❌       | info              | Logging level: error, warn, info, debug (optional)                                            |
+| `CACHE_RECORDING_ENABLED` | ❌     | true              | Records which files a torrent holds, so a later search can skip re-reading them                |
+| `CACHE_DB_PATH`         | ❌       | `./data/debrid-cache.sqlite` | SQLite file for the torrent/file record above                                |
+| `CACHE_STALENESS_HOURS` | ❌       | 72                | How long a recorded torrent stays usable before it is read again                               |
+| `CATALOG_ENRICHMENT_CACHE_CLEANUP_INTERVAL_SECONDS` | ❌ | 21600 | How often expired enrichment cache entries are swept (6 hours)                    |
 | `WARP_ENABLED`          | ❌       | false             | Enables Cloudflare WARP proxy for AllDebrid `link/unlock` (Docker only)                        |
 | `WARP_LICENSE_KEY`      | ❌       | (empty)           | Optional WARP+ license key for upgraded bandwidth                                              |
 | `WARP_PORT`             | ❌       | 40000             | Internal SOCKS5 proxy port used by WARP (no need to expose)                                    |
