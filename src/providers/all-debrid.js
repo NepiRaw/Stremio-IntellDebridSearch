@@ -15,6 +15,9 @@ import { logger } from '../utils/logger.js';
 export const name = 'AllDebrid';
 export const capabilities = { filesInline: false, bulkFiles: true, directLinks: false };
 
+/** Magnet ids are integers, so anything else in our id namespace was minted by someone else. */
+export const ownsId = id => /^\d+$/.test(id);
+
 const BASE = 'https://api.alldebrid.com';
 const AGENT = 'intell-debridsearch';
 const FILES_BATCH = 20;

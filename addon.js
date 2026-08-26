@@ -98,6 +98,13 @@ builder.defineMetaHandler(async (args) => {
         const provider = getProvider(providerName);
         if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
 
+        // The manifest claims the whole `<provider>:` id namespace, so client also routes us ids
+        // other addons minted. Answering for one costs a call the provider can only reject.
+        if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId)) {
+            logger.debug(`[MetaHandler] ${args.id} is not a ${providerName} id, answering without a call`);
+            return { meta: null };
+        }
+
         const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId);
         const torrentDetails = found && { ...found.torrent, videos: found.videos };
 

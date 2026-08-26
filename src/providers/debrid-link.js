@@ -16,6 +16,9 @@ import { logger } from '../utils/logger.js';
 export const name = 'DebridLink';
 export const capabilities = { filesInline: true, bulkFiles: false, directLinks: true };
 
+/** Seedbox ids are lower-case alphanumeric, optionally suffixed with the item index. */
+export const ownsId = id => /^[a-z0-9]+(-\d+)?$/.test(id);
+
 const BASE = 'https://debrid-link.com/api/v2';
 
 /** DL caps the page size and reports its own page count */

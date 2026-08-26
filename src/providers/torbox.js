@@ -16,6 +16,9 @@ import { logger } from '../utils/logger.js';
 export const name = 'TorBox';
 export const capabilities = { filesInline: true, bulkFiles: false, directLinks: false };
 
+/** Torrent ids are integers, and the API answers 422 for anything that is not one. */
+export const ownsId = id => /^\d+$/.test(id);
+
 const BASE = 'https://api.torbox.app/v1/api';
 
 /** Without an explicit limit the same call takes 1.5-5.9s instead of 0.7-0.9s. */

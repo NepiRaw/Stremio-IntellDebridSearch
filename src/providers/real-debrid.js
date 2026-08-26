@@ -16,6 +16,9 @@ import { logger } from '../utils/logger.js';
 export const name = 'RealDebrid';
 export const capabilities = { filesInline: false, bulkFiles: false, directLinks: false };
 
+/** Torrent ids are upper-case alphanumeric, so anything else was minted by someone else. */
+export const ownsId = id => /^[A-Z0-9]+$/.test(id);
+
 const BASE = 'https://api.real-debrid.com/rest/1.0';
 
 /** A limit above 5000 silently answers 100 rows, so the page size stays well under it. */
