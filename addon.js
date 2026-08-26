@@ -31,10 +31,6 @@ builder.defineCatalogHandler(async (args) => {
             switch (provider ? null : providerName) {
                 case null:
                     break;
-                case 'DebridLink':
-                    const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
-                    legacyProvider = new DebridLinkProvider();
-                    break;
                 case 'Premiumize':
                     const { PremiumizeProvider } = await import('./src/providers/premiumize.js');
                     legacyProvider = new PremiumizeProvider();
@@ -126,10 +122,6 @@ builder.defineMetaHandler(async (args) => {
 
         switch (provider ? null : providerName) {
             case null:
-                break;
-            case 'DebridLink':
-                const { DebridLinkProvider } = await import('./src/providers/debrid-link.js');
-                legacyProvider = new DebridLinkProvider();
                 break;
             case 'Premiumize':
                 const { PremiumizeProvider } = await import('./src/providers/premiumize.js');

@@ -7,11 +7,13 @@
 import * as allDebrid from './all-debrid.js';
 import * as realDebrid from './real-debrid.js';
 import * as torBox from './torbox.js';
+import * as debridLink from './debrid-link.js';
 
 const registry = new Map([
     [allDebrid.name, allDebrid],
     [realDebrid.name, realDebrid],
-    [torBox.name, torBox]
+    [torBox.name, torBox],
+    [debridLink.name, debridLink]
 ]);
 
 export function getProvider(name) {

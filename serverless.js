@@ -12,11 +12,9 @@ import { ApiKeySecurityManager } from './src/providers/BaseProvider.js'
 import { getProvider } from './src/providers/index.js'
 import { logger } from './src/utils/logger.js'
 
-import { DebridLinkProvider } from './src/providers/debrid-link.js'
 import { PremiumizeProvider } from './src/providers/premiumize.js'
 
 const PROVIDER_CLASSES = {
-    DebridLink: DebridLinkProvider,
     Premiumize: PremiumizeProvider,
 };
 

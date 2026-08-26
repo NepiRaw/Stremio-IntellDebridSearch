@@ -12,14 +12,12 @@ import { attachParse, movieParseContext } from './parsing/parser.js';
 import Cinemeta from './api/cinemeta.js';
 import { getProvider, fetchTorrentDetails } from './providers/index.js';
 import { authErrorStreams } from './stream/error-stream.js';
-import { DebridLinkProvider } from './providers/debrid-link.js';
 import { PremiumizeProvider } from './providers/premiumize.js';
 
 import { getCacheRecorder } from './utils/cache-recorder.js';
 
 // Create provider instances once to avoid duplicate initialization logging
 const sharedProviders = { 
-    DebridLink: new DebridLinkProvider(),
     Premiumize: new PremiumizeProvider()
 };
 
@@ -522,7 +520,6 @@ class StreamProvider {
             }
 
             switch (debridProvider) {
-                case 'DebridLink':
                 case 'Premiumize':
                     // These providers return direct URLs, no unrestricting needed
                     unrestricted = hostUrl;
