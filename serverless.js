@@ -174,7 +174,7 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
                 res.redirect(url)
             })
             .catch(err => {
-                logger.error(err)
+                logger.error(`[resolve] ${req.params.debridProvider}:`, err)
                 handleError(err, res)
             })
     } catch (error) {
@@ -205,7 +205,7 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
             res.end(JSON.stringify(resp))
         })
         .catch(err => {
-            logger.error(err)
+            logger.error(`[${resource}] ${type} ${id}:`, err)
             handleError(err, res)
         })
 })

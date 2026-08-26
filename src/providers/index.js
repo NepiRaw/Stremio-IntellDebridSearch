@@ -1,7 +1,6 @@
 /**
  * The provider registry, the only import site consumers need.
- * A provider appears here once its module is implemented and tested; until then the consumers fall
- * back to the legacy classes, so the migration runs one provider at a time.
+ * Every provider is a module here, keyed by the name its config blob and its resolve URL use.
  */
 
 import * as allDebrid from './all-debrid.js';
@@ -28,8 +27,7 @@ export function migratedProviders() {
 
 /**
  * Files for a batch of torrents, in the {id -> torrent with videos} form the stream and search
- * phases already consume. Returns null when the provider has not migrated, so a caller can fall
- * back without knowing anything about the registry.
+ * phases already consume. Returns null for a name the registry does not hold.
  */
 export async function fetchTorrentDetails(name, apiKey, torrents) {
     const module = registry.get(name);

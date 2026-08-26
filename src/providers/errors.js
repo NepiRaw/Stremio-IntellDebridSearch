@@ -81,6 +81,19 @@ const GONE_CODES = {
 const RATE_CODES = { RealDebrid: [34] };
 
 /**
+ * A provider's message field is not always a string
+ */
+function readable(message) {
+    if (message === undefined || message === null) return '';
+    if (typeof message === 'string') return message;
+    try {
+        return JSON.stringify(message).slice(0, 200);
+    } catch {
+        return String(message);
+    }
+}
+
+/**
  * A free or expired account calls for a different action than a wrong key
  */
 function authMessage(provider, code) {
@@ -107,7 +120,7 @@ export function classify({ provider, operation, status, headers, body, cause }) 
     const parsed = body && typeof body === 'object' ? ENVELOPES[provider]?.(body) ?? {} : {};
     const code = parsed.code;
     const context = { provider, operation, status, code, cause };
-    const detail = parsed.message || (typeof body === 'string' ? body.slice(0, 200) : '') || cause?.message || `HTTP ${status}`;
+    const detail = readable(parsed.message) || (typeof body === 'string' ? body.slice(0, 200) : '') || cause?.message || `HTTP ${status}`;
     const label = `[${provider}] ${operation}: ${detail}`;
 
     if (AUTH_CODES[provider]?.includes(code)) {
