@@ -6,7 +6,7 @@
  *
  * Process Overview:
  * 1. Batch fetches missing torrent details (e.g., file lists) from the provider for torrents that lack them.
- *    - Uses provider.getTorrentDetails to enrich torrent objects with video/file info.
+ *    - Uses the provider module to enrich torrent objects with video/file info.
  *
  * 2. Analyzes each torrent to determine if it contains the requested episode (season/episode or absolute episode).
  *    - Uses analyzeTorrent to inspect file names, metadata, and episode info.
@@ -23,6 +23,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { getProvider, fetchTorrentDetails } from '../providers/index.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
 import { parseName, frozenParse, attachParse } from '../parsing/parser.js';
@@ -31,13 +32,13 @@ import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js
 /**
  * Batch fetch torrent details for torrents that need them
  * @param {Array} titleMatches - Matches from Phase 1
- * @param {Object} provider - Provider implementation
  * @param {string} apiKey - API key
  * @returns {Promise} Promise that resolves when all details are fetched
  */
-export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, addresses = null) {
+export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses = null, providerName = null) {
+    if (!getProvider(providerName)) return;
+
     const torrentsNeedingDetails = titleMatches.filter(match =>
-        provider?.getTorrentDetails &&
         !match.item.videos &&
         couldContain(match.item.parsed ?? frozenParse(match.item.name), addresses)
     );
@@ -48,27 +49,12 @@ export async function batchFetchTorrentDetails(titleMatches, provider, apiKey, a
 
     logger.info(`[phase-2] Parallel batch fetching details for ${torrentsNeedingDetails.length} torrents`);
 
-    const BATCH_SIZE = 20; // Process 20 torrents in parallel at a time
-    const batches = [];
-    for (let i = 0; i < torrentsNeedingDetails.length; i += BATCH_SIZE) {
-        batches.push(torrentsNeedingDetails.slice(i, i + BATCH_SIZE));
+    const details = await fetchTorrentDetails(providerName, apiKey, torrentsNeedingDetails.map(match => match.item));
+    for (const match of torrentsNeedingDetails) {
+        const found = details.get(String(match.item.id));
+        if (found) Object.assign(match.item, attachParse(found));
     }
-
-    // Process all batches sequentially but each batch is parallel internally
-    for (const batch of batches) {
-        await Promise.all(
-            batch.map(async match => {
-                try {
-                    const details = await provider.getTorrentDetails(apiKey, match.item.id);
-                    Object.assign(match.item, attachParse(details));
-                } catch (e) {
-                    logger.warn(`[phase-2] Failed to fetch details for ${match.item.name}:`, e);
-                }
-            })
-        );
-    }
-    
-    logger.debug(`[phase-2] Parallel batch fetch completed for ${torrentsNeedingDetails.length} torrents`);
+    logger.debug(`[phase-2] Bulk fetch completed for ${torrentsNeedingDetails.length} torrents`);
 }
 
 /**
@@ -120,7 +106,7 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
             .flatMap(result => {
                 if (result.identityMatch) {
                     const names = result.analysis.isContainer
-                        ? result.analysis.matchingFiles.map(video => video.name)
+                        ? result.analysis.matchingFiles.map(video => video.fileName)
                         : [result.torrent.name];
 
                     if (!names.some(name => isSameWorkStrict(parseName(name)?.title, aliasVocabularies))) {
@@ -144,8 +130,8 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                 if (result.analysis.isContainer && result.analysis.matchingFiles.length > 0) {
                     return result.analysis.matchingFiles.map(video => ({
                         id: result.torrent.id,
-                        source: result.torrent.source,
-                        name: video.name,
+                        provider: result.torrent.provider,
+                        name: video.fileName,
                         size: video.size,
                         url: video.url,
                         containerName: result.torrent.name,

@@ -21,32 +21,39 @@ function requestLogger(req, res, next) {
     next();
 }
 
+/**
+ * A non-string message is handed to the console as an argument rather than interpolated
+ */
+const line = (prefix, message, args) => (typeof message === 'string'
+    ? [`${prefix} ${message}`, ...args]
+    : [prefix, message, ...args]);
+
 const logger = {
     info: (message, ...args) => {
         if (currentLogLevel >= LOG_LEVELS.info) {
-            console.log(`ℹ️  [INFO] ${message}`, ...args);
+            console.log(...line('ℹ️  [INFO]', message, args));
         }
     },
-    
+
     error: (message, ...args) => {
-        console.error(`❌ [ERROR] ${message}`, ...args);
+        console.error(...line('❌ [ERROR]', message, args));
     },
-    
+
     warn: (message, ...args) => {
         if (currentLogLevel >= LOG_LEVELS.warn) {
-            console.warn(`⚠️  [WARN] ${message}`, ...args);
+            console.warn(...line('⚠️  [WARN]', message, args));
         }
     },
-    
+
     debug: (message, ...args) => {
         if (currentLogLevel >= LOG_LEVELS.debug) {
-            console.log(`🐛 [DEBUG] ${message}`, ...args);
+            console.log(...line('🐛 [DEBUG]', message, args));
         }
     },
-    
+
     success: (message, ...args) => {
         if (currentLogLevel >= LOG_LEVELS.info) {
-            console.log(`✅ [SUCCESS] ${message}`, ...args);
+            console.log(...line('✅ [SUCCESS]', message, args));
         }
     }
 };

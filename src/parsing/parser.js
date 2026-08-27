@@ -68,7 +68,7 @@ export function attachParse(details, context) {
 
     for (const video of details.videos ?? []) {
         if (video) {
-            video.parsed = frozenParse(video.name, context);
+            video.parsed = frozenParse(video.fileName, context);
         }
     }
 

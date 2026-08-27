@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
-import { FILE_TYPES } from '../utils/file-types.js';
 
 function validateConfig(config) {
     if (!config || typeof config !== 'object') {
@@ -27,7 +26,6 @@ function validateConfig(config) {
  */
 class ConfigurationManager {
     constructor() {
-        this.providerConfigs = this.initializeProviderConfigs();
         this._apiConfigCache = null;
         this._hasLoggedApiConfig = false;
     }
@@ -64,76 +62,6 @@ class ConfigurationManager {
         };
 
         return this._apiConfigCache;
-    }
-
-    initializeProviderConfigs() {        
-        return {
-            AllDebrid: {
-                bulkMethod: 'listTorrentsParallel',
-                dataMapper: (item) => ({
-                    source: 'AllDebrid',
-                    id: item.id,
-                    name: item.filename,
-                    type: 'other',
-                    size: item.size,
-                    created: new Date(item.completionDate)
-                })
-            },
-            DebridLink: {
-                bulkMethod: 'listTorrentsParallel',
-                dataMapper: (item) => ({
-                    source: 'DebridLink',
-                    id: item.id.split('-')[0],
-                    name: item.name,
-                    type: 'other',
-                    size: item.size,
-                    created: new Date(item.created * 1000)
-                })
-            },
-            RealDebrid: {
-                bulkMethod: 'listFilesParrallel',
-                methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
-                dataMapper: (item) => ({
-                    source: 'RealDebrid',
-                    id: item.id,
-                    name: item.filename,
-                    type: 'other',
-                    size: item.bytes, // RealDebrid uses 'bytes' field, not 'size'
-                    created: new Date(item.added) // RealDebrid uses 'added' field
-                })
-            },
-            TorBox: {
-                bulkMethod: 'listFilesParallel',
-                methodArgs: [FILE_TYPES.TORRENTS, null, 1, 1000], // apiKey will be inserted at index 1
-                dataMapper: (item) => ({
-                    source: 'TorBox',
-                    id: item.id,
-                    name: item.name,
-                    type: 'other',
-                    size: item.size,
-                    created: new Date(item.created_at)
-                })
-            },
-            Premiumize: {
-                bulkMethod: 'listFiles',
-                dataMapper: (item) => ({
-                    source: 'Premiumize',
-                    id: item.id,
-                    name: item.name,
-                    type: 'other',
-                    size: item.size,
-                    created: new Date(item.created_at * 1000) // Premiumize uses created_at * 1000
-                })
-            }
-        };
-    }
-
-    getProviderConfig(provider) {
-        return this.providerConfigs[provider] || null;
-    }
-
-    getAllProviderConfigs() {
-        return this.providerConfigs;
     }
 
     getIsTmdbEnabled() {

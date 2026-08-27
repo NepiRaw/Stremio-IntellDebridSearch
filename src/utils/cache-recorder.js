@@ -383,7 +383,7 @@ export class CacheRecorder {
                             this.stmts.upsertTorrentFile.run({
                                 hash: entry.hash,
                                 file_idx: fileIdx,
-                                file_path: video.name || null,
+                                file_path: video.fileName || null,
                                 file_size: video.size || null,
                                 strem_id: stremId
                             });

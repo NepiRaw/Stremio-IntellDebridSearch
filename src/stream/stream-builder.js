@@ -85,18 +85,18 @@ export function toStreams(details, type, knownSeasonEpisode = null, searchContex
 }
 
 function createStream(details, video, type, icon, knownSeasonEpisode, searchContext) {
-    if (!video?.name || !video?.url) return null;
+    if (!video?.fileName || !video?.url) return null;
 
     const variant = type === 'series' ? detectVariant(details, video, searchContext) : null;
     const quality = extractQuality(video, details);
 
     const stream = {
-        name: (STREAM_NAME_MAP[details.source] || 'Unknown') + '\n' + quality,
+        name: (STREAM_NAME_MAP[details.provider] || 'Unknown') + '\n' + quality,
         title: streamTitle(details, video, type, icon, knownSeasonEpisode, variant),
         url: video.url,
         behaviorHints: {
-            bingeGroup: details.source + '|' + details.id,
-            filename: video.name || null,
+            bingeGroup: details.provider + '|' + details.id,
+            filename: video.fileName || null,
             videoSize: video.size || null,
         }
     };
