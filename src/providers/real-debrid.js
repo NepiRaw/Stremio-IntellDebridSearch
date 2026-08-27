@@ -1,12 +1,13 @@
 /**
  * RealDebrid on the shared core.
- * The library is one call for any account under 2500 torrents, files come one call per torrent,
- * and a link is only usable when the link count equals the SELECTED file count: any other count
- * means RealDebrid packaged the torrent differently and no per-file link exists.
+ * Torrents and web downloads form the library. Torrent files come one call per torrent, and a
+ * link is only usable when the link count equals the SELECTED file count: any other count means
+ * RealDebrid packaged the torrent differently and no per-file link exists.
  */
 
 import { request, hostOf } from './http.js';
 import { toTorrent, toVideoFile } from './shapes.js';
+import { SOURCE_KINDS, makeScopedLibraryIdentity, ownsLibraryItemId, ownsScopedLibraryIdentity, parseLibraryItemId, toLibraryItem } from './library-item.js';
 import { normalizeTorrentFiles } from './paths.js';
 import { ProviderAuthError, ProviderItemGoneError } from './errors.js';
 import { buildResolveUrl } from './resolve-url.js';
@@ -17,10 +18,20 @@ export const name = 'RealDebrid';
 export const capabilities = { filesInline: false, bulkFiles: false, directLinks: false };
 
 /** Torrent ids are upper-case alphanumeric, so anything else was minted by someone else. */
-export const ownsId = id => /^[A-Z0-9]+$/.test(id);
+export const ownsId = (id, apiKey) => {
+    if (/^[A-Z0-9]+$/.test(id)) return true;
+    if (!ownsLibraryItemId(id, name, SOURCE_KINDS.DOWNLOAD)) return false;
+    return ownsScopedLibraryIdentity(parseLibraryItemId(id).nativeIdentity, apiKey);
+};
 
 /** Unrestrict takes a link this account was issued, so anything off the host was minted elsewhere. */
-export const ownsLink = link => hostOf(link) === 'real-debrid.com';
+export const ownsLink = (link, itemId, apiKey) => {
+    if (ownsLibraryItemId(itemId, name, SOURCE_KINDS.DOWNLOAD)) {
+        if (!ownsId(itemId, apiKey)) return false;
+        return parseLibraryItemId(itemId).nativeIdentity === makeScopedLibraryIdentity(link, apiKey);
+    }
+    return (itemId === undefined || /^[A-Z0-9]+$/.test(itemId)) && hostOf(link) === 'real-debrid.com';
+};
 
 const BASE = 'https://api.real-debrid.com/rest/1.0';
 
@@ -49,28 +60,90 @@ const toTorrentRow = row => toTorrent({
     fileCount: row.links?.length
 });
 
+async function listRows(apiKey, resource, operation) {
+    const page = async number => request({
+        provider: name, operation, endpointClass: 'list', apiKey,
+        url: `${BASE}/${resource}?limit=${PAGE_SIZE}&page=${number}`, headers: auth(apiKey)
+    });
+
+    const first = await page(1);
+    const rows = Array.isArray(first.data) ? [...first.data] : [];
+    let latest = rows;
+    const totalHeader = first.headers.get('x-total-count');
+    const total = totalHeader === null ? Number.NaN : Number(totalHeader);
+
+    for (let number = 2; number <= MAX_PAGES; number++) {
+        if (latest.length < PAGE_SIZE || (Number.isFinite(total) && rows.length >= total)) break;
+        const next = await page(number);
+        latest = Array.isArray(next.data) ? next.data : [];
+        if (!latest.length) break;
+        rows.push(...latest);
+    }
+
+    return rows;
+}
+
 /**
  * The library. /torrents is capped by concurrency, not by rate, so pages are fetched one after
  * another; a parallel walk is what makes RD reject listing requests.
  */
 export async function listTorrents(apiKey) {
-    const page = async number => request({
-        provider: name, operation: 'listTorrents', endpointClass: 'list', apiKey,
-        url: `${BASE}/torrents?limit=${PAGE_SIZE}&page=${number}`, headers: auth(apiKey)
-    });
-
-    const first = await page(1);
-    const rows = Array.isArray(first.data) ? [...first.data] : [];
-
-    const total = Number(first.headers.get('x-total-count'));
-    const pages = Number.isFinite(total) ? Math.min(Math.ceil(total / PAGE_SIZE), MAX_PAGES) : 1;
-    for (let number = 2; number <= pages; number++) {
-        const next = await page(number);
-        if (!Array.isArray(next.data) || next.data.length === 0) break;
-        rows.push(...next.data);
-    }
-
+    const rows = await listRows(apiKey, 'torrents', 'listTorrents');
     return rows.filter(row => row?.id && row.filename).map(toTorrentRow);
+}
+
+function usableDownloadRows(rows) {
+    return rows.filter(row => row?.filename && row.download && isVideo(row.filename)
+        && String(row.host ?? '').toLowerCase() !== 'real-debrid.com');
+}
+
+function toDownloadItem(row, apiKey) {
+    return toLibraryItem({
+        provider: name,
+        sourceKind: SOURCE_KINDS.DOWNLOAD,
+        nativeIdentity: makeScopedLibraryIdentity(row.download, apiKey),
+        name: row.filename,
+        size: row.filesize,
+        created: row.generated,
+        fileCount: 1
+    });
+}
+
+function toDownloadVideo(row, item, apiKey) {
+    const [address] = normalizeTorrentFiles([row.filename], row.filename);
+    return toVideoFile({
+        provider: name,
+        torrentId: item.id,
+        fileId: 0,
+        address,
+        size: row.filesize,
+        created: item.created,
+        url: buildResolveUrl(name, apiKey, item.id, row.download),
+        resolveRef: { link: row.download, torrentId: item.id }
+    });
+}
+
+async function downloadRows(apiKey) {
+    return usableDownloadRows(await listRows(apiKey, 'downloads', 'listDownloads'));
+}
+
+export async function listDownloads(apiKey) {
+    const rows = await downloadRows(apiKey);
+    const items = rows.map(row => toDownloadItem(row, apiKey));
+    return [...new Map(items.map(item => [item.id, item])).values()];
+}
+
+export async function listLibraryItems(apiKey) {
+    const downloadsTask = listDownloads(apiKey).catch(error => {
+        if (error instanceof ProviderAuthError) throw error;
+        logger.warn(`[${name}] download discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        return [];
+    });
+    const [torrents, downloads] = await Promise.all([listTorrents(apiKey), downloadsTask]);
+    return [
+        ...torrents.map(torrent => ({ ...torrent, sourceKind: SOURCE_KINDS.TORRENT })),
+        ...downloads
+    ];
 }
 
 /**
@@ -124,8 +197,27 @@ async function info(apiKey, torrentId, operation) {
 
 export async function fetchFiles(apiKey, torrents) {
     const files = new Map();
+    const downloads = torrents.filter(item => ownsLibraryItemId(item.id, name, SOURCE_KINDS.DOWNLOAD));
+    const torrentRows = torrents.filter(item => /^[A-Z0-9]+$/.test(item.id));
 
-    await Promise.all(torrents.map(async torrent => {
+    for (const item of torrents) files.set(String(item.id), []);
+
+    const downloadsTask = downloads.length ? downloadRows(apiKey).then(rows => {
+        const rowsById = new Map(rows.map(row => {
+            const item = toDownloadItem(row, apiKey);
+            return [item.id, { item, row }];
+        }));
+
+        for (const requested of downloads) {
+            const found = rowsById.get(String(requested.id));
+            files.set(String(requested.id), found ? [toDownloadVideo(found.row, requested, apiKey)] : []);
+        }
+    }).catch(error => {
+        if (error instanceof ProviderAuthError) throw error;
+        logger.warn(`[${name}] download files unavailable: ${error.name} ${error.code ?? ''}`);
+    }) : Promise.resolve();
+
+    await Promise.all([downloadsTask, ...torrentRows.map(async torrent => {
         const id = String(torrent.id);
         try {
             files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey));
@@ -135,13 +227,24 @@ export async function fetchFiles(apiKey, torrents) {
             logger.debug(`[${name}] dropping torrent ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
             files.set(id, []);
         }
-    }));
+    })]);
 
     return files;
 }
 
 /** One torrent with its files, for the meta route. */
 export async function fetchTorrent(apiKey, torrentId) {
+    if (ownsLibraryItemId(torrentId, name, SOURCE_KINDS.DOWNLOAD)) {
+        if (!ownsId(torrentId, apiKey)) return null;
+        const identity = parseLibraryItemId(torrentId).nativeIdentity;
+        const row = (await downloadRows(apiKey)).find(candidate => makeScopedLibraryIdentity(candidate.download, apiKey) === identity);
+        if (!row) return null;
+
+        const torrent = toDownloadItem(row, apiKey);
+        return { torrent, videos: [toDownloadVideo(row, torrent, apiKey)] };
+    }
+
+    if (!/^[A-Z0-9]+$/.test(torrentId)) return null;
     const item = await info(apiKey, torrentId, 'fetchTorrent');
     if (!item?.id || !item.filename) return null;
 
@@ -151,6 +254,10 @@ export async function fetchTorrent(apiKey, torrentId) {
 export async function resolveStream(apiKey, resolveRef, clientIp) {
     if (!resolveRef?.link) {
         throw new ProviderItemGoneError(`[${name}] resolveStream: the reference carries no link`, { provider: name, operation: 'resolveStream' });
+    }
+
+    if (ownsLibraryItemId(resolveRef.torrentId, name, SOURCE_KINDS.DOWNLOAD)) {
+        return resolveRef.link;
     }
 
     const body = new URLSearchParams({ link: resolveRef.link });
