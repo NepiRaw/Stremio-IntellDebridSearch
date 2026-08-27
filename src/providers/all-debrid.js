@@ -1,13 +1,14 @@
 /**
  * AllDebrid on the shared core.
- * The library is one call, files come from a bulk endpoint that takes 20 ids at a time, and only
- * link/unlock is refused from a datacenter address, so only that call takes the WARP proxy.
+ * Magnets and saved links form the library. Magnet files come from a bulk endpoint that takes 20
+ * ids at a time, and only link/unlock takes the WARP proxy.
  */
 
 import { request, hostOf } from './http.js';
 import { toTorrent, toVideoFile } from './shapes.js';
+import { SOURCE_KINDS, makeScopedLibraryIdentity, ownsLibraryItemId, ownsScopedLibraryIdentity, parseLibraryItemId, toLibraryItem } from './library-item.js';
 import { normalizeTorrentFiles, flattenTree } from './paths.js';
-import { classify, ProviderItemGoneError } from './errors.js';
+import { classify, ProviderAuthError, ProviderItemGoneError } from './errors.js';
 import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
@@ -15,11 +16,19 @@ import { logger } from '../utils/logger.js';
 export const name = 'AllDebrid';
 export const capabilities = { filesInline: false, bulkFiles: true, directLinks: false };
 
-/** Magnet ids are integers, so anything else in our id namespace was minted by someone else. */
-export const ownsId = id => /^\d+$/.test(id);
+export const ownsId = (id, apiKey) => {
+    if (/^\d+$/.test(id)) return true;
+    if (!ownsLibraryItemId(id, name, SOURCE_KINDS.SAVED_LINK)) return false;
+    return ownsScopedLibraryIdentity(parseLibraryItemId(id).nativeIdentity, apiKey);
+};
 
-/** Unlock takes a link this account was issued, so anything off the host was minted elsewhere. */
-export const ownsLink = link => hostOf(link) === 'alldebrid.com';
+export const ownsLink = (link, itemId, apiKey) => {
+    if (ownsLibraryItemId(itemId, name, SOURCE_KINDS.SAVED_LINK)) {
+        if (!ownsId(itemId, apiKey)) return false;
+        return parseLibraryItemId(itemId).nativeIdentity === makeScopedLibraryIdentity(link, apiKey);
+    }
+    return (itemId === undefined || /^\d+$/.test(itemId)) && hostOf(link) === 'alldebrid.com';
+};
 
 const BASE = 'https://api.alldebrid.com';
 const AGENT = 'intell-debridsearch';
@@ -68,6 +77,61 @@ export async function listTorrents(apiKey) {
         }));
 }
 
+async function savedLinkRows(apiKey) {
+    const { data } = await request({
+        provider: name, operation: 'listSavedLinks', endpointClass: 'list', apiKey,
+        url: endpoint('v4', 'user/links'), headers: auth(apiKey)
+    });
+    return Array.isArray(data.data?.links) ? data.data.links : [];
+}
+
+function toSavedLinkItem(row, apiKey) {
+    return toLibraryItem({
+        provider: name,
+        sourceKind: SOURCE_KINDS.SAVED_LINK,
+        nativeIdentity: makeScopedLibraryIdentity(row.link, apiKey),
+        name: row.filename,
+        size: row.size,
+        created: row.date,
+        fileCount: 1
+    });
+}
+
+function toSavedLinkVideo(row, item, apiKey) {
+    const [address] = normalizeTorrentFiles([row.filename], row.filename);
+    return toVideoFile({
+        provider: name,
+        torrentId: item.id,
+        fileId: 0,
+        address,
+        size: row.size,
+        created: item.created,
+        url: buildResolveUrl(name, apiKey, item.id, row.link),
+        resolveRef: { link: row.link }
+    });
+}
+
+export async function listSavedLinks(apiKey) {
+    const rows = await savedLinkRows(apiKey);
+    const items = rows
+        .filter(row => row.link && row.filename && isVideo(row.filename))
+        .map(row => toSavedLinkItem(row, apiKey));
+    return [...new Map(items.map(item => [item.id, item])).values()];
+}
+
+export async function listLibraryItems(apiKey) {
+    const savedLinksTask = listSavedLinks(apiKey).catch(error => {
+        if (error instanceof ProviderAuthError) throw error;
+        logger.warn(`[${name}] saved-link discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        return [];
+    });
+    const [torrents, savedLinks] = await Promise.all([listTorrents(apiKey), savedLinksTask]);
+    return [
+        ...torrents.map(torrent => ({ ...torrent, sourceKind: SOURCE_KINDS.TORRENT })),
+        ...savedLinks
+    ];
+}
+
 /** One magnet's tree to canonical video files. The tree is the only place folder names exist. */
 function toVideos(magnet, torrent, apiKey) {
     const leaves = flattenTree(magnet.files);
@@ -90,8 +154,28 @@ function toVideos(magnet, torrent, apiKey) {
 export async function fetchFiles(apiKey, torrents) {
     const byId = new Map(torrents.map(torrent => [String(torrent.id), torrent]));
     const files = new Map();
+    const savedLinks = [...byId.values()].filter(item => ownsLibraryItemId(item.id, name, SOURCE_KINDS.SAVED_LINK));
+    const magnetIds = [...byId.keys()].filter(id => /^\d+$/.test(id));
 
-    await Promise.all(chunk([...byId.keys()], FILES_BATCH).map(async batch => {
+    const savedLinksTask = savedLinks.length ? savedLinkRows(apiKey).then(rows => {
+        const rowsById = new Map(rows
+            .filter(row => row.link && row.filename && isVideo(row.filename))
+            .map(row => {
+                const item = toSavedLinkItem(row, apiKey);
+                return [item.id, { item, row }];
+            }));
+
+        for (const requested of savedLinks) {
+            const found = rowsById.get(String(requested.id));
+            files.set(String(requested.id), found ? [toSavedLinkVideo(found.row, requested, apiKey)] : []);
+        }
+    }).catch(error => {
+        if (error instanceof ProviderAuthError) throw error;
+        logger.warn(`[${name}] saved-link files unavailable: ${error.name} ${error.code ?? ''}`);
+        for (const requested of savedLinks) files.set(String(requested.id), []);
+    }) : Promise.resolve();
+
+    await Promise.all([savedLinksTask, ...chunk(magnetIds, FILES_BATCH).map(async batch => {
         const { data } = await request({
             provider: name, operation: 'fetchFiles', endpointClass: 'files', apiKey,
             url: endpoint('v4.1', 'magnet/files'), method: 'POST',
@@ -111,16 +195,29 @@ export async function fetchFiles(apiKey, torrents) {
 
             files.set(String(magnet.id), toVideos(magnet, torrent, apiKey));
         }
-    }));
+    })]);
 
     return files;
 }
 
 /**
- * One torrent with its files, for the meta route. `magnet/status?id=` answers with the magnet's
- * name and its file tree in a single call.
+ * One library item with its files for the stateless meta route.
  */
 export async function fetchTorrent(apiKey, torrentId) {
+    if (ownsLibraryItemId(torrentId, name, SOURCE_KINDS.SAVED_LINK)) {
+        if (!ownsId(torrentId, apiKey)) return null;
+        const identity = parseLibraryItemId(torrentId).nativeIdentity;
+        const rows = await savedLinkRows(apiKey);
+        const row = rows.find(candidate => candidate.link && candidate.filename && isVideo(candidate.filename)
+            && makeScopedLibraryIdentity(candidate.link, apiKey) === identity);
+        if (!row) return null;
+
+        const torrent = toSavedLinkItem(row, apiKey);
+        return { torrent, videos: [toSavedLinkVideo(row, torrent, apiKey)] };
+    }
+
+    if (!/^\d+$/.test(torrentId)) return null;
+
     const { data } = await request({
         provider: name, operation: 'fetchTorrent', endpointClass: 'files', apiKey,
         url: `${endpoint('v4.1', 'magnet/status')}&id=${encodeURIComponent(torrentId)}`,

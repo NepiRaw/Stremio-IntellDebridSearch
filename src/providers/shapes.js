@@ -7,6 +7,7 @@
  * @typedef {object} Torrent
  * @property {string} provider
  * @property {string} id
+ * @property {string} [sourceKind]
  * @property {string} name
  * @property {string} [hash]
  * @property {number} size

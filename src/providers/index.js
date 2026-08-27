@@ -8,6 +8,7 @@ import * as realDebrid from './real-debrid.js';
 import * as torBox from './torbox.js';
 import * as debridLink from './debrid-link.js';
 import * as premiumize from './premiumize.js';
+import { SOURCE_KINDS } from './library-item.js';
 
 const registry = new Map([
     [allDebrid.name, allDebrid],
@@ -23,6 +24,16 @@ export function getProvider(name) {
 
 export function migratedProviders() {
     return [...registry.keys()];
+}
+
+export async function listProviderLibrary(name, apiKey) {
+    const module = registry.get(name);
+    if (!module) return null;
+
+    const items = module.listLibraryItems
+        ? await module.listLibraryItems(apiKey)
+        : await module.listTorrents(apiKey);
+    return items.map(item => item.sourceKind ? item : { ...item, sourceKind: SOURCE_KINDS.TORRENT });
 }
 
 /**

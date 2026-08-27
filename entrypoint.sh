@@ -65,5 +65,9 @@ else
     echo "[WARP] Disabled (set WARP_ENABLED=true to enable)"
 fi
 
-# Start the Node.js application
+# A supplied command lets one-shot checks use the same WARP setup as production.
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+
 exec npm start
