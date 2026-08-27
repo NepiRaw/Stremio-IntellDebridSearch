@@ -19,14 +19,28 @@ export const capabilities = { filesInline: true, bulkFiles: false, directLinks: 
 
 const isIntegerId = id => /^\d+$/.test(String(id));
 
-function webDownloadId(itemId) {
-    if (!ownsLibraryItemId(itemId, name, SOURCE_KINDS.WEB_DOWNLOAD)) return null;
-    const nativeIdentity = parseLibraryItemId(itemId).nativeIdentity;
-    return isIntegerId(nativeIdentity) ? nativeIdentity : null;
+/**
+ * The endpoint families, which are near-identical apart from renamed inputs. Their id spaces are
+ * independent, so only a typed id says which family an item came from.
+ */
+const TORRENT_LANE = { sourceKind: SOURCE_KINDS.TORRENT, resource: 'torrents', idParameter: 'torrent_id' };
+const TYPED_LANES = [
+    { sourceKind: SOURCE_KINDS.WEB_DOWNLOAD, resource: 'webdl', idParameter: 'web_id', operation: 'listWebDownloads' },
+    { sourceKind: SOURCE_KINDS.USENET_DOWNLOAD, resource: 'usenet', idParameter: 'usenet_id', operation: 'listUsenetDownloads' }
+];
+
+/** The lane an id names, with its native identity, or null when nothing here can serve it. */
+function laneOf(itemId) {
+    for (const lane of TYPED_LANES) {
+        if (!ownsLibraryItemId(itemId, name, lane.sourceKind)) continue;
+        const { nativeIdentity } = parseLibraryItemId(itemId);
+        return isIntegerId(nativeIdentity) ? { lane, nativeId: nativeIdentity } : null;
+    }
+    return isIntegerId(itemId) ? { lane: TORRENT_LANE, nativeId: String(itemId) } : null;
 }
 
-/** Legacy torrent ids are integers; new web-download ids also identify their endpoint family. */
-export const ownsId = id => isIntegerId(id) || webDownloadId(id) !== null;
+/** Legacy torrent ids are integers; a typed id also identifies its endpoint family. */
+export const ownsId = id => laneOf(id) !== null;
 
 export const ownsLink = (link, itemId) => isIntegerId(link) && (itemId === undefined || ownsId(itemId));
 
@@ -110,10 +124,10 @@ export async function listTorrents(apiKey) {
 const hasPlayableFile = row => Array.isArray(row.files)
     && row.files.some(file => isVideo(file?.name ?? file?.short_name));
 
-function toWebDownload(row) {
+function toTypedItem(row, lane) {
     const item = toLibraryItem({
         provider: name,
-        sourceKind: SOURCE_KINDS.WEB_DOWNLOAD,
+        sourceKind: lane.sourceKind,
         nativeIdentity: String(row.id),
         name: row.name,
         hash: row.hash,
@@ -125,26 +139,31 @@ function toWebDownload(row) {
     return item;
 }
 
-export async function listWebDownloads(apiKey) {
-    const rows = await listRows(apiKey, 'webdl', 'listWebDownloads');
+/** One typed lane's playable items. A row is only offered once its data is present on the server. */
+async function listLane(apiKey, lane) {
+    const rows = await listRows(apiKey, lane.resource, lane.operation);
     const unique = new Map(rows.filter(row => isReady(row) && hasPlayableFile(row)).map(row => [String(row.id), row]));
-    return [...unique.values()].map(toWebDownload);
+    return [...unique.values()].map(row => toTypedItem(row, lane));
 }
 
+export const listWebDownloads = apiKey => listLane(apiKey, TYPED_LANES[0]);
+export const listUsenetDownloads = apiKey => listLane(apiKey, TYPED_LANES[1]);
+
 export async function listLibraryItems(apiKey) {
-    const webDownloadsTask = listWebDownloads(apiKey).catch(error => {
+    const laneTasks = TYPED_LANES.map(lane => listLane(apiKey, lane).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] web-download discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        logger.warn(`[${name}] ${lane.sourceKind} discovery unavailable: ${error.name} ${error.code ?? ''}`);
         return [];
-    });
-    const [torrents, webDownloads] = await Promise.all([listTorrents(apiKey), webDownloadsTask]);
+    }));
+    const [torrents, ...typed] = await Promise.all([listTorrents(apiKey), ...laneTasks]);
+
     const torrentItems = torrents.map(torrent => {
         const item = { ...torrent, sourceKind: SOURCE_KINDS.TORRENT };
         const files = inlineFiles.get(torrent);
         if (files) inlineFiles.set(item, files);
         return item;
     });
-    return [...torrentItems, ...webDownloads];
+    return [...torrentItems, ...typed.flat()];
 }
 
 /** One library item's inline files to canonical video files. */
@@ -167,15 +186,20 @@ function toVideos(item, files, apiKey) {
 }
 
 async function lookup(apiKey, itemId) {
-    const nativeWebId = webDownloadId(itemId);
-    const nativeId = nativeWebId ?? itemId;
-    if (!isIntegerId(nativeId)) return null;
+    const addressed = laneOf(itemId);
+    if (!addressed) return null;
 
-    const sourceKind = nativeWebId === null ? SOURCE_KINDS.TORRENT : SOURCE_KINDS.WEB_DOWNLOAD;
-    const resource = sourceKind === SOURCE_KINDS.WEB_DOWNLOAD ? 'webdl' : 'torrents';
-    const found = await list(apiKey, resource, `id=${encodeURIComponent(nativeId)}`, 'fetchTorrent');
+    const { lane, nativeId } = addressed;
+    const found = await list(apiKey, lane.resource, `id=${encodeURIComponent(nativeId)}`, 'fetchTorrent');
     const row = Array.isArray(found) ? found.find(candidate => String(candidate.id) === String(nativeId)) : found;
-    return row ? { row, sourceKind } : null;
+    return row ? { row, lane } : null;
+}
+
+/** A typed lane only offers a row that still holds a playable file; a torrent is taken as listed. */
+function toFoundItem(found) {
+    if (!isReady(found.row)) return null;
+    if (found.lane === TORRENT_LANE) return toCanonical(found.row);
+    return hasPlayableFile(found.row) ? toTypedItem(found.row, found.lane) : null;
 }
 
 export async function fetchFiles(apiKey, torrents) {
@@ -191,16 +215,8 @@ export async function fetchFiles(apiKey, torrents) {
 
         try {
             const found = await lookup(apiKey, id);
-            if (!found || !isReady(found.row)) {
-                files.set(id, []);
-                return;
-            }
-            if (found.sourceKind === SOURCE_KINDS.WEB_DOWNLOAD && !hasPlayableFile(found.row)) {
-                files.set(id, []);
-                return;
-            }
-            const item = found.sourceKind === SOURCE_KINDS.WEB_DOWNLOAD ? toWebDownload(found.row) : toCanonical(found.row);
-            files.set(id, toVideos(item, found.row.files ?? [], apiKey));
+            const item = found && toFoundItem(found);
+            files.set(id, item ? toVideos(item, found.row.files ?? [], apiKey) : []);
         } catch (error) {
             if (error instanceof ProviderAuthError) throw error;
             logger.debug(`[${name}] dropping library item ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
@@ -213,34 +229,27 @@ export async function fetchFiles(apiKey, torrents) {
 
 /** One library item with its files, for the meta route. */
 export async function fetchTorrent(apiKey, itemId) {
-    if (!ownsId(itemId)) return null;
     const found = await lookup(apiKey, itemId);
-    if (!found || !isReady(found.row)) return null;
-    if (found.sourceKind === SOURCE_KINDS.WEB_DOWNLOAD && !hasPlayableFile(found.row)) return null;
-
-    const item = found.sourceKind === SOURCE_KINDS.WEB_DOWNLOAD ? toWebDownload(found.row) : toCanonical(found.row);
-    return { torrent: item, videos: toVideos(item, found.row.files ?? [], apiKey) };
+    const item = found && toFoundItem(found);
+    return item ? { torrent: item, videos: toVideos(item, found.row.files ?? [], apiKey) } : null;
 }
 
 export async function resolveStream(apiKey, resolveRef, clientIp) {
     // At play time the reference is rebuilt from the URL, so the file id arrives as `link`.
     const fileId = resolveRef?.fileId ?? resolveRef?.link;
-    const itemId = resolveRef?.torrentId;
-    const nativeWebId = webDownloadId(itemId);
-    const nativeId = nativeWebId ?? itemId;
-    if (!isIntegerId(fileId) || !isIntegerId(nativeId)) {
+    const addressed = laneOf(resolveRef?.torrentId);
+    if (!isIntegerId(fileId) || !addressed) {
         throw new ProviderItemGoneError(`[${name}] resolveStream: the reference names no file`, { provider: name, operation: 'resolveStream' });
     }
 
     // TorBox takes the token as a query parameter on this endpoint; the header alone is refused.
-    const idParameter = nativeWebId === null ? 'torrent_id' : 'web_id';
-    const resource = nativeWebId === null ? 'torrents' : 'webdl';
-    const query = new URLSearchParams({ token: apiKey, [idParameter]: String(nativeId), file_id: String(fileId) });
+    const { lane, nativeId } = addressed;
+    const query = new URLSearchParams({ token: apiKey, [lane.idParameter]: nativeId, file_id: String(fileId) });
     if (clientIp) query.set('user_ip', clientIp);
 
     const { data } = await request({
         provider: name, operation: 'resolveStream', endpointClass: 'resolve', apiKey,
-        url: `${BASE}/${resource}/requestdl?${query}`, headers: auth(apiKey)
+        url: `${BASE}/${lane.resource}/requestdl?${query}`, headers: auth(apiKey)
     });
 
     return data?.data;

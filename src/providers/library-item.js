@@ -6,6 +6,7 @@ export const SOURCE_KINDS = Object.freeze({
     SAVED_LINK: 'saved-link',
     DOWNLOAD: 'download',
     WEB_DOWNLOAD: 'web-download',
+    USENET_DOWNLOAD: 'usenet-download',
     CLOUD_FILE: 'cloud-file'
 });
 
