@@ -5,7 +5,7 @@
 
 import Fuse from 'fuse.js';
 import { logger } from '../utils/logger.js';
-import { getProvider } from '../providers/index.js';
+import { listProviderLibrary } from '../providers/index.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { isSameWork } from './phase-1-title-matching.js';
 import { parseName } from '../parsing/parser.js';
@@ -19,15 +19,14 @@ import { parseName } from '../parsing/parser.js';
 export async function fetchProviderTorrents(providerName, apiKey) {
     logger.info(`[provider-search] Fetching all torrents from ${providerName}`);
 
-    const provider = getProvider(providerName);
-    if (!provider) {
+    const items = await listProviderLibrary(providerName, apiKey);
+    if (!items) {
         logger.error(`[provider-search] Unsupported provider: ${providerName}`);
         throw new Error(`Unsupported provider: ${providerName}`);
     }
 
-    const torrents = await provider.listTorrents(apiKey);
-    logger.info(`[provider-search] Retrieved ${torrents.length} total torrents from ${providerName}`);
-    return torrents;
+    logger.info(`[provider-search] Retrieved ${items.length} total library items from ${providerName}`);
+    return items;
 }
 
 /** Typo tolerance: 0.85 allows 15% of a keyword's characters to differ. */

@@ -399,7 +399,7 @@ class StreamProvider {
 
         // Clients rewrite this segment hunting for sidecar subtitles, and DebridLink redirects to
         // whatever it is handed, so a reference the provider could not have issued never gets sent.
-        if (!provider.ownsLink(hostUrl)) {
+        if (!provider.ownsLink(hostUrl, itemId, debridApiKey)) {
             throw new BadRequestError(`[${debridProvider}] resolveStream: the reference was not issued by this provider`, 'hostUrl');
         }
 

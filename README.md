@@ -27,7 +27,7 @@ Addon currently available at:
 
 ## Features
 
-- **Search your Debrid cloud**: Find and stream torrents already present in your Debrid account
+- **Search your whole Debrid cloud**: not only torrents. Saved links, web downloads, usenet downloads and cloud files are searched too, wherever your provider offers them
 - **Advanced parsing**: 
   - Handles alternate titles, 
   - Absolute episode numbers (for anime)
@@ -38,6 +38,18 @@ Addon currently available at:
 - **Multi-provider support**: AllDebrid, RealDebrid, Premiumize, Torbox, Debrid-Link
 - **Tells you when your API key is the problem**: a rejected, expired or blocked key shows a message in the client with the action to take
 - **Content-agnostic**: Works for movies, series, anime, and more
+
+**What gets searched, per provider**
+
+| Provider | Searched |
+|---|---|
+| **AllDebrid** | magnets + saved links |
+| **RealDebrid** | torrents + web downloads |
+| **Torbox** | torrents + web downloads + usenet downloads |
+| **Debrid-Link** | seedbox + downloader links |
+| **Premiumize** | your whole cloud drive |
+
+Only content that is ready to play is listed. A file still downloading, expired, or no longer held by the provider is left out.
 
 **Examples**
 - Classic serie : <p>
@@ -77,8 +89,8 @@ Addon currently available at:
 
 ### Recommendations
 - Order your addons so that the Intelligent Debrid Search addon is all the way at the top. This way:
-  - If you have matching torrents in your debrid cloud, they will be found instantly.
-  - If no torrents are found, nothing will appear and you can use your favorites addons as usual, but next time, the newly downloaded torrent will appear first.
+  - If you have matching content in your debrid cloud, it will be found instantly.
+  - If nothing matches, nothing will appear and you can use your favorites addons as usual, but next time, the newly added content will appear first.
 - Provide feedback on unrecognized titles or false positives to help improve the addon.
 
 ## 🚀 Self-Hosting Installation
@@ -243,6 +255,11 @@ pnpm start
 
 **Q2. How to add content to my debrid account for IntellDebridSearch to show them as streaming links?**
 - You can find and manually add the torrent/link into your debrid account and if it matches the movie/series name, IntellDebridSearch will instantly try to find it and show it as a stream.
+- It does not have to be a torrent. Depending on your provider, a saved link, a web download, a usenet download or a file sitting in your cloud drive is searched the same way (see the table in [Features](#features)).
+
+**Q4. A file is in my debrid account and plays there, but no stream appears. Why?**
+- Matching reads the **name of the item** your provider shows. If that name carries no title, for example a hash like `dc98870a45...`, the addon cannot tell what the item is and will not offer it for that movie or series.
+- It still appears in the addon catalog, and playing it from there works
 
 **Q3. Why am I not seeing the correct episode or movie?**
 - The addon has many ways to find the correct movie or episode from your debrid provider, however, it may not always succeed due to variations in torrent naming, metadata, or content availability. Ensure that your Debrid account has the correct content added and a clear naming (title name, clear episode or season, ...).

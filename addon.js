@@ -3,7 +3,7 @@ import StreamProvider from './src/stream-provider.js'
 import { getManifest } from './src/config/manifest.js'
 import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
 import { logger } from './src/utils/logger.js';
-import { getProvider } from './src/providers/index.js';
+import { getProvider, listProviderLibrary } from './src/providers/index.js';
 import { ProviderItemGoneError, isProviderError } from './src/providers/errors.js';
 import { searchProviderLibrary } from './src/search/provider-search.js';
 
@@ -57,8 +57,8 @@ builder.defineCatalogHandler(async (args) => {
             } else {
                 // Standard catalog request
                 if (args.config.ShowCatalog) {
-                    torrents = await provider.listTorrents(args.config.DebridApiKey);
-                    logger.debug(`[CatalogHandler] listTorrents search returned ${torrents.length} torrents`);
+                    torrents = await listProviderLibrary(providerName, args.config.DebridApiKey);
+                    logger.debug(`[CatalogHandler] library listing returned ${torrents.length} items`);
                 }
             }
         } catch (error) {
@@ -103,7 +103,7 @@ builder.defineMetaHandler(async (args) => {
 
     // The manifest claims the whole `<provider>:` id namespace, so client also routes us ids
     // other addons minted. Answering for one costs a call the provider can only reject.
-    if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId)) {
+    if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId, args.config.DebridApiKey)) {
         logger.debug(`[MetaHandler] ${args.id} is not a ${providerName} id, answering without a call`);
         return { meta: null };
     }

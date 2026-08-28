@@ -67,7 +67,7 @@ The addon is built on a modular, service-oriented architecture. Each layer is re
 
 ## Provider Integration & Extensibility
 
-A provider is a **plain ES module** in `/src/providers/`. It exports a fixed contract and shares five files with every other provider, so a provider module holds only what its API does differently. There is no inheritance and no base class.
+A provider is a **plain ES module** in `/src/providers/`. It exports a fixed contract and shares six files with every other provider, so a provider module holds only what its API does differently. There is no inheritance and no base class.
 
 The contract, enforced by `tests/unit/providers-registry.test.js`:
 
@@ -75,19 +75,35 @@ The contract, enforced by `tests/unit/providers-registry.test.js`:
 |---|---|
 | `name` | the provider name as the config blob spells it |
 | `capabilities` | `{filesInline, bulkFiles, directLinks}` |
-| `ownsId(id)` | could this provider have minted this torrent id |
-| `ownsLink(link)` | could this provider have issued this playback link |
+| `ownsId(id, apiKey)` | could this provider have minted this item id. The key is only read where an id is scoped to one account |
+| `ownsLink(link, itemId, apiKey)` | could this provider have issued this playback link, for this item |
 | `validateKey(apiKey)` | is this key usable, and is the account premium |
-| `listTorrents(apiKey)` | the whole library, as canonical `Torrent` objects |
-| `fetchFiles(apiKey, torrents)` | `Map<torrentId, VideoFile[]>` for the torrents given |
-| `fetchTorrent(apiKey, id)` | one torrent with its files, for the meta route |
+| `listLibraryItems(apiKey)` | the whole library, every source kind it holds |
+| `listTorrents(apiKey)` | the torrent lane alone. The registry falls back to it, and Premiumize aliases it |
+| `fetchFiles(apiKey, items)` | `Map<itemId, VideoFile[]>` for the items given |
+| `fetchTorrent(apiKey, id)` | one item with its files, for the meta route |
 | `resolveStream(apiKey, ref, clientIp)` | a playable URL, at play time |
+
+### A library is more than torrents
+
+A debrid account holds more than the torrents it downloaded: saved links, web downloads, usenet downloads and durable cloud files are all playable and all live behind their own endpoints. Discovery is the first gate, so a record omitted there can never reach parsing, matching, streams or the catalog, whatever the rest of the pipeline does.
+
+`listLibraryItems()` returns them together. Each item carries a `sourceKind`, and each non-torrent source carries a **typed id**, because these endpoint families run independent id spaces: a TorBox torrent, web download and usenet download can all be numbered `700`, so an untyped id cannot say which endpoint the meta route should ask.
+
+```text
+li1.<base64url-provider>.<source-kind>.<base64url-native-identity>
+```
+
+Source kinds are `torrent`, `saved-link`, `download`, `web-download`, `usenet-download` and `cloud-file`. **Legacy untyped ids keep meaning `torrent`**, so catalog links and play URLs minted before this scheme still answer.
+
+Where a source has no native id of its own, its identity is derived and **scoped to the account** with an HMAC of the API key, never with the raw value: an AllDebrid saved link and a RealDebrid download are named by their link, and a Premiumize folder group by its folder name. That keeps a link or a folder name out of catalog URLs, and makes an id from one account fail `ownsId` on another.
 
 The shared files it builds on:
 
 - `http.js` - the single HTTP path: rate limiting, timeout, one retry, typed errors. Limits are per token AND per endpoint, so each limiter is keyed `provider:endpointClass:hash(key)`. The retry is skipped when the answer is already definitive, since a second ask cannot change a gone item or a rejected key.
 - `errors.js` - turns any response into `ProviderAuthError`, `ProviderRateLimitError`, `ProviderUnavailableError` or `ProviderItemGoneError`. Status alone cannot classify these: AllDebrid and Premiumize report auth failures inside HTTP 200, and TorBox's 403 means both "bad token" and "no User-Agent".
 - `shapes.js` - the canonical `Torrent` and `VideoFile` every provider returns. Consumers read `provider` and `fileName`.
+- `library-item.js` - typed ids, the source-kind vocabulary, and the account-scoped identity used where a source has no native id. Everything a caller needs to tell one endpoint family from another.
 - `paths.js` - one file address out of five path formats. The container strip uses **sibling evidence**, not the torrent name.
 - `resolve-url.js` - the addon URL a stream points at. It carries the same encrypted configuration the addon URL carries, so a process that never built the stream row can still serve it, which is what makes the serverless deployment work. A short token rides alongside as an in-process fallback and is removed next release.
 
@@ -369,21 +385,25 @@ reAnalyzeWithMapping(titleMatches, episodeMapping)
 ### 7. The Provider Layer
 **Location**: `src/providers/`, entered only through `index.js`
 
-Five modules on one contract and five shared files. What differs between providers is how many calls a library costs and where the files come from, and that is the whole reason each module exists:
+Five modules on one contract and six shared files. What differs between providers is which lanes hold a library, how many calls it costs and where the files come from, and that is the whole reason each module exists:
 
-| Provider | Library | Files | Play time |
+| Provider | Library lanes | Files | Play time |
 |---|---|---|---|
-| **AllDebrid** | 1 call | bulk, 20 ids per call | `link/unlock`, through WARP: the endpoint refuses a datacenter address |
-| **RealDebrid** | 1 call under 2500 torrents, then **sequential** pages | 1 call per torrent | `unrestrict/link` |
-| **TorBox** | 1 call per 1000 torrents, 4 pages at a time | **inline, zero calls** | `requestdl` |
-| **DebridLink** | 1 call per reported page, 4 at a time | **inline, zero calls** | none, `downloadUrl` is direct |
-| **Premiumize** | 1 call | a folder walk per torrent, by id | `item/details` |
+| **AllDebrid** | magnets + saved links (`user/links`), 1 call each | bulk, 20 ids per call. A saved link is one file | `link/unlock`, through WARP: the endpoint refuses a datacenter address |
+| **RealDebrid** | torrents + download history, both paged **sequentially** | 1 call per torrent, none for a download | `unrestrict/link`. A download row is already direct |
+| **TorBox** | torrents + web downloads + usenet, 1 call each per 1000 rows | **inline, zero calls** | `requestdl`, on the lane's own resource and id parameter |
+| **DebridLink** | seedbox + downloader, pages of 100 | **inline, zero calls** | none, `downloadUrl` is direct |
+| **Premiumize** | the durable drive (`item/listall`), 1 call | **inline, zero calls** | `item/details`, preferring `stream_link` |
 
-Three rules in there are important and were each measured:
+A lane that fails does not empty the library: discovery of a non-torrent lane logs and returns nothing, while a rejected key still reaches the user as one synthetic stream row.
+
+Five rules in there are important and were each measured:
 
 - **RealDebrid's `/torrents` caps concurrency, not rate.** It rejects at about three concurrent requests, so its paging is sequential. It is the one place parallelism is forbidden rather than tuned.
 - **RealDebrid pairs links to SELECTED files, before the video filter.** When the counts disagree the torrent was packaged as one archive and holds no per-file link, so it is dropped rather than indexed around. A count mismatch is a classification signal.
-- **Premiumize is grouped by id, never by path.** A transfer's folder can sit anywhere in the drive, so its files carry an ancestor's path and no prefix identifies them.
+- **Premiumize reads the drive, not the transfer log.** Transfer history is job state that can be cleared while the files remain, so it describes what was downloaded rather than what the account holds. `item/listall` is one unpaged call carrying every file's path, size and date, which is what makes the file phase free.
+- **A Premiumize item is a top-level drive folder, and a folder walk now serves legacy ids only.** Grouping one item per file would destroy the container that pack selection and display inheritance depend on; grouping by the deepest folder would name containers after a season, giving the parser and title matching no title to read. A video at the drive root stays its own item under its native file id.
+- **TorBox runs three endpoint families with independent id spaces.** A torrent, a web download and a usenet download can share the number `700`, so each typed lane is described once in a lane table that names its resource and its resolve parameter (`torrent_id`, `web_id`, `usenet_id`). Passing the wrong one is refused with HTTP 422.
 
 ### 8. Episode Addressing
 **Location**: `src/utils/episode-address.js`
@@ -437,6 +457,7 @@ A flat set returns the wrong episode when a release labels absolute numbering as
 - `http.js` - the single HTTP path: per-token, per-endpoint rate limiting, retry, typed errors
 - `errors.js` - the error taxonomy and the table that classifies every provider's answer
 - `shapes.js` - the canonical `Torrent` and `VideoFile`
+- `library-item.js` - typed item ids, source kinds, and account-scoped identity for a source with no native id
 - `paths.js` - one file address out of five path formats, using sibling evidence
 - `resolve-url.js` - the resolve URL, which carries its own encrypted configuration
 - `all-debrid.js`, `real-debrid.js`, `torbox.js`, `debrid-link.js`, `premiumize.js`
