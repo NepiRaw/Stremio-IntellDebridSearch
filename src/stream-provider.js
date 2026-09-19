@@ -78,7 +78,7 @@ class StreamProvider {
 
             const imdbId = id.startsWith('imdb:') ? id.replace('imdb:', '') : id;
 
-            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
+            const cinemetaDetails = await tracker.span('cinemeta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 setLogOutcome({ degraded: true, failedAt: 'cinemeta.fetch', code: 'NO_METADATA' });
                 return [];
@@ -120,7 +120,7 @@ class StreamProvider {
             const parseContext = movieParseContext(cinemetaDetails.name);
 
 
-            const bulkDetails = await tracker.span('fetch', () =>
+            const bulkDetails = await tracker.span('details', () =>
                 fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, deduplicatedResults));
 
             for (const result of deduplicatedResults) {
@@ -233,7 +233,7 @@ class StreamProvider {
                 throw new ValidationError(`Invalid episode: ${episodeStr}`, 'episode', 'INVALID_EPISODE');
             }
 
-            const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
+            const cinemetaDetails = await tracker.span('cinemeta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
                 setLogOutcome({ degraded: true, failedAt: 'cinemeta.fetch', code: 'NO_METADATA' });
                 return [];

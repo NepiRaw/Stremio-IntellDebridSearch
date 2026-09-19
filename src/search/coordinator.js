@@ -63,7 +63,7 @@ export async function coordinateSearch(params) {
 
     // ========== PHASE 0 AND THE LIBRARY LISTING, CONCURRENTLY ==========
     // The listing does not need the search key, so it starts alongside phase 0 rather than after it
-    const preparation = tracker.span('phase0', () => prepareSearchTerms({
+    const preparation = tracker.span('prepare', () => prepareSearchTerms({
         searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey
     }));
 
@@ -119,7 +119,7 @@ export async function coordinateSearch(params) {
     const allRawResults = relevantTorrents;
     
     // ========== PHASE 1: FAST TITLE MATCHING ==========
-    const titleMatches = await tracker.span('phase1', () =>
+    const titleMatches = await tracker.span('title', () =>
         performTitleMatching(allRawResults, uniqueSearchTerms, threshold, aliasVocabularies));
 
     tracker.note('matches', titleMatches.length);
@@ -150,7 +150,7 @@ export async function coordinateSearch(params) {
             };
         }
         
-        search.at('title').debug('Search stopped', { mode: phase2Decision.reason });
+        search.at('title').debug('Search stopped', { reason: phase2Decision.reason });
         return [];
     }
 
@@ -165,15 +165,15 @@ export async function coordinateSearch(params) {
             seasonOneLength
         });
 
-        await tracker.span('fetch', () =>
+        const fetched = await tracker.span('details', () =>
             batchFetchTorrentDetails(titleMatches, apiKey, addresses, provider));
 
         // Perform content analysis for episode matching (now with parallel torrent processing)
-        matches = await tracker.span('phase2', () =>
+        matches = await tracker.span('content', () =>
             performContentAnalysis(titleMatches, addresses, aliasVocabularies));
 
         tracker.note('selected', matches.length);
-        search.at('content').debug('Episodes matched', { input: titleMatches.length, episodeMatches: matches.length });
+        search.at('content').debug('Episodes matched', { input: titleMatches.length, detailsFetched: fetched, episodeMatches: matches.length });
     }
 
     return {

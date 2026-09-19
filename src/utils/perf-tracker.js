@@ -6,7 +6,7 @@
  * terminal line prints them; stage timing costs clock reads and is kept only at debug level.
  */
 
-import { logger } from './logger.js';
+import { logger, setLogScope } from './logger.js';
 
 const perf = logger.for('PERF').at('summary');
 const FUNNEL = { torrents: 'library', candidates: 'keywordHits', matches: 'titleMatches', selected: 'episodeMatches' };
@@ -42,6 +42,7 @@ export function createTracker(label, options = {}) {
     return {
         /** Times `fn`, recording the stage whether it resolves or throws. */
         async span(name, fn) {
+            setLogScope(name);
             if (!timed) return fn();
             const from = performance.now();
             try {
@@ -75,9 +76,9 @@ export function createTracker(label, options = {}) {
         },
 
         report() {
-            if (!timed || !entries.length) return;
-            const [, total, ...stages] = this.summary().split(' ');
-            perf.debug('Stages timed', { id: label, total: total.slice('total='.length), stages: stages.join(' ') });
+            const stages = entries.filter(entry => entry.value === undefined);
+            if (!timed || !stages.length) return;
+            perf.debug('Stages timed', { id: label, stages: stages.map(entry => `${entry.name}=${entry.ms}ms`).join(' ') });
         }
     };
 }

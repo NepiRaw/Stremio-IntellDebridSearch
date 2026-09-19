@@ -38,7 +38,7 @@ import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js
  * @returns {Promise} Promise that resolves when all details are fetched
  */
 export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses = null, providerName = null) {
-    if (!getProvider(providerName)) return;
+    if (!getProvider(providerName)) return 0;
 
     const torrentsNeedingDetails = titleMatches.filter(match =>
         !match.item.videos &&
@@ -46,7 +46,7 @@ export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses =
     );
 
     if (torrentsNeedingDetails.length === 0) {
-        return;
+        return 0;
     }
 
     const details = await fetchTorrentDetails(providerName, apiKey, torrentsNeedingDetails.map(match => match.item));
@@ -54,7 +54,7 @@ export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses =
         const found = details.get(String(match.item.id));
         if (found) Object.assign(match.item, attachParse(found));
     }
-    content.debug('Details fetched', { input: torrentsNeedingDetails.length });
+    return torrentsNeedingDetails.length;
 }
 
 /**

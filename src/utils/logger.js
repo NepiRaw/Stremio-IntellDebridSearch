@@ -13,7 +13,7 @@ const OUTCOME = Object.freeze({ ready: '🚀', complete: '✓', warn: '⚠', err
 /** One glyph and one step list per module  */
 export const MODULES = Object.freeze({
     SYSTEM: { symbol: '🖥️', steps: ['startup'] },
-    HTTP: { symbol: '🌐', steps: ['watchdog', 'aborted', 'failed'] },
+    HTTP: { symbol: '🌐', steps: ['limited', 'watchdog', 'aborted', 'failed'] },
     CONFIG: { symbol: '⚙️', steps: ['parse', 'complete', 'rejected'] },
     SECURITY: { symbol: '🔐', steps: ['origin', 'token', 'reject'] },
     CATALOG: { symbol: '📚', steps: ['request', 'convert', 'complete', 'failed'] },
@@ -32,11 +32,11 @@ export const MODULES = Object.freeze({
 const COMMON_FIELDS = ['cfg', 'duration', 'status', 'code', 'error', 'reason', 'failedAt', 'module', 'attempt', 'attempts', 'delay', 'truncated'];
 const MODULE_FIELDS = Object.freeze({
     SYSTEM: ['port', 'environment', 'tmdb', 'tvdb', 'advancedSearch', 'releaseGroups', 'catalogPosters', 'cache', 'warp'],
-    HTTP: ['provider', 'type', 'id', 'origin', 'active', 'elapsed'],
+    HTTP: ['provider', 'type', 'id', 'origin', 'active', 'elapsed', 'limit', 'window'],
     CONFIG: ['format', 'valid', 'configured', 'provider'],
     SECURITY: ['present', 'provider'],
     CATALOG: ['configured', 'provider', 'type', 'id', 'catalog', 'mode', 'query', 'items', 'metas', 'bytes'],
-    SEARCH: ['terms', 'alternatives', 'input', 'keywordHits', 'titleMatches', 'identityMatches', 'episodeMatches', 'absoluteEpisode', 'mode', 'type'],
+    SEARCH: ['terms', 'alternatives', 'input', 'keywordHits', 'titleMatches', 'identityMatches', 'detailsFetched', 'episodeMatches', 'absoluteEpisode', 'mode', 'type'],
     STREAM: ['configured', 'provider', 'type', 'id', 'catalog', 'fileIndex', 'items', 'input', 'library', 'keywordHits', 'titleMatches', 'episodeMatches', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
     META: ['configured', 'provider', 'type', 'id', 'catalog', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
     RESOLVE: ['provider', 'id', 'origin'],
@@ -45,7 +45,7 @@ const MODULE_FIELDS = Object.freeze({
     TMDB: ['type', 'id', 'found', 'titles'],
     TVDB: ['id', 'found', 'episodes'],
     CACHE: ['name', 'entries', 'evicted', 'key'],
-    PERF: ['id', 'total', 'stages']
+    PERF: ['id', 'stages']
 });
 
 const SENSITIVE_KEY = /(?:api[-_]?key|authorization|cookie|credential|password|secret|token|configuration|hosturl|url)$/i;

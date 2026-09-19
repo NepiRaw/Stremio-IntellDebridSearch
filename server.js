@@ -28,12 +28,21 @@ app.use(swStats.getMiddleware({
     },
 }))
 
+const RATE_LIMIT = 300
+const RATE_WINDOW_MS = 60 * 60 * 1000
 const rateLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hours
-    limit: 300, // Limit each IP to 300 requests per window
+    windowMs: RATE_WINDOW_MS,
+    limit: RATE_LIMIT,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    keyGenerator: (req) => requestIp.getClientIp(req)
+    keyGenerator: (req) => requestIp.getClientIp(req),
+    handler: (req, res, next, options) => {
+        if (req.rateLimit.used === RATE_LIMIT + 1) {
+            const segment = req.url.split('/')[1] ?? ''
+            logger.for('HTTP').at('limited').warn('Client over the rate limit', { cfg: /^[A-Za-z0-9_-]{60,}$/.test(segment) ? segment.slice(0, 8) : undefined, limit: RATE_LIMIT, window: '1h' })
+        }
+        res.status(options.statusCode).send(options.message)
+    }
 })
 app.use(rateLimiter)
 
