@@ -81,6 +81,78 @@ builder.defineCatalogHandler(async (args) => {
     }
 })
 
+/** `<provider>:<torrentId>` for a catalog item, `:file:<n>` for one of its files. */
+function parseMintedId(id) {
+    const [providerNameLower, torrentId, marker, index, ...rest] = String(id).split(':');
+    if (!providerNameLower || !torrentId || rest.length) return null;
+    if (marker === undefined) return { providerNameLower, torrentId, fileIndex: null };
+    if (marker !== 'file' || !/^\d+$/.test(index ?? '')) return null;
+    return { providerNameLower, torrentId, fileIndex: Number(index) };
+}
+
+/**
+ * One catalog torrent as the client sees it
+ */
+async function torrentVideos(config, providerNameLower, torrentId) {
+    const providerName = config.DebridProvider;
+    const provider = getProvider(providerName);
+    if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
+
+    if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId, config.DebridApiKey)) {
+        logger.debug(`[torrentVideos] ${providerNameLower}:${torrentId} is not a ${providerName} id, answering without a call`);
+        return null;
+    }
+
+    const found = await provider.fetchTorrent(config.DebridApiKey, torrentId)
+        .catch(error => {
+            if (error instanceof ProviderItemGoneError) return null;
+            if (isProviderError(error)) {
+                logger.warn(`[torrentVideos] ${providerName}:${torrentId} left unanswered: ${error.name}: ${error.message}`);
+                return UNANSWERED;
+            }
+            throw error;
+        });
+
+    if (found === UNANSWERED) return UNANSWERED;
+
+    const torrentDetails = found && { ...found.torrent, videos: found.videos };
+    if (!torrentDetails) return { providerName, torrentDetails: null, videos: [] };
+
+    const { attachParse } = await import('./src/parsing/parser.js');
+    const { toStreams } = await import('./src/stream/stream-builder.js');
+    const built = toStreams(attachParse(torrentDetails), 'series', null, null);
+    const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
+
+    const videos = [];
+    (torrentDetails.videos || []).forEach((file, index) => {
+        const stream = byFilename.get(file.fileName);
+        if (!stream) {
+            logger.warn(`[torrentVideos] ${providerName}:${torrentId} dropped "${file?.fileName ?? '<no name>'}", ${dropReason(file, built)}`);
+            return;
+        }
+
+        videos.push({
+            id: `${providerNameLower}:${torrentId}:file:${index}`,
+            title: file.fileName || `File ${index + 1}`,
+            streams: [stream]
+        });
+    });
+
+    return { providerName, torrentDetails, videos };
+}
+
+async function mintedStreams(config, { providerNameLower, torrentId, fileIndex }) {
+    if (!config?.DebridApiKey) return [];
+
+    const found = await torrentVideos(config, providerNameLower, torrentId);
+    if (!found || found === UNANSWERED || !found.torrentDetails) return [];
+
+    const videos = fileIndex === null
+        ? found.videos
+        : found.videos.filter(video => video.id === `${providerNameLower}:${torrentId}:file:${fileIndex}`);
+    return videos.flatMap(video => video.streams);
+}
+
 builder.defineMetaHandler(async (args) => {
     const debugArgs = structuredClone(args)
     if (args.config?.DebridApiKey)
@@ -90,65 +162,23 @@ builder.defineMetaHandler(async (args) => {
     if (!args.id.includes(':')) {
         return { meta: null };
     }
-    
+
     const [providerNameLower, torrentId] = args.id.split(':');
-    
+
     if (!args.config?.DebridApiKey) {
         throw new Error('No API key configured');
     }
 
-    const providerName = args.config.DebridProvider;
-    const provider = getProvider(providerName);
-    if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
+    const found = await torrentVideos(args.config, providerNameLower, torrentId);
+    if (!found || found === UNANSWERED) return { meta: null };
 
-    // The manifest claims the whole `<provider>:` id namespace, so client also routes us ids
-    // other addons minted. Answering for one costs a call the provider can only reject.
-    if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId, args.config.DebridApiKey)) {
-        logger.debug(`[MetaHandler] ${args.id} is not a ${providerName} id, answering without a call`);
-        return { meta: null };
-    }
-
-    const found = await provider.fetchTorrent(args.config.DebridApiKey, torrentId)
-        .catch(error => {
-            if (error instanceof ProviderItemGoneError) return null;
-            if (isProviderError(error)) {
-                logger.warn(`[MetaHandler] ${providerName}:${torrentId} left unanswered: ${error.name}: ${error.message}`);
-                return UNANSWERED;
-            }
-            throw error;
-        });
-
-    if (found === UNANSWERED) return { meta: null };
-
-    const torrentDetails = found && { ...found.torrent, videos: found.videos };
+    const { providerName, torrentDetails, videos } = found;
 
     if (!torrentDetails) {
         logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
         return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
     }
-    
-    const videoFiles = torrentDetails.videos || [];
 
-    const { attachParse } = await import('./src/parsing/parser.js');
-    const { toStreams } = await import('./src/stream/stream-builder.js');
-    const built = toStreams(attachParse(torrentDetails), 'series', null, null);
-    const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
-
-    const videos = [];
-    videoFiles.forEach((file, index) => {
-        const stream = byFilename.get(file.fileName);
-        if (!stream) {
-            logger.warn(`[MetaHandler] ${providerName}:${torrentId} dropped "${file?.fileName ?? '<no name>'}", ${dropReason(file, built)}`);
-            return;
-        }
-
-        videos.push({
-            id: `${args.id}:file:${index}`,
-            title: file.fileName || `File ${index + 1}`,
-            streams: [stream]
-        });
-    });
-    
     const baseMeta = {
         id: args.id,
         type: 'other',
@@ -174,6 +204,14 @@ builder.defineStreamHandler(args => {
         if (args.config?.DebridApiKey)
             debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
         logger.info("Request for streams with args: " + JSON.stringify(debugArgs))
+
+        const minted = parseMintedId(args.id)
+        if (minted) {
+            mintedStreams(args.config, minted)
+                .then(streams => resolve({ streams, ...enrichCacheParams() }))
+                .catch(err => reject(err))
+            return
+        }
 
         if (!args.id.match(/tt\d+/i)) {
             resolve({ streams: [] })
