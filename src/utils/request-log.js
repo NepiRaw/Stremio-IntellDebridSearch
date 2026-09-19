@@ -13,7 +13,7 @@ export function withRequestLog(req, res, run) {
         res.setHeader('X-Request-Id', context.requestId);
 
         const watchdog = setTimeout(bindLogContext(() => {
-            http.at('watchdog').warn('Still running after 10s', { ...context.fields, active: context.scope, elapsed: elapsed(context) });
+            http.at('watchdog').warn('Still running', { ...context.fields, active: context.scope, elapsed: elapsed(context) });
         }), WATCHDOG_MS);
         watchdog.unref();
 

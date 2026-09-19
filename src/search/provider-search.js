@@ -119,7 +119,7 @@ export async function preFilterTorrentsByKeywords(allTorrents, keywords, aliasVo
     });
 
     const endTime = Date.now();
-    search.at('prefilter').debug('Candidates kept', { input: allTorrents.length, candidates: relevantTorrents.length, identity: rescued, duration: `${endTime - startTime}ms` });
+    search.at('prefilter').debug('Keywords matched', { input: allTorrents.length, keywordHits: relevantTorrents.length, identityMatches: rescued, duration: `${endTime - startTime}ms` });
 
     return relevantTorrents;
 }
@@ -135,6 +135,6 @@ export async function searchProviderLibrary(providerName, apiKey, searchKey, thr
     const fuse = new Fuse(torrents, { keys: ['name', 'filename'], threshold, minMatchCharLength: 2, includeScore: true });
     const found = fuse.search(searchKey).map(result => ({ ...result.item, searchScore: result.score }));
 
-    search.at('title').debug('Titles matched', { mode: 'basic', input: torrents.length, matches: found.length });
+    search.at('title').debug('Titles matched', { mode: 'basic', input: torrents.length, titleMatches: found.length });
     return found;
 }

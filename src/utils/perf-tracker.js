@@ -75,7 +75,7 @@ export function createTracker(label, options = {}) {
         },
 
         report() {
-            if (!timed) return;
+            if (!timed || !entries.length) return;
             const [, total, ...stages] = this.summary().split(' ');
             perf.debug('Stages timed', { id: label, total: total.slice('total='.length), stages: stages.join(' ') });
         }

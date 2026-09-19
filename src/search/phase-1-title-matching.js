@@ -152,7 +152,7 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
         }
     }
 
-    title.debug('Titles matched', { input: allRawResults.length, matches: titleMatches.length, identity: identityMatches, duration: `${Date.now() - startTime}ms` });
+    title.debug('Titles matched', { input: allRawResults.length, titleMatches: titleMatches.length, identityMatches, duration: `${Date.now() - startTime}ms` });
 
     return titleMatches;
 }

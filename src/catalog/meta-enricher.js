@@ -333,6 +333,6 @@ export async function enrichTorrentMeta(baseMeta, { providerName, torrentDetails
         return baseMeta;
     }
 
-    enrich.debug('Meta enriched', { id: torrentDetails.id, code: enrichment.reason });
+    enrich.debug('Meta enriched', { id: torrentDetails.id, reason: enrichment.reason });
     return applyEnrichment(baseMeta, enrichment.fields);
 }

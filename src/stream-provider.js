@@ -178,16 +178,17 @@ class StreamProvider {
                 logger.for('CACHE').at('record').debug('Recording skipped', { error: recErr.name });
             }
 
+            tracker.report();
             return sortedStreams;
 
         } catch (error) {
+            tracker.report();
             reportFailure('Movie search failed', { provider: config.DebridProvider, type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
             setLogOutcome(tracker.funnel());
-            tracker.report();
         }
     }
 
@@ -329,16 +330,17 @@ class StreamProvider {
                 logger.for('CACHE').at('record').debug('Recording skipped', { error: recErr.name });
             }
 
+            tracker.report();
             return sortedStreams;
 
         } catch (error) {
+            tracker.report();
             reportFailure('Series search failed', { provider: config.DebridProvider, type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
             setLogOutcome(tracker.funnel());
-            tracker.report();
         }
     }
 

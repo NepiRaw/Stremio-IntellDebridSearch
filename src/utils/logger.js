@@ -35,9 +35,9 @@ const MODULE_FIELDS = Object.freeze({
     HTTP: ['provider', 'type', 'id', 'active', 'elapsed'],
     CONFIG: ['format', 'valid', 'configured', 'provider'],
     SECURITY: ['present', 'provider'],
-    CATALOG: ['configured', 'provider', 'type', 'id', 'catalog', 'mode', 'query', 'input', 'metas', 'bytes'],
-    SEARCH: ['terms', 'alternatives', 'input', 'candidates', 'identity', 'matches', 'absoluteEpisode', 'selected', 'failed', 'mode', 'type'],
-    STREAM: ['configured', 'provider', 'type', 'id', 'catalog', 'fileIndex', 'input', 'library', 'keywordHits', 'titleMatches', 'episodeMatches', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
+    CATALOG: ['configured', 'provider', 'type', 'id', 'catalog', 'mode', 'query', 'items', 'metas', 'bytes'],
+    SEARCH: ['terms', 'alternatives', 'input', 'keywordHits', 'titleMatches', 'identityMatches', 'episodeMatches', 'absoluteEpisode', 'mode', 'type'],
+    STREAM: ['configured', 'provider', 'type', 'id', 'catalog', 'fileIndex', 'items', 'input', 'library', 'keywordHits', 'titleMatches', 'episodeMatches', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
     META: ['configured', 'provider', 'type', 'id', 'catalog', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
     RESOLVE: ['provider', 'id', 'key'],
     PROVIDER: ['provider', 'valid', 'torrents', 'dropped', 'found', 'videos', 'input', 'items', 'files', 'page', 'pages'],
@@ -56,7 +56,8 @@ const RESET = '\u001b[0m';
 const CONTEXT_WIDTH = 8;
 const SCOPE_WIDTH = 17;
 const MESSAGE_WIDTH = 22;
-const MAX_LINE = 400;
+const MAX_VALUE = 160;
+const MAX_LINE = 1000;
 export const WATCHDOG_MS = 10000;
 
 const storage = new AsyncLocalStorage();
@@ -85,7 +86,8 @@ function formatValue(key, value) {
     if (value === undefined) return 'undefined';
     if (typeof value === 'string') {
         if (URL_VALUE.test(value)) return '[REDACTED]';
-        const text = value.replace(URL_IN_TEXT, '[REDACTED]');
+        const redacted = value.replace(URL_IN_TEXT, '[REDACTED]');
+        const text = redacted.length > MAX_VALUE ? `${redacted.slice(0, MAX_VALUE - 1)}…` : redacted;
         return /\s|=/.test(text) ? JSON.stringify(text) : normalizeText(text);
     }
     if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
@@ -154,6 +156,7 @@ export function runWithLogContext(context, callback) {
     const store = {
         requestId,
         cfg: context?.cfg ? String(context.cfg).slice(0, 8) : null,
+        segment: context?.cfg ?? null,
         startedAt: Date.now(),
         scope: null,
         fields: {},

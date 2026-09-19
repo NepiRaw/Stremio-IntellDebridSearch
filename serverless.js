@@ -116,7 +116,7 @@ router.post('/encrypt-config', async (req, res) => {
             desktopUrl: `stremio://${req.headers.host}/${encryptedConfig}/manifest.json`,
             webUrl: `https://web.stremio.com/#/addons?addon=${encodeURIComponent(manifestUrl)}`
         });
-        completeRequest('CONFIG', 'complete', 'Configuration encrypted', { provider: config.DebridProvider, status: 200 }, { debug: true })
+        completeRequest('CONFIG', 'complete', 'Install URL created', { provider: config.DebridProvider, status: 200 })
     } catch (error) {
         failRequest('CONFIG', error, 500)
         res.status(500).json({ error: 'Encryption service unavailable' });
@@ -187,7 +187,7 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
         StreamProvider.resolveUrl(provider, actualApiKey, id, decode(req.params.hostUrl), clientIp)
             .then(url => {
                 res.redirect(url)
-                completeRequest('RESOLVE', 'complete', 'Redirected to provider link', { provider, id, key: carriedKey ? 'in-url' : 'token', status: 302 })
+                completeRequest('RESOLVE', 'complete', 'Link resolved', { provider, id, key: carriedKey ? 'in-url' : 'token', status: 302 })
             })
             .catch(err => {
                 const status = statusFor(err)
@@ -258,7 +258,8 @@ const RESOURCE_DEGRADED = { catalog: 'Catalog answered empty', meta: 'Meta answe
 function answerCounts(resource, resp, extra) {
     if (resource === 'catalog') return { mode: extra.search ? 'search' : 'browse', metas: resp.metas?.length ?? 0 }
     if (resource === 'meta') return { found: Boolean(resp.meta), videos: resp.meta?.videos?.length ?? 0, enriched: Boolean(resp.meta?.imdb_id) }
-    return { streams: resp.streams?.length ?? 0 }
+    const items = [...new Set((resp.streams ?? []).map(stream => stream.behaviorHints?.bingeGroup?.split('|')[1]).filter(Boolean))]
+    return { streams: resp.streams?.length ?? 0, items: items.length ? items.slice(0, 5).join('+') + (items.length > 5 ? '+…' : '') : undefined }
 }
 
 const ERROR_STATUS = [[BadTokenError, 401, 'Bad token'], [ProviderItemGoneError, 404, 'Not available'], [AccessDeniedError, 403, 'Access denied'], [BadRequestError, 400, 'Bad request']]

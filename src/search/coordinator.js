@@ -98,7 +98,7 @@ export async function coordinateSearch(params) {
     tracker.note('torrents', allTorrents.length);
 
     if (allTorrents.length === 0) {
-        search.at('prefilter').debug('Library empty', { input: 0 });
+        search.at('prefilter').debug('Library empty', { input: 0, keywordHits: 0 });
         return [];
     }
 
@@ -140,7 +140,7 @@ export async function coordinateSearch(params) {
                     return !statesEpisode(settled) && !statesSeasonWithoutEpisode(settled);
                 });
                 if (results.length < beforeCount) {
-                    search.at('title').debug('Series releases dropped from a movie search', { input: beforeCount, matches: results.length });
+                    search.at('title').debug('Series releases dropped from a movie search', { input: beforeCount, titleMatches: results.length });
                 }
             }
             
@@ -173,7 +173,7 @@ export async function coordinateSearch(params) {
             performContentAnalysis(titleMatches, addresses, aliasVocabularies));
 
         tracker.note('selected', matches.length);
-        search.at('content').debug('Episodes matched', { input: titleMatches.length, selected: matches.length });
+        search.at('content').debug('Episodes matched', { input: titleMatches.length, episodeMatches: matches.length });
     }
 
     return {

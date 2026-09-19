@@ -49,7 +49,7 @@ async function getMeta(type, imdbId) {
         // Cache the result for 1 hour
         cache.set(cacheKey, meta, 3600);
         
-        fetchLog.debug('Metadata fetched', { type, id: imdbId, found: true });
+        fetchLog.debug('Metadata fetched', { type, id: imdbId, found: Boolean(meta.name) });
         return meta;
 
     } catch (err) {

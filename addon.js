@@ -46,16 +46,16 @@ builder.defineCatalogHandler(async (args) => {
                         tvdbApiKey: apiConfig.tvdbApiKey
                     });
                     torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
-                    convert.debug('Torrents listed', { mode: 'search', input: torrents.length });
+                    convert.debug('Converting items', { mode: 'search', items: torrents.length });
                 } else {
                     torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
-                    convert.debug('Torrents listed', { mode: 'basic', input: torrents.length });
+                    convert.debug('Converting items', { mode: 'basic', items: torrents.length });
                 }
             } else {
                 // Standard catalog request
                 if (args.config.ShowCatalog) {
                     torrents = await listProviderLibrary(providerName, args.config.DebridApiKey);
-                    convert.debug('Torrents listed', { mode: 'browse', input: torrents.length });
+                    convert.debug('Converting items', { mode: 'browse', items: torrents.length });
                 }
             }
         } catch (error) {
@@ -168,7 +168,7 @@ builder.defineMetaHandler(async (args) => {
     const { providerName, torrentDetails, videos } = found;
 
     if (!torrentDetails) {
-        setLogOutcome({ degraded: true, code: 'GONE' });
+        setLogOutcome({ degraded: true, found: false, code: 'GONE' });
         return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
     }
 

@@ -6,7 +6,8 @@
 
 import crypto from 'crypto';
 import { encode } from 'urlencode';
-import { encryptConfig } from '../config/configuration.js';
+import { encryptConfig, isEncryptedConfig } from '../config/configuration.js';
+import { getLogContext } from '../utils/logger.js';
 
 const TOKEN_LENGTH = 16;
 const secureTokenMapping = new Map();
@@ -34,7 +35,8 @@ export function buildResolveUrl(provider, apiKey, torrentId, hostUrl) {
     if (!hostUrl) return null;
 
     const token = ApiKeySecurityManager.generateSecureToken(provider, apiKey);
-    const config = encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
+    const segment = getLogContext()?.segment;
+    const config = segment && isEncryptedConfig(segment) ? segment : encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
     const prefix = config ? `/${config}` : '';
     return `${process.env.ADDON_URL}${prefix}/resolve/${provider}/${token}/${torrentId}/${encode(hostUrl)}`;
 }
