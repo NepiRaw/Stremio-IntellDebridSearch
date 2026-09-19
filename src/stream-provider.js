@@ -199,7 +199,7 @@ class StreamProvider {
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
-            logger.debug(`[perf] ${tracker.summary()}`);
+            tracker.report();
         }
     }
 
@@ -377,7 +377,7 @@ class StreamProvider {
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
-            logger.debug(`[perf] ${tracker.summary()}`);
+            tracker.report();
         }
     }
 

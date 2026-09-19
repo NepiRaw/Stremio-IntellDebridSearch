@@ -6,6 +6,10 @@
  * where it costs one object and no clock reads.
  */
 
+import { logger } from './logger.js';
+
+const perf = logger.for('PERF').at('summary');
+
 /** Shared inert tracker, for stages reached by a caller that tracks nothing. */
 export const disabledTracker = {
     async span(name, fn) {
@@ -14,7 +18,8 @@ export const disabledTracker = {
     note() {},
     summary() {
         return '';
-    }
+    },
+    report() {}
 };
 
 function debugLoggingEnabled() {
@@ -54,6 +59,11 @@ export function createTracker(label, options = {}) {
                 entry.value === undefined ? `${entry.name}=${entry.ms}ms` : `${entry.name}=${entry.value}`
             );
             return [label, total, ...stages].join(' ');
+        },
+
+        report() {
+            const [, total, ...stages] = this.summary().split(' ');
+            perf.debug('Stages timed', { id: label, total: total.slice('total='.length), stages: stages.join(' ') });
         }
     };
 }
