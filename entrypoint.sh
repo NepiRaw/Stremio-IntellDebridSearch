@@ -40,9 +40,9 @@ if [ "${WARP_ENABLED}" = "true" ] || [ "${WARP_ENABLED}" = "1" ]; then
 
     # Register WARP if not already registered
     if [ ! -f /var/lib/cloudflare-warp/reg.json ]; then
-        warp-cli --accept-tos registration new && log DEBUG " " "Client registered" "registered=new"
+        warp-cli --accept-tos registration new > /dev/null && log DEBUG " " "Client registered" "registered=new"
         if [ -n "$WARP_LICENSE_KEY" ]; then
-            warp-cli --accept-tos registration license "$WARP_LICENSE_KEY" && log DEBUG " " "License registered" ""
+            warp-cli --accept-tos registration license "$WARP_LICENSE_KEY" > /dev/null && log DEBUG " " "License registered" ""
         fi
     else
         log DEBUG " " "Client registered" "registered=existing"
@@ -50,9 +50,9 @@ if [ "${WARP_ENABLED}" = "true" ] || [ "${WARP_ENABLED}" = "1" ]; then
 
     # Proxy mode tunnels only what is sent to the local SOCKS5 port, so every other request the
     # addon makes keeps the host's own address. warp-svc serves that port itself.
-    warp-cli --accept-tos mode proxy
-    warp-cli --accept-tos proxy port "$WARP_PORT"
-    warp-cli --accept-tos connect
+    warp-cli --accept-tos mode proxy > /dev/null
+    warp-cli --accept-tos proxy port "$WARP_PORT" > /dev/null
+    warp-cli --accept-tos connect > /dev/null
     wait_for_warp "Connected" || log WARN "⚠" "Not connected" "timeout=${WARP_TIMEOUT}s"
 
     # Verify WARP is working
@@ -73,4 +73,6 @@ if [ "$#" -gt 0 ]; then
     exec "$@"
 fi
 
+# Node prints a notice when the env file is missing; the container gets its environment from compose.
+[ -f /app/.env ] || : > /app/.env
 exec npm start --silent

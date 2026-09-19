@@ -167,6 +167,7 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
 
         const carried = parseConfiguration(req.params.configuration);
         const carriedKey = carried?.DebridProvider === provider ? carried.DebridApiKey : null;
+        logger.for('RESOLVE').at('request').info('Link requested', { provider, id, carried: Boolean(carriedKey) });
 
         if (carriedKey) {
             actualApiKey = carriedKey;
@@ -214,6 +215,9 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
     const module = RESOURCE_MODULE[resource]
     const fields = { provider: config?.DebridProvider, type, id }
     setLogScope(resource)
+    if (module) {
+        logger.for(module).at('request').info(RESOURCE_REQUEST[resource], { ...fields, catalog: config?.ShowCatalog, ...(resource === 'catalog' ? { mode: extra.search ? 'search' : 'browse', query: extra.search } : {}) })
+    }
 
     addonInterface.get(resource, type, id, extra, config)
         .then(resp => {
@@ -246,6 +250,7 @@ router.get('/ping', (_, res) => {
 })
 
 const RESOURCE_MODULE = { catalog: 'CATALOG', meta: 'META', stream: 'STREAM' }
+const RESOURCE_REQUEST = { catalog: 'Catalog requested', meta: 'Meta requested', stream: 'Streams requested' }
 const RESOURCE_MESSAGE = { catalog: 'Catalog answered', meta: 'Meta answered', stream: 'Streams answered' }
 
 function answerCounts(resource, resp, extra) {
