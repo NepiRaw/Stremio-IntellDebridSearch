@@ -165,10 +165,11 @@ function pairLinks(item) {
 }
 
 /** One torrent's info payload to canonical video files. */
-function toVideos(item, apiKey) {
+function toVideos(item, apiKey, drops = null) {
     const { paired, reason } = pairLinks(item);
     if (reason) {
-        provider.at('fetch').debug('Torrent dropped', { provider: name, code: reason, files: (item.files ?? []).filter(file => file.selected === 1).length });
+        if (drops) drops.set(reason, (drops.get(reason) ?? 0) + 1);
+        else provider.at('fetch').debug('Torrent dropped', { provider: name, code: reason, files: (item.files ?? []).filter(file => file.selected === 1).length });
         return [];
     }
 
@@ -219,18 +220,23 @@ export async function fetchFiles(apiKey, torrents) {
         provider.at('fetch').warn('Download files unavailable', { provider: name, error: error.name, code: error.code });
     }) : Promise.resolve();
 
+    const drops = new Map();
     await Promise.all([downloadsTask, ...torrentRows.map(async torrent => {
         const id = String(torrent.id);
         try {
-            files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey));
+            files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey, drops));
         } catch (error) {
             // A rejected key must reach the user; one unreachable torrent must not empty the search.
             if (error instanceof ProviderAuthError) throw error;
-            provider.at('fetch').debug('Torrent dropped', { provider: name, error: error.name, code: error.code ?? error.status });
+            const reason = error.code ?? error.status ?? error.name;
+            drops.set(reason, (drops.get(reason) ?? 0) + 1);
             files.set(id, []);
         }
     })]);
 
+    for (const [reason, count] of drops) {
+        provider.at('fetch').debug('Torrents dropped', { provider: name, code: reason, dropped: count, input: torrentRows.length });
+    }
     return files;
 }
 
