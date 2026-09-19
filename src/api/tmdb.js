@@ -95,14 +95,14 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
             }
         }
         
-    tmdb.at('titles').debug('Alternative titles fetched', { type, id: imdbId, found: true, titles: titlesWithCountry.length });
+    tmdb.at('titles').debug('Alt. titles fetched', { type, id: imdbId, found: true, titles: titlesWithCountry.length });
         
         // Cache result for 24 hours
         cache.set(cacheKey, titlesWithCountry, 24 * 3600);
         return titlesWithCountry;
 
     } catch (err) {
-        tmdb.at('titles').warn('Alternative titles failed', { type, id: imdbId, error: err.name });
+        tmdb.at('titles').warn('Alt. titles failed', { type, id: imdbId, error: err.name });
         return [];
     }
 }

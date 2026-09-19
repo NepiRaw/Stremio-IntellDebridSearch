@@ -32,14 +32,14 @@ export const MODULES = Object.freeze({
 const COMMON_FIELDS = ['cfg', 'duration', 'status', 'code', 'error', 'reason', 'failedAt', 'module', 'attempt', 'attempts', 'delay', 'truncated'];
 const MODULE_FIELDS = Object.freeze({
     SYSTEM: ['port', 'environment', 'tmdb', 'tvdb', 'advancedSearch', 'releaseGroups', 'catalogPosters', 'cache', 'warp'],
-    HTTP: ['provider', 'type', 'id', 'active', 'elapsed'],
+    HTTP: ['provider', 'type', 'id', 'origin', 'active', 'elapsed'],
     CONFIG: ['format', 'valid', 'configured', 'provider'],
     SECURITY: ['present', 'provider'],
     CATALOG: ['configured', 'provider', 'type', 'id', 'catalog', 'mode', 'query', 'items', 'metas', 'bytes'],
     SEARCH: ['terms', 'alternatives', 'input', 'keywordHits', 'titleMatches', 'identityMatches', 'episodeMatches', 'absoluteEpisode', 'mode', 'type'],
     STREAM: ['configured', 'provider', 'type', 'id', 'catalog', 'fileIndex', 'items', 'input', 'library', 'keywordHits', 'titleMatches', 'episodeMatches', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
     META: ['configured', 'provider', 'type', 'id', 'catalog', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
-    RESOLVE: ['provider', 'id', 'key'],
+    RESOLVE: ['provider', 'id', 'origin'],
     PROVIDER: ['provider', 'valid', 'torrents', 'dropped', 'found', 'videos', 'input', 'items', 'files', 'page', 'pages'],
     CINEMETA: ['type', 'id', 'found'],
     TMDB: ['type', 'id', 'found', 'titles'],

@@ -160,14 +160,15 @@ router.options('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:host
 router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
     const clientIp = requestIp.getClientIp(req)
     const { debridProvider: provider, id } = req.params
-    setLogScope('resolve', { provider, id })
+    const origin = originOf(req)
+    setLogScope('resolve', { provider, id, origin })
 
     try {
         let actualApiKey = req.params.debridApiKey;
 
         const carried = parseConfiguration(req.params.configuration);
         const carriedKey = carried?.DebridProvider === provider ? carried.DebridApiKey : null;
-        logger.for('RESOLVE').at('request').info('Play link requested', { provider, id, key: carriedKey ? 'in-url' : 'token' });
+        logger.for('RESOLVE').at('request').info('Play link requested', { provider, id, origin });
 
         if (carriedKey) {
             actualApiKey = carriedKey;
@@ -187,15 +188,15 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
         StreamProvider.resolveUrl(provider, actualApiKey, id, decode(req.params.hostUrl), clientIp)
             .then(url => {
                 res.redirect(url)
-                completeRequest('RESOLVE', 'complete', 'Link resolved', { provider, id, key: carriedKey ? 'in-url' : 'token', status: 302 })
+                completeRequest('RESOLVE', 'complete', 'Link resolved', { provider, id, origin, status: 302 })
             })
             .catch(err => {
                 const status = statusFor(err)
-                failRequest('RESOLVE', err, status, { provider, id })
+                failRequest('RESOLVE', err, status, { provider, id, origin })
                 answerError(status, res)
             })
     } catch (error) {
-        failRequest('RESOLVE', error, 500, { provider, id })
+        failRequest('RESOLVE', error, 500, { provider, id, origin })
         res.status(500).json({ error: 'Internal server error' });
     }
 })
@@ -249,6 +250,12 @@ router.get('/ping', (_, res) => {
     res.statusCode = 200
     res.end()
 })
+
+/** The id of the request that built a play URL */
+function originOf(req) {
+    const value = qs.parse(req.url.split('?')[1] ?? '').r
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{8}$/.test(value) ? value : undefined
+}
 
 const RESOURCE_MODULE = { catalog: 'CATALOG', meta: 'META', stream: 'STREAM' }
 const RESOURCE_REQUEST = { catalog: 'Catalog requested', meta: 'Meta requested', stream: 'Streams requested' }

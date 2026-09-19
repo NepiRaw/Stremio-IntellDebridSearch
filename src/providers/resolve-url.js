@@ -35,8 +35,9 @@ export function buildResolveUrl(provider, apiKey, torrentId, hostUrl) {
     if (!hostUrl) return null;
 
     const token = ApiKeySecurityManager.generateSecureToken(provider, apiKey);
-    const segment = getLogContext()?.segment;
-    const config = segment && isEncryptedConfig(segment) ? segment : encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
+    const context = getLogContext();
+    const config = context?.segment && isEncryptedConfig(context.segment) ? context.segment : encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
     const prefix = config ? `/${config}` : '';
-    return `${process.env.ADDON_URL}${prefix}/resolve/${provider}/${token}/${torrentId}/${encode(hostUrl)}`;
+    const origin = context?.requestId ? `?r=${context.requestId}` : '';
+    return `${process.env.ADDON_URL}${prefix}/resolve/${provider}/${token}/${torrentId}/${encode(hostUrl)}${origin}`;
 }
