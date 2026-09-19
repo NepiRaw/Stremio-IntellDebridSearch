@@ -160,14 +160,14 @@ router.options('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:host
 router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
     const clientIp = requestIp.getClientIp(req)
     const { debridProvider: provider, id } = req.params
-    setLogScope('resolve')
+    setLogScope('resolve', { provider, id })
 
     try {
         let actualApiKey = req.params.debridApiKey;
 
         const carried = parseConfiguration(req.params.configuration);
         const carriedKey = carried?.DebridProvider === provider ? carried.DebridApiKey : null;
-        logger.for('RESOLVE').at('request').info('Link requested', { provider, id, carried: Boolean(carriedKey) });
+        logger.for('RESOLVE').at('request').info('Play link requested', { provider, id, key: carriedKey ? 'in-url' : 'token' });
 
         if (carriedKey) {
             actualApiKey = carriedKey;
@@ -187,7 +187,7 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
         StreamProvider.resolveUrl(provider, actualApiKey, id, decode(req.params.hostUrl), clientIp)
             .then(url => {
                 res.redirect(url)
-                completeRequest('RESOLVE', 'complete', 'Link resolved', { provider, id, carried: Boolean(carriedKey), status: 302 })
+                completeRequest('RESOLVE', 'complete', 'Redirected to provider link', { provider, id, key: carriedKey ? 'in-url' : 'token', status: 302 })
             })
             .catch(err => {
                 const status = statusFor(err)
@@ -213,10 +213,11 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
     const config = parseConfiguration(shifted ? undefined : req.params.configuration)
     const extra = extraSegment ? qs.parse(req.url.split('/').pop().slice(0, -5)) : {}
     const module = RESOURCE_MODULE[resource]
-    const fields = { provider: config?.DebridProvider, type, id }
-    setLogScope(resource)
+    const fields = { configured: config?.DebridProvider ? undefined : false, provider: config?.DebridProvider, type, id }
+    setLogScope(resource, fields)
+    const quiet = fields.configured === false || (resource === 'meta' && !id.includes(':'))
     if (module) {
-        logger.for(module).at('request').info(RESOURCE_REQUEST[resource], { ...fields, catalog: config?.ShowCatalog, ...(resource === 'catalog' ? { mode: extra.search ? 'search' : 'browse', query: extra.search } : {}) })
+        logger.for(module).at('request')[quiet ? 'debug' : 'info'](RESOURCE_REQUEST[resource], { ...fields, catalog: config?.ShowCatalog, ...(resource === 'catalog' ? { mode: extra.search ? 'search' : 'browse', query: extra.search } : {}) })
     }
 
     addonInterface.get(resource, type, id, extra, config)
@@ -235,7 +236,7 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
             if (cacheControl) res.setHeader('Cache-Control', `${cacheControl}, private`)
             res.setHeader('Content-Type', 'application/json; charset=utf-8')
             res.end(body)
-            completeRequest(module, 'complete', RESOURCE_MESSAGE[resource], { ...fields, ...answerCounts(resource, resp, extra), bytes: Buffer.byteLength(body) })
+            completeRequest(module, 'complete', RESOURCE_MESSAGE[resource], { ...fields, ...answerCounts(resource, resp, extra), bytes: Buffer.byteLength(body) }, { debug: quiet, degradedMessage: RESOURCE_DEGRADED[resource] })
         })
         .catch(err => {
             const status = statusFor(err)
@@ -252,6 +253,7 @@ router.get('/ping', (_, res) => {
 const RESOURCE_MODULE = { catalog: 'CATALOG', meta: 'META', stream: 'STREAM' }
 const RESOURCE_REQUEST = { catalog: 'Catalog requested', meta: 'Meta requested', stream: 'Streams requested' }
 const RESOURCE_MESSAGE = { catalog: 'Catalog answered', meta: 'Meta answered', stream: 'Streams answered' }
+const RESOURCE_DEGRADED = { catalog: 'Catalog answered empty', meta: 'Meta answered empty', stream: 'Streams answered empty' }
 
 function answerCounts(resource, resp, extra) {
     if (resource === 'catalog') return { mode: extra.search ? 'search' : 'browse', metas: resp.metas?.length ?? 0 }

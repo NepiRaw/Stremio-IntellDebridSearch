@@ -29,17 +29,17 @@ export const MODULES = Object.freeze({
     PERF: { symbol: '⏱️', steps: ['summary'] }
 });
 
-const COMMON_FIELDS = ['cfg', 'duration', 'status', 'code', 'error', 'failedAt', 'module', 'attempt', 'attempts', 'delay', 'truncated'];
+const COMMON_FIELDS = ['cfg', 'duration', 'status', 'code', 'error', 'reason', 'failedAt', 'module', 'attempt', 'attempts', 'delay', 'truncated'];
 const MODULE_FIELDS = Object.freeze({
     SYSTEM: ['port', 'environment', 'tmdb', 'tvdb', 'advancedSearch', 'releaseGroups', 'catalogPosters', 'cache', 'warp'],
-    HTTP: ['active', 'elapsed'],
+    HTTP: ['provider', 'type', 'id', 'active', 'elapsed'],
     CONFIG: ['format', 'valid', 'configured', 'provider'],
     SECURITY: ['present', 'provider'],
-    CATALOG: ['provider', 'type', 'id', 'catalog', 'mode', 'query', 'input', 'metas', 'bytes'],
+    CATALOG: ['configured', 'provider', 'type', 'id', 'catalog', 'mode', 'query', 'input', 'metas', 'bytes'],
     SEARCH: ['terms', 'alternatives', 'input', 'candidates', 'identity', 'matches', 'absoluteEpisode', 'selected', 'failed', 'mode', 'type'],
-    STREAM: ['provider', 'type', 'id', 'catalog', 'fileIndex', 'input', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
-    META: ['provider', 'type', 'id', 'catalog', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
-    RESOLVE: ['provider', 'id', 'carried'],
+    STREAM: ['configured', 'provider', 'type', 'id', 'catalog', 'fileIndex', 'input', 'library', 'keywordHits', 'titleMatches', 'episodeMatches', 'usable', 'yearRejected', 'noVideo', 'dropped', 'duplicates', 'remaining', 'streams', 'bytes'],
+    META: ['configured', 'provider', 'type', 'id', 'catalog', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
+    RESOLVE: ['provider', 'id', 'key'],
     PROVIDER: ['provider', 'valid', 'torrents', 'dropped', 'found', 'videos', 'input', 'items', 'files', 'page', 'pages'],
     CINEMETA: ['type', 'id', 'found'],
     TMDB: ['type', 'id', 'found', 'titles'],
@@ -50,13 +50,14 @@ const MODULE_FIELDS = Object.freeze({
 
 const SENSITIVE_KEY = /(?:api[-_]?key|authorization|cookie|credential|password|secret|token|configuration|hosturl|url)$/i;
 const URL_VALUE = /^[a-z][a-z0-9+.-]*:\/\//i;
+const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 const REQUEST_ID = /^[A-Za-z0-9_-]{8}$/;
 const RESET = '\u001b[0m';
 const CONTEXT_WIDTH = 8;
 const SCOPE_WIDTH = 17;
 const MESSAGE_WIDTH = 22;
 const MAX_LINE = 400;
-export const WATCHDOG_MS = 2000;
+export const WATCHDOG_MS = 10000;
 
 const storage = new AsyncLocalStorage();
 
@@ -84,7 +85,8 @@ function formatValue(key, value) {
     if (value === undefined) return 'undefined';
     if (typeof value === 'string') {
         if (URL_VALUE.test(value)) return '[REDACTED]';
-        return /\s|=/.test(value) ? JSON.stringify(value) : normalizeText(value);
+        const text = value.replace(URL_IN_TEXT, '[REDACTED]');
+        return /\s|=/.test(text) ? JSON.stringify(text) : normalizeText(text);
     }
     if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
     if (Array.isArray(value)) return `[${value.length} items]`;
@@ -101,6 +103,7 @@ function selectFields(name, fields) {
     const kept = [];
     const rejected = [];
     for (const [key, value] of Object.entries(fields ?? {})) {
+        if (value === undefined) continue;
         if (allowed.includes(key)) kept.push([key, value]);
         else rejected.push(key);
     }
@@ -153,6 +156,7 @@ export function runWithLogContext(context, callback) {
         cfg: context?.cfg ? String(context.cfg).slice(0, 8) : null,
         startedAt: Date.now(),
         scope: null,
+        fields: {},
         outcome: null
     };
     return storage.run(store, callback);
@@ -161,9 +165,12 @@ export function runWithLogContext(context, callback) {
 export const getLogContext = () => storage.getStore() ?? null;
 export const newRequestId = () => crypto.randomBytes(6).toString('base64url');
 
-export function setLogScope(scope) {
+/** The stage a request is in and what it is about, so a watchdog or abort line can say both. */
+export function setLogScope(scope, fields) {
     const context = storage.getStore();
-    if (context) context.scope = scope;
+    if (!context) return;
+    context.scope = scope;
+    if (fields) context.fields = fields;
 }
 
 export function setLogOutcome(fields) {

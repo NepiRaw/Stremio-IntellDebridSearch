@@ -181,11 +181,12 @@ class StreamProvider {
             return sortedStreams;
 
         } catch (error) {
-            reportFailure('Movie search failed', { type, id, error, duration: Date.now() - startTime });
+            reportFailure('Movie search failed', { provider: config.DebridProvider, type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
+            setLogOutcome(tracker.funnel());
             tracker.report();
         }
     }
@@ -331,11 +332,12 @@ class StreamProvider {
             return sortedStreams;
 
         } catch (error) {
-            reportFailure('Series search failed', { type, id, error, duration: Date.now() - startTime });
+            reportFailure('Series search failed', { provider: config.DebridProvider, type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
         } finally {
+            setLogOutcome(tracker.funnel());
             tracker.report();
         }
     }
@@ -366,9 +368,10 @@ class StreamProvider {
 }
 
 /** The one terminal line of a failed search: handled provider failures are WARN, the rest ERROR. */
-function reportFailure(message, { type, id, error, duration }) {
-    const fields = { type, id, failedAt: 'search', error: error.name, code: error.code, duration: `${duration}ms` };
-    if (isProviderError(error)) stream.at('complete').warn(message, fields);
+function reportFailure(message, { provider, type, id, error, duration }) {
+    const handled = isProviderError(error) || error instanceof ValidationError;
+    const fields = { provider, type, id, failedAt: 'search', error: error.name, code: error.code ?? error.value, reason: handled ? error.message : undefined, duration: `${duration}ms` };
+    if (handled) stream.at('complete').warn(message, fields);
     else stream.at('failed').error(message, fields);
     setLogOutcome({ terminal: true });
 }

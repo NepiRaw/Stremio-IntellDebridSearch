@@ -1,14 +1,15 @@
 /**
- * Request-scoped stage timing.
+ * Request-scoped stage timing and funnel counters.
  *
  * One tracker per request wraps each pipeline stage, so a slow request says which stage
- * was slow instead of only how long it took overall. Disabled unless debug logging is on,
- * where it costs one object and no clock reads.
+ * was slow instead of only how long it took overall. Counters are always kept because the
+ * terminal line prints them; stage timing costs clock reads and is kept only at debug level.
  */
 
 import { logger } from './logger.js';
 
 const perf = logger.for('PERF').at('summary');
+const FUNNEL = { torrents: 'library', candidates: 'keywordHits', matches: 'titleMatches', selected: 'episodeMatches' };
 
 /** Shared inert tracker, for stages reached by a caller that tracks nothing. */
 export const disabledTracker = {
@@ -19,6 +20,9 @@ export const disabledTracker = {
     summary() {
         return '';
     },
+    funnel() {
+        return {};
+    },
     report() {}
 };
 
@@ -28,18 +32,17 @@ function debugLoggingEnabled() {
 
 /**
  * @param {string} label identifies the request in the emitted line, e.g. `tt0903747:1:7`
- * @param {{enabled?: boolean}} [options] overrides the LOG_LEVEL default, for tests
+ * @param {{enabled?: boolean}} [options] overrides the LOG_LEVEL default for timing, for tests
  */
 export function createTracker(label, options = {}) {
-    const enabled = options.enabled ?? debugLoggingEnabled();
-    if (!enabled) return disabledTracker;
-
+    const timed = options.enabled ?? debugLoggingEnabled();
     const started = performance.now();
     const entries = [];
 
     return {
         /** Times `fn`, recording the stage whether it resolves or throws. */
         async span(name, fn) {
+            if (!timed) return fn();
             const from = performance.now();
             try {
                 return await fn();
@@ -54,6 +57,7 @@ export function createTracker(label, options = {}) {
         },
 
         summary() {
+            if (!timed) return '';
             const total = `total=${Math.round(performance.now() - started)}ms`;
             const stages = entries.map(entry =>
                 entry.value === undefined ? `${entry.name}=${entry.ms}ms` : `${entry.name}=${entry.value}`
@@ -61,7 +65,17 @@ export function createTracker(label, options = {}) {
             return [label, total, ...stages].join(' ');
         },
 
+        /** The counters the terminal line prints, in pipeline order. */
+        funnel() {
+            const fields = {};
+            for (const entry of entries) {
+                if (entry.name in FUNNEL) fields[FUNNEL[entry.name]] = entry.value;
+            }
+            return fields;
+        },
+
         report() {
+            if (!timed) return;
             const [, total, ...stages] = this.summary().split(' ');
             perf.debug('Stages timed', { id: label, total: total.slice('total='.length), stages: stages.join(' ') });
         }

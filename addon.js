@@ -60,7 +60,7 @@ builder.defineCatalogHandler(async (args) => {
             }
         } catch (error) {
             if (!isProviderError(error)) throw error;
-            setLogOutcome({ degraded: true, failedAt: 'provider.list', error: error.name, code: error.code });
+            setLogOutcome({ degraded: true, failedAt: 'provider.list', error: error.name, code: error.code, reason: error.message });
             return { metas: [], ...enrichCacheParams() };
         }
 
@@ -102,7 +102,7 @@ async function torrentVideos(config, providerNameLower, torrentId) {
         .catch(error => {
             if (error instanceof ProviderItemGoneError) return null;
             if (isProviderError(error)) {
-                setLogOutcome({ degraded: true, failedAt: 'provider.fetch', error: error.name, code: error.code });
+                setLogOutcome({ degraded: true, failedAt: 'provider.fetch', error: error.name, code: error.code, reason: error.message });
                 return UNANSWERED;
             }
             throw error;

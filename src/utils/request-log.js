@@ -13,14 +13,14 @@ export function withRequestLog(req, res, run) {
         res.setHeader('X-Request-Id', context.requestId);
 
         const watchdog = setTimeout(bindLogContext(() => {
-            http.at('watchdog').warn('Still running', { active: context.scope, elapsed: elapsed(context) });
+            http.at('watchdog').warn('Still running after 10s', { ...context.fields, active: context.scope, elapsed: elapsed(context) });
         }), WATCHDOG_MS);
         watchdog.unref();
 
         res.on('close', bindLogContext(() => {
             clearTimeout(watchdog);
             if (!res.writableFinished) {
-                http.at('aborted').warn('Client disconnected', { failedAt: context.scope, duration: elapsed(context) });
+                http.at('aborted').warn('Client disconnected', { ...context.fields, failedAt: context.scope, duration: elapsed(context) });
             }
         }));
 
@@ -32,7 +32,7 @@ export function withRequestLog(req, res, run) {
  * Writes the one terminal line of a request unless its owner already did.
  * `outcome.degraded` turns the line into a WARN; the flag itself is not printed.
  */
-export function completeRequest(module, step, message, fields, { debug = false } = {}) {
+export function completeRequest(module, step, message, fields, { debug = false, degradedMessage = message } = {}) {
     const context = getLogContext();
     const outcome = context?.outcome ?? {};
     if (outcome.terminal) return;
@@ -40,7 +40,7 @@ export function completeRequest(module, step, message, fields, { debug = false }
     const { degraded, terminal, ...ownerFields } = outcome;
     const merged = { ...fields, ...ownerFields, duration: context ? elapsed(context) : undefined };
     const log = logger.for(module).at(step);
-    if (degraded) log.warn(message, merged);
+    if (degraded) log.warn(degradedMessage, merged);
     else if (debug) log.debug(message, merged);
     else log.info(message, merged, { symbol: 'complete' });
 }
@@ -48,7 +48,7 @@ export function completeRequest(module, step, message, fields, { debug = false }
 /** The terminal line of a request that ended in a thrown error: handled classes are WARN with their status, the rest ERROR. */
 export function failRequest(module, error, status, fields) {
     const context = getLogContext();
-    const merged = { ...fields, failedAt: context?.scope ?? undefined, status, error: error?.name, code: error?.code, duration: context ? elapsed(context) : undefined };
+    const merged = { ...fields, failedAt: context?.scope ?? undefined, status, error: error?.name, code: error?.code, reason: status < 500 ? error?.message : undefined, duration: context ? elapsed(context) : undefined };
     if (status >= 500) logger.for(module).at('failed').error('Request failed', merged);
     else logger.for(module).at('complete').warn('Request refused', merged);
 }
