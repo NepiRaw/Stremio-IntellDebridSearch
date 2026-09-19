@@ -8,10 +8,14 @@ import requestIp from 'request-ip'
 import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
-import { ProviderItemGoneError, isProviderError } from './src/providers/errors.js'
+import { ProviderItemGoneError } from './src/providers/errors.js'
 import { ApiKeySecurityManager } from './src/providers/resolve-url.js'
 import { getProvider } from './src/providers/index.js'
-import { logger } from './src/utils/logger.js'
+import { logger, setLogScope } from './src/utils/logger.js'
+import { completeRequest, failRequest, withRequestLog } from './src/utils/request-log.js'
+
+const security = logger.for('SECURITY')
+const configLog = logger.for('CONFIG')
 
 
 const router = new Router();
@@ -56,10 +60,11 @@ router.post('/encrypt-config', async (req, res) => {
                          (referer && allowedOrigins.some(allowed => referer.includes(allowed.replace('http://', '').replace('https://', ''))));
     
     if (!isValidOrigin) {
-        logger.warn(`[security] Encrypt-config access denied from origin: ${origin || 'unknown'}, referer: ${referer || 'unknown'}`);
+        security.at('origin').warn('Origin refused', { present: Boolean(origin || referer), status: 403 });
         return res.status(403).json({ error: 'Access denied - invalid origin' });
     }
-    
+
+    setLogScope('encrypt')
     try {
         const config = req.body;
         if (!config || typeof config !== 'object') {
@@ -74,8 +79,8 @@ router.post('/encrypt-config', async (req, res) => {
             const provider = getProvider(config.DebridProvider);
 
             if (!provider) {
-                logger.warn(`[encrypt-config] Unknown provider: ${config.DebridProvider}`);
-                return res.status(400).json({ 
+                configLog.at('rejected').warn('Unknown provider', { code: 'UNKNOWN_PROVIDER', status: 400 });
+                return res.status(400).json({
                     error: `Unknown provider: ${config.DebridProvider}`,
                     validationFailed: true
                 });
@@ -86,6 +91,7 @@ router.post('/encrypt-config', async (req, res) => {
                 .catch(error => ({ valid: false, error: error.userMessage ?? error.message, errorCode: error.code }));
             
             if (!validation.valid) {
+                configLog.at('rejected').warn('Key rejected', { provider: config.DebridProvider, code: validation.errorCode, status: 400 });
                 await new Promise(r => setTimeout(r, 500));
                 return res.status(400).json({
                     error: validation.error || 'Invalid API key',
@@ -102,9 +108,7 @@ router.post('/encrypt-config', async (req, res) => {
         
         const baseUrl = process.env.ADDON_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}`;
         const manifestUrl = `${baseUrl}/${encryptedConfig}/manifest.json`;
-        
-        logger.debug(`[encrypt-config] Manifest generated for ${config.DebridProvider} - ${manifestUrl}`);
-        
+
         res.json({
             encrypted: true,
             encryptedConfig: encryptedConfig,
@@ -112,8 +116,9 @@ router.post('/encrypt-config', async (req, res) => {
             desktopUrl: `stremio://${req.headers.host}/${encryptedConfig}/manifest.json`,
             webUrl: `https://web.stremio.com/#/addons?addon=${encodeURIComponent(manifestUrl)}`
         });
+        completeRequest('CONFIG', 'complete', 'Configuration encrypted', { provider: config.DebridProvider, status: 200 }, { debug: true })
     } catch (error) {
-        logger.error('[security] Encryption endpoint error:', error.message);
+        failRequest('CONFIG', error, 500)
         res.status(500).json({ error: 'Encryption service unavailable' });
     }
 })
@@ -126,18 +131,20 @@ router.options('/encrypt-config', (req, res) => {
 })
 
 router.get('/:configuration?/configure', (req, res) => {
+    setLogScope('configure')
     const config = parseConfiguration(req.params.configuration)
     const landingHTML = landingTemplate(addonInterface.manifest, config)
     res.setHeader('content-type', 'text/html')
     res.end(landingHTML)
+    completeRequest('CONFIG', 'complete', 'Configure page served', { configured: Boolean(config?.DebridProvider), status: 200 }, { debug: true })
 })
 
 router.get('/:configuration?/manifest.json', (req, res) => {
-    const configParam = req.params.configuration;
-    
-    const config = parseConfiguration(configParam)
+    setLogScope('manifest')
+    const config = parseConfiguration(req.params.configuration)
     res.setHeader('content-type', 'application/json; charset=utf-8')
     res.end(JSON.stringify(getManifest(config)))
+    completeRequest('CONFIG', 'complete', 'Manifest served', { configured: Boolean(config?.DebridProvider), status: 200 }, { debug: true })
 })
 
 router.options('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
@@ -152,21 +159,23 @@ router.options('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:host
 
 router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl', (req, res) => {
     const clientIp = requestIp.getClientIp(req)
-    
+    const { debridProvider: provider, id } = req.params
+    setLogScope('resolve')
+
     try {
         let actualApiKey = req.params.debridApiKey;
 
         const carried = parseConfiguration(req.params.configuration);
-        const carriedKey = carried?.DebridProvider === req.params.debridProvider ? carried.DebridApiKey : null;
+        const carriedKey = carried?.DebridProvider === provider ? carried.DebridApiKey : null;
 
         if (carriedKey) {
             actualApiKey = carriedKey;
         } else if (ApiKeySecurityManager.isSecureToken(req.params.debridApiKey)) {
 
-            const resolvedKey = ApiKeySecurityManager.resolveSecureToken(req.params.debridProvider, req.params.debridApiKey);
+            const resolvedKey = ApiKeySecurityManager.resolveSecureToken(provider, req.params.debridApiKey);
 
             if (resolvedKey === null && req.params.debridApiKey !== 'null') {
-                logger.error(`[SECURITY] Secure token resolution failed for ${req.params.debridProvider}: ${req.params.debridApiKey}`);
+                security.at('token').warn('Token unknown', { provider, status: 401 });
                 res.status(401).json({ error: 'Invalid or expired security token' });
                 return;
             }
@@ -174,17 +183,18 @@ router.get('/:configuration?/resolve/:debridProvider/:debridApiKey/:id/:hostUrl'
             actualApiKey = resolvedKey || 'null';
         }
 
-        StreamProvider.resolveUrl(req.params.debridProvider, actualApiKey, req.params.id, decode(req.params.hostUrl), clientIp)
+        StreamProvider.resolveUrl(provider, actualApiKey, id, decode(req.params.hostUrl), clientIp)
             .then(url => {
                 res.redirect(url)
+                completeRequest('RESOLVE', 'complete', 'Link resolved', { provider, id, carried: Boolean(carriedKey), status: 302 })
             })
             .catch(err => {
-                const log = isProviderError(err) ? logger.warn : logger.error
-                log(`[resolve] ${req.params.debridProvider}:`, err)
-                handleError(err, res)
+                const status = statusFor(err)
+                failRequest('RESOLVE', err, status, { provider, id })
+                answerError(status, res)
             })
     } catch (error) {
-        logger.error(`[SECURITY] Error in resolve endpoint:`, error.message);
+        failRequest('RESOLVE', error, 500, { provider, id })
         res.status(500).json({ error: 'Internal server error' });
     }
 })
@@ -201,6 +211,9 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
 
     const config = parseConfiguration(shifted ? undefined : req.params.configuration)
     const extra = extraSegment ? qs.parse(req.url.split('/').pop().slice(0, -5)) : {}
+    const module = RESOURCE_MODULE[resource]
+    const fields = { provider: config?.DebridProvider, type, id }
+    setLogScope(resource)
 
     addonInterface.get(resource, type, id, extra, config)
         .then(resp => {
@@ -214,13 +227,16 @@ router.get(`/:configuration?/:resource/:type/:id/:extra?.json`, (req, res, next)
                 .map(prop => Number.isInteger(resp[prop]) && cacheHeaders[prop] + '=' + resp[prop])
                 .filter(val => !!val).join(', ')
 
+            const body = JSON.stringify(resp)
             if (cacheControl) res.setHeader('Cache-Control', `${cacheControl}, private`)
             res.setHeader('Content-Type', 'application/json; charset=utf-8')
-            res.end(JSON.stringify(resp))
+            res.end(body)
+            completeRequest(module, 'complete', RESOURCE_MESSAGE[resource], { ...fields, ...answerCounts(resource, resp, extra), bytes: Buffer.byteLength(body) })
         })
         .catch(err => {
-            logger.error(`[${resource}] ${type} ${id}:`, err)
-            handleError(err, res)
+            const status = statusFor(err)
+            failRequest(module ?? 'HTTP', err, status, fields)
+            answerError(status, res)
         })
 })
 
@@ -229,28 +245,30 @@ router.get('/ping', (_, res) => {
     res.end()
 })
 
-function handleError(err, res) {
-    if (err instanceof BadTokenError) {
-        res.writeHead(401)
-        res.end(JSON.stringify({ err: 'Bad token' }))
-    } else if (err instanceof ProviderItemGoneError) {
-        res.writeHead(404)
-        res.end(JSON.stringify({ err: 'Not available' }))
-    } else if (err instanceof AccessDeniedError) {
-        res.writeHead(403)
-        res.end(JSON.stringify({ err: 'Access denied' }))
-    } else if (err instanceof BadRequestError) {
-        res.writeHead(400)
-        res.end(JSON.stringify({ err: 'Bad request' }))
-    } else {
-        res.writeHead(500)
-        res.end(JSON.stringify({ err: 'Server error' }))
-    }
+const RESOURCE_MODULE = { catalog: 'CATALOG', meta: 'META', stream: 'STREAM' }
+const RESOURCE_MESSAGE = { catalog: 'Catalog answered', meta: 'Meta answered', stream: 'Streams answered' }
+
+function answerCounts(resource, resp, extra) {
+    if (resource === 'catalog') return { mode: extra.search ? 'search' : 'browse', metas: resp.metas?.length ?? 0 }
+    if (resource === 'meta') return { found: Boolean(resp.meta), videos: resp.meta?.videos?.length ?? 0, enriched: Boolean(resp.meta?.imdb_id) }
+    return { streams: resp.streams?.length ?? 0 }
+}
+
+const ERROR_STATUS = [[BadTokenError, 401, 'Bad token'], [ProviderItemGoneError, 404, 'Not available'], [AccessDeniedError, 403, 'Access denied'], [BadRequestError, 400, 'Bad request']]
+
+function statusFor(err) {
+    return ERROR_STATUS.find(([type]) => err instanceof type)?.[1] ?? 500
+}
+
+function answerError(status, res) {
+    const message = ERROR_STATUS.find(([, code]) => code === status)?.[2] ?? 'Server error'
+    res.writeHead(status)
+    res.end(JSON.stringify({ err: message }))
 }
 
 export default function (req, res) {
-    router(req, res, function () {
+    withRequestLog(req, res, () => router(req, res, function () {
         res.statusCode = 404;
         res.end();
-    });
+    }));
 }

@@ -7,7 +7,6 @@
 import crypto from 'crypto';
 import { encode } from 'urlencode';
 import { encryptConfig } from '../config/configuration.js';
-import { logger } from '../utils/logger.js';
 
 const TOKEN_LENGTH = 16;
 const secureTokenMapping = new Map();
@@ -23,11 +22,7 @@ export class ApiKeySecurityManager {
         if (token === 'null') return null;
 
         const apiKey = secureTokenMapping.get(`${providerName}:${token}`);
-        if (!apiKey) {
-            logger.warn(`[SECURITY] Token resolution failed for ${providerName}:${token}`);
-            return null;
-        }
-        return apiKey;
+        return apiKey ?? null;
     }
 
     static isSecureToken(value) {

@@ -14,6 +14,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const provider = logger.for('PROVIDER');
+
 export const name = 'TorBox';
 export const capabilities = { filesInline: true, bulkFiles: false, directLinks: false };
 
@@ -152,7 +154,7 @@ export const listUsenetDownloads = apiKey => listLane(apiKey, TYPED_LANES[1]);
 export async function listLibraryItems(apiKey) {
     const laneTasks = TYPED_LANES.map(lane => listLane(apiKey, lane).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] ${lane.sourceKind} discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('list').warn('Lane unavailable', { provider: name, code: error.code ?? lane.sourceKind, error: error.name });
         return [];
     }));
     const [torrents, ...typed] = await Promise.all([listTorrents(apiKey), ...laneTasks]);
@@ -219,7 +221,7 @@ export async function fetchFiles(apiKey, torrents) {
             files.set(id, item ? toVideos(item, found.row.files ?? [], apiKey) : []);
         } catch (error) {
             if (error instanceof ProviderAuthError) throw error;
-            logger.debug(`[${name}] dropping library item ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            provider.at('fetch').debug('Item dropped', { provider: name, error: error.name, code: error.code ?? error.status });
             files.set(id, []);
         }
     }));

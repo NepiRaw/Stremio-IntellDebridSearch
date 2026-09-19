@@ -14,6 +14,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const provider = logger.for('PROVIDER');
+
 export const name = 'DebridLink';
 export const capabilities = { filesInline: true, bulkFiles: false, directLinks: true };
 
@@ -141,7 +143,7 @@ export async function listDownloads(apiKey) {
 export async function listLibraryItems(apiKey) {
     const downloadsTask = listDownloads(apiKey).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] download discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('list').warn('Downloads unavailable', { provider: name, error: error.name, code: error.code });
         return [];
     });
     const [torrents, downloads] = await Promise.all([listTorrents(apiKey), downloadsTask]);
@@ -225,7 +227,7 @@ export async function fetchFiles(apiKey, torrents) {
             files.set(id, row?.files ? toVideos(toCanonical(row), row.files, apiKey) : []);
         } catch (error) {
             if (error instanceof ProviderAuthError) throw error;
-            logger.debug(`[${name}] dropping library item ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            provider.at('fetch').debug('Item dropped', { provider: name, error: error.name, code: error.code ?? error.status });
             files.set(id, []);
         }
     }));

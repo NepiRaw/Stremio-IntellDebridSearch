@@ -13,6 +13,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const list = logger.for('PROVIDER').at('list');
+
 export const name = 'AllDebrid';
 export const capabilities = { filesInline: false, bulkFiles: true, directLinks: false };
 
@@ -122,7 +124,7 @@ export async function listSavedLinks(apiKey) {
 export async function listLibraryItems(apiKey) {
     const savedLinksTask = listSavedLinks(apiKey).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] saved-link discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        list.warn('Saved links unavailable', { provider: name, error: error.name, code: error.code });
         return [];
     });
     const [torrents, savedLinks] = await Promise.all([listTorrents(apiKey), savedLinksTask]);
@@ -171,7 +173,7 @@ export async function fetchFiles(apiKey, torrents) {
         }
     }).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] saved-link files unavailable: ${error.name} ${error.code ?? ''}`);
+        logger.for('PROVIDER').at('fetch').warn('Saved-link files unavailable', { provider: name, error: error.name, code: error.code });
         for (const requested of savedLinks) files.set(String(requested.id), []);
     }) : Promise.resolve();
 
@@ -189,7 +191,7 @@ export async function fetchFiles(apiKey, torrents) {
             // A magnet deleted between listing and this call fails alone; the batch still answers.
             if (magnet.error) {
                 const error = classify({ provider: name, operation: 'fetchFiles', status: 200, body: { status: 'error', error: magnet.error } });
-                logger.debug(`[${name}] dropping torrent ${magnet.id}: ${error.name} ${error.code}`);
+                logger.for('PROVIDER').at('fetch').debug('Torrent dropped', { provider: name, error: error.name, code: error.code });
                 continue;
             }
 

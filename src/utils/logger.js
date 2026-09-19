@@ -12,7 +12,7 @@ const OUTCOME = Object.freeze({ ready: '🚀', complete: '✓', warn: '⚠', err
 
 /** One glyph and one step list per module  */
 export const MODULES = Object.freeze({
-    SYSTEM: { symbol: '🖥️', steps: ['startup', 'shutdown', 'cleanup'] },
+    SYSTEM: { symbol: '🖥️', steps: ['startup'] },
     HTTP: { symbol: '🌐', steps: ['watchdog', 'aborted', 'failed'] },
     CONFIG: { symbol: '⚙️', steps: ['parse', 'complete', 'rejected'] },
     SECURITY: { symbol: '🔐', steps: ['origin', 'token', 'reject'] },
@@ -26,35 +26,30 @@ export const MODULES = Object.freeze({
     TMDB: { symbol: '🎞️', steps: ['fetch', 'titles', 'external'] },
     TVDB: { symbol: '🎞️', steps: ['fetch', 'map', 'episodes'] },
     CACHE: { symbol: '💾', steps: ['startup', 'hit', 'miss', 'store', 'record', 'maintenance'] },
-    PERF: { symbol: '⏱️', steps: ['summary'] },
-    WARP: { symbol: '🛡️', steps: ['startup'] },
-    LEGACY: { symbol: '📝', steps: ['log'] }
+    PERF: { symbol: '⏱️', steps: ['summary'] }
 });
 
 const COMMON_FIELDS = ['cfg', 'duration', 'status', 'code', 'error', 'failedAt', 'module', 'attempt', 'attempts', 'delay', 'truncated'];
 const MODULE_FIELDS = Object.freeze({
-    SYSTEM: ['port', 'environment', 'advancedSearch', 'episodeMapping', 'catalogPosters', 'cache', 'warp'],
-    HTTP: ['route', 'active', 'elapsed'],
+    SYSTEM: ['port', 'environment', 'tmdb', 'tvdb', 'advancedSearch', 'releaseGroups', 'catalogPosters', 'cache', 'warp'],
+    HTTP: ['active', 'elapsed'],
     CONFIG: ['format', 'valid', 'configured', 'provider'],
-    SECURITY: ['host', 'present', 'direct', 'provider'],
-    CATALOG: ['provider', 'mode', 'input', 'metas', 'malformed', 'bytes'],
+    SECURITY: ['present', 'provider'],
+    CATALOG: ['provider', 'type', 'id', 'mode', 'input', 'metas', 'malformed', 'bytes'],
     SEARCH: ['terms', 'alternatives', 'input', 'candidates', 'identity', 'matches', 'absoluteEpisode', 'selected', 'failed', 'mode', 'type'],
     STREAM: ['provider', 'type', 'id', 'fileIndex', 'input', 'usable', 'yearRejected', 'noVideo', 'torrents', 'built', 'dropped', 'buildFailed', 'duplicates', 'remaining', 'streams', 'bytes'],
-    META: ['provider', 'id', 'videos', 'dropped', 'enriched', 'bytes'],
+    META: ['provider', 'type', 'id', 'found', 'videos', 'dropped', 'enriched', 'bytes'],
     RESOLVE: ['provider', 'id', 'carried'],
     PROVIDER: ['provider', 'valid', 'torrents', 'dropped', 'found', 'videos', 'input', 'items', 'files', 'page', 'pages'],
     CINEMETA: ['type', 'id', 'found'],
     TMDB: ['type', 'id', 'found', 'titles'],
     TVDB: ['id', 'found', 'episodes'],
     CACHE: ['name', 'entries', 'evicted', 'key'],
-    PERF: ['id', 'total', 'stages'],
-    WARP: ['mode', 'registered'],
-    LEGACY: ['detail']
+    PERF: ['id', 'total', 'stages']
 });
 
 const SENSITIVE_KEY = /(?:api[-_]?key|authorization|cookie|credential|password|secret|token|configuration|hosturl|url)$/i;
 const URL_VALUE = /^[a-z][a-z0-9+.-]*:\/\//i;
-const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 const REQUEST_ID = /^[A-Za-z0-9_-]{8}$/;
 const RESET = '\u001b[0m';
 const CONTEXT_WIDTH = 8;
@@ -156,7 +151,6 @@ export function runWithLogContext(context, callback) {
     const store = {
         requestId,
         cfg: context?.cfg ? String(context.cfg).slice(0, 8) : null,
-        route: context?.route ?? null,
         startedAt: Date.now(),
         scope: null,
         outcome: null
@@ -172,6 +166,13 @@ export function setLogScope(scope) {
     if (context) context.scope = scope;
 }
 
+export function setLogOutcome(fields) {
+    const context = storage.getStore();
+    if (context) context.outcome = { ...(context.outcome ?? {}), ...fields };
+}
+
+export const bindLogContext = fn => AsyncLocalStorage.bind(fn);
+
 export const logger = {
     for(component) {
         if (!MODULES[String(component).toUpperCase()]) throw new TypeError(`Unknown log module: ${component}`);
@@ -185,31 +186,8 @@ export const logger = {
                 };
             }
         };
-    },
-
-    info: (message, ...args) => legacy('info', message, args),
-    warn: (message, ...args) => legacy('warn', message, args),
-    error: (message, ...args) => legacy('error', message, args),
-    debug: (message, ...args) => legacy('debug', message, args),
-    success: (message, ...args) => legacy('info', message, args, { symbol: 'complete' })
+    }
 };
-
-function legacyText(value) {
-    if (value instanceof Error) return `${value.name}: ${value.message}`;
-    if (typeof value === 'string') return value;
-    if (value && typeof value === 'object' && typeof value.message === 'string') return value.message;
-    if (Array.isArray(value)) return `[${value.length} items]`;
-    if (value && typeof value === 'object') return '{object}';
-    return String(value);
-}
-
-function legacy(level, message, args, options = {}) {
-    if (!enabled(level)) return;
-    const text = [message, ...args].map(legacyText).join(' ').replace(URL_IN_TEXT, '[REDACTED]');
-    const { name, module } = resolveScope('LEGACY', 'log');
-    const symbol = level === 'warn' ? OUTCOME.warn : level === 'error' ? OUTCOME.error : options.symbol ? OUTCOME[options.symbol] : undefined;
-    write(level, formatLine({ level, symbol, name, module, step: 'log', message: text, fields: [] }));
-}
 
 export function setLogLevel(level) {
     const resolved = resolveLevel(level);

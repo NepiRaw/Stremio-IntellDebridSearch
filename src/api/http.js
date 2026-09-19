@@ -1,4 +1,3 @@
-import { logger } from '../utils/logger.js';
 
 /**
  * Shared transport for the upstream clients.
@@ -46,7 +45,6 @@ export async function fetchWithRetry(url, options = {}, label = 'http') {
             if (!isTransientNetworkError(error)) throw error;
             lastError = error;
             if (attempt < ATTEMPTS) {
-                logger.debug(`[${label}] ${error.code ?? error.cause?.code ?? error.message} on attempt ${attempt}, retrying`);
                 await wait(RETRY_DELAY_MS * attempt);
             }
         }

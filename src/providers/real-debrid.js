@@ -14,6 +14,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const provider = logger.for('PROVIDER');
+
 export const name = 'RealDebrid';
 export const capabilities = { filesInline: false, bulkFiles: false, directLinks: false };
 
@@ -136,7 +138,7 @@ export async function listDownloads(apiKey) {
 export async function listLibraryItems(apiKey) {
     const downloadsTask = listDownloads(apiKey).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] download discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('list').warn('Downloads unavailable', { provider: name, error: error.name, code: error.code });
         return [];
     });
     const [torrents, downloads] = await Promise.all([listTorrents(apiKey), downloadsTask]);
@@ -166,7 +168,7 @@ function pairLinks(item) {
 function toVideos(item, apiKey) {
     const { paired, reason } = pairLinks(item);
     if (reason) {
-        logger.debug(`[${name}] dropping torrent ${item.id}: ${reason} (${item.links?.length ?? 0} links, ${(item.files ?? []).filter(file => file.selected === 1).length} selected)`);
+        provider.at('fetch').debug('Torrent dropped', { provider: name, code: reason, files: (item.files ?? []).filter(file => file.selected === 1).length });
         return [];
     }
 
@@ -214,7 +216,7 @@ export async function fetchFiles(apiKey, torrents) {
         }
     }).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] download files unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('fetch').warn('Download files unavailable', { provider: name, error: error.name, code: error.code });
     }) : Promise.resolve();
 
     await Promise.all([downloadsTask, ...torrentRows.map(async torrent => {
@@ -224,7 +226,7 @@ export async function fetchFiles(apiKey, torrents) {
         } catch (error) {
             // A rejected key must reach the user; one unreachable torrent must not empty the search.
             if (error instanceof ProviderAuthError) throw error;
-            logger.debug(`[${name}] dropping torrent ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            provider.at('fetch').debug('Torrent dropped', { provider: name, error: error.name, code: error.code ?? error.status });
             files.set(id, []);
         }
     })]);

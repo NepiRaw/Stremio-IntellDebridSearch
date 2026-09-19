@@ -3,7 +3,6 @@
  * Handles torrent content analysis for episode matching (Phase 2)
  */
 
-import { logger } from '../utils/logger.js';
 import { isVideo } from '../utils/file-types.js';
 import { frozenParse } from '../parsing/parser.js';
 import { matchEpisodeAddress, keepBestTier } from '../utils/episode-address.js';
@@ -67,7 +66,6 @@ export function analyzeTorrent(torrent, addresses) {
         torrent.match = matchEpisodeAddress(torrent.parsed ?? frozenParse(torrent.name), addresses);
 
         if (torrent.match) {
-            logger.info(`[torrent-analyzer] ✅ ${torrent.match.source} match for: ${torrent.name}`);
             result.hasMatchingEpisode = true;
             result.matchingFiles = [torrent];
         }
@@ -78,7 +76,6 @@ export function analyzeTorrent(torrent, addresses) {
     result.isContainer = true;
 
     if (!torrent.videos?.length) {
-        logger.info(`[torrent-analyzer] Container has no processed videos:`, torrent.name);
         return result;
     }
 

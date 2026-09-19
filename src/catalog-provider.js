@@ -3,6 +3,8 @@ import { createPosterLookupContext, isCatalogPosterEnabled, resolvePosterFromCon
 import { getCacheRecorder } from './utils/cache-recorder.js'
 import { parseName } from './parsing/parser.js'
 
+const malformed = logger.for('CATALOG').at('convert')
+
 async function mapLimit(items, limit, mapper) {
     const results = new Array(items.length);
     let index = 0;
@@ -81,7 +83,7 @@ function toMeta(torrent, options = {}) {
         const providerLowercase = torrent.provider.toLowerCase(); // Convert provider name to lowercase for other addon metadata sync
         metaId = providerLowercase + ':' + torrent.id;
     } else {
-        console.warn('Warning: torrent object missing proper ID or provider fields:', torrent);
+        malformed.warn('Catalog item without provider or id', { provider: torrent.provider });
         metaId = torrent.id || 'unknown';
     }
 

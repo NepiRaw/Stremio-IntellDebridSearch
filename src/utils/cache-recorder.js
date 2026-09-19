@@ -7,6 +7,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { logger } from './logger.js';
 
+const cacheLog = logger.for('CACHE');
+
 const DEDUP_CACHE_MAX = 10000;
 const DEDUP_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const BATCH_FLUSH_INTERVAL_MS = 5000; // 5 seconds
@@ -71,10 +73,7 @@ export class CacheRecorder {
         this.enabled = options.enabled !== false;
         this.db = null;
 
-        if (!this.enabled) {
-            logger.info('[cache-recorder] Recording disabled via CACHE_RECORDING_ENABLED=false');
-            return;
-        }
+        if (!this.enabled) return;
 
         this.dbPath = path.resolve(options.dbPath || './data/debrid-cache.sqlite');
         this.stalenessHours = options.stalenessHours || STALENESS_HOURS_DEFAULT;
@@ -86,7 +85,7 @@ export class CacheRecorder {
         this._startFlushTimer();
         this._startCleanupTimer();
 
-        logger.info(`[cache-recorder] Initialized (db=${this.dbPath}, staleness=${this.stalenessHours}h)`);
+        cacheLog.at('startup').debug('Recorder ready', { name: 'recorder' });
     }
 
     _initDb() {
@@ -395,9 +394,9 @@ export class CacheRecorder {
             runBatch();
 
             const duration = Date.now() - startTime;
-            logger.debug(`[cache-recorder] Flushed ${batch.length} entries in ${duration}ms`);
+            cacheLog.at('record').debug('Batch flushed', { name: 'recorder', entries: batch.length, duration: `${duration}ms` });
         } catch (err) {
-            logger.warn(`[cache-recorder] Batch write failed: ${err.message}`);
+            cacheLog.at('record').warn('Batch write failed', { name: 'recorder', error: err.name });
             // Don't re-add to buffer — lost writes are acceptable for cache data
         }
     }
@@ -452,13 +451,9 @@ export class CacheRecorder {
             this.db.pragma('incremental_vacuum(100)');
 
             const duration = Date.now() - startTime;
-            logger.info(
-                `[cache-recorder] Cleanup completed in ${duration}ms: ` +
-                `stale=${staleResult.changes}, orphan_content=${orphanContent.changes}, ` +
-                `orphan_files=${orphanFiles.changes}`
-            );
+            cacheLog.at('maintenance').debug('Recorder cleaned', { name: 'recorder', evicted: staleResult.changes + orphanContent.changes + orphanFiles.changes, duration: `${duration}ms` });
         } catch (err) {
-            logger.warn(`[cache-recorder] Cleanup failed: ${err.message}`);
+            cacheLog.at('maintenance').warn('Recorder cleanup failed', { name: 'recorder', error: err.name });
         }
     }
 

@@ -4,6 +4,8 @@
  */
 
 import { logger } from '../utils/logger.js';
+
+const prepare = logger.for('SEARCH').at('prepare');
 import { extractKeywords } from './keyword-extractor.js';
 import { fetchTMDbAlternativeTitles } from '../api/tmdb.js';
 import { getEpisodeMapping, getSeasonLength } from '../api/tvdb.js';
@@ -29,7 +31,7 @@ function getManualSearchTerms(imdbId) {
         const mappings = JSON.parse(cleanContent);
         return mappings[imdbId] || [];
     } catch (error) {
-        logger.warn(`[phase-0] Failed to load manual search mappings: ${error.message}`);
+        prepare.warn('Manual mappings unreadable', { error: error.name });
         return [];
     }
 }
@@ -49,13 +51,10 @@ function getManualSearchTerms(imdbId) {
 export async function prepareSearchTerms(params) {
     const { searchKey, type, imdbId, season, episode, tmdbApiKey, tvdbApiKey } = params;
 
-    logger.info('[phase-0] Starting search preparation');
-
     const apiCalls = [];
 
     let absoluteEpisodePromise = null;
     if (tvdbApiKey && type === 'series' && season && episode) {
-        logger.info(`[phase-0] Fetching absolute episode mapping for S${season}E${episode}`);
         absoluteEpisodePromise = getEpisodeMapping(imdbId, season, episode);
         apiCalls.push(absoluteEpisodePromise);
     }
@@ -63,7 +62,6 @@ export async function prepareSearchTerms(params) {
     // Fetch alternative titles from TMDb
     let alternativeTitlesPromise = null;
     if (tmdbApiKey && type && imdbId) {
-        logger.info('[phase-0] TMDb API available, fetching alternative titles');
         alternativeTitlesPromise = fetchTMDbAlternativeTitles(null, type, tmdbApiKey, imdbId);
         apiCalls.push(alternativeTitlesPromise);
     }
@@ -73,8 +71,6 @@ export async function prepareSearchTerms(params) {
     let alternativeTitles = [];
     
     if (apiCalls.length > 0) {
-        const startTime = Date.now();
-        
         const results = await Promise.all([
             absoluteEpisodePromise || Promise.resolve(null),
             alternativeTitlesPromise || Promise.resolve([])
@@ -82,18 +78,6 @@ export async function prepareSearchTerms(params) {
         
         absoluteEpisode = results[0];
         alternativeTitles = results[1];
-        
-        const duration = Date.now() - startTime;
-        
-        if (absoluteEpisode) {
-            if (absoluteEpisode.absoluteEpisode != null) {
-                logger.info(`[phase-0] ✅ Found absolute episode: ${absoluteEpisode.absoluteEpisode} (${absoluteEpisode.title || 'No title'})`);
-            } else {
-                logger.info(`[phase-0] ❌ No absolute episode number found, but got title: ${absoluteEpisode.title || 'No title'}`);
-            }
-        } else if (tvdbApiKey && type === 'series' && season && episode) {
-            logger.info(`[phase-0] ❌ No absolute episode found from TVDB API`);
-        }
     }
     
     // Prepare all search terms + Add raw titles first for exact matching
@@ -104,7 +88,6 @@ export async function prepareSearchTerms(params) {
     // 2. Add manual search terms from JSON configuration
     const manualTerms = getManualSearchTerms(imdbId);
     if (manualTerms.length > 0) {
-        logger.info(`[phase-0] 🎯 Adding ${manualTerms.length} manual search terms for ${imdbId}: ${manualTerms.join(', ')}`);
         allSearchTerms.push(...manualTerms);
     }
     
@@ -132,7 +115,7 @@ export async function prepareSearchTerms(params) {
     });
     const uniqueSearchTerms = Array.from(termMap.values());
     
-    logger.info(`[phase-0] Deduplicated search terms: ${allSearchTerms.length} → ${uniqueSearchTerms.length} unique terms`);
+    prepare.debug('Terms prepared', { terms: uniqueSearchTerms.length, alternatives: alternativeTitles.length, absoluteEpisode: absoluteEpisode?.absoluteEpisode ?? null });
 
     const seasonOneLength = absoluteEpisode?.absoluteEpisode ? await getSeasonLength(imdbId, 1) : 0;
 
@@ -158,7 +141,6 @@ export function generateEpisodeKeywords(type, season, episode, absoluteEpisode, 
     const keywords = uniqueSearchTerms.filter(term => term && typeof term === "string");
     
     if (type === 'movie') {
-        logger.debug(`[phase-0] Generated movie keywords (${keywords.length}): ${keywords.join(', ')}`);
         return keywords;
     }
     
@@ -176,6 +158,5 @@ export function generateEpisodeKeywords(type, season, episode, absoluteEpisode, 
         }
     }
 
-    logger.debug(`[phase-0] Generated keywords (${keywords.length}): ${keywords.join(', ')}`);
     return keywords;
 }

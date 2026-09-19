@@ -5,6 +5,8 @@
  */
 
 import { logger } from '../utils/logger.js';
+
+const search = logger.for('SEARCH');
 import { prepareSearchTerms, generateEpisodeKeywords } from './phase-0-preparation.js';
 import { fetchProviderTorrents, preFilterTorrentsByKeywords } from './provider-search.js';
 import { buildAliasVocabularies, performTitleMatching, shouldProceedToPhase2 } from './phase-1-title-matching.js';
@@ -27,7 +29,6 @@ function createTitleVariants(originalTitle, type) {
     if (originalTitle.includes('&')) {
         const andVariant = originalTitle.replace(/\s*&\s*/g, ' and ');
         variants.push(andVariant);
-        logger.debug(`[coordinator] Created "&" → "and" variant for ${type}: "${originalTitle}" → "${andVariant}"`);
     }
     
     return variants;
@@ -53,8 +54,6 @@ export async function coordinateSearch(params) {
     tmdbApiKey = apiConfig.tmdbApiKey;
     tvdbApiKey = apiConfig.tvdbApiKey;
     
-    logger.info('[coordinator] Starting two-phase search for:', searchKey);
-
     // Create title variants for enhanced search (movie-only)
     const titleVariants = createTitleVariants(searchKey, type);
     
@@ -81,7 +80,6 @@ export async function coordinateSearch(params) {
         const rawVariants = titleVariants.slice(1); // Skip first (original), keep with punctuation
         const normalizedVariants = rawVariants.map(variant => extractKeywords(variant));
         uniqueSearchTerms = [...uniqueSearchTerms, ...rawVariants, ...normalizedVariants];
-        logger.debug(`[coordinator] Added ${rawVariants.length} raw + ${normalizedVariants.length} normalized variant terms`);
     }
 
     // ========== OPTIMIZED PROVIDER SEARCH (SINGLE FETCH + PRE-FILTER) ==========
@@ -93,14 +91,14 @@ export async function coordinateSearch(params) {
         // A rejected key is the one failure the user can act on, so it must reach the stream
         // handler and become a visible row. Everything else stays logged and silent.
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[coordinator] Failed to fetch torrents: ${error.message}`);
+        search.at('failed').warn('Library unavailable', { failedAt: 'provider.list', error: error.name, code: error.code });
         return [];
     }
 
     tracker.note('torrents', allTorrents.length);
 
     if (allTorrents.length === 0) {
-        logger.info('❌ [coordinator] No torrents found');
+        search.at('prefilter').debug('Library empty', { input: 0 });
         return [];
     }
 
@@ -108,14 +106,12 @@ export async function coordinateSearch(params) {
 
     // Pre-filter torrents by keyword inclusion before expensive Fuse.js
     const keywords = generateEpisodeKeywords(type, season, episode, absoluteEpisode, uniqueSearchTerms);
-    logger.info(`[coordinator] Generated ${keywords.length} keywords for search: ${keywords.join(', ')}`);
     const relevantTorrents = await tracker.span('prefilter', () =>
         preFilterTorrentsByKeywords(allTorrents, keywords, aliasVocabularies));
 
     tracker.note('candidates', relevantTorrents.length);
 
     if (relevantTorrents.length === 0) {
-        logger.info('❌ [coordinator] No relevant torrents found after pre-filtering');
         return [];
     }
 
@@ -144,7 +140,7 @@ export async function coordinateSearch(params) {
                     return !statesEpisode(settled) && !statesSeasonWithoutEpisode(settled);
                 });
                 if (results.length < beforeCount) {
-                    logger.info(`[coordinator] Filtered ${beforeCount - results.length} series torrent(s) from movie results`);
+                    search.at('title').debug('Series releases dropped from a movie search', { input: beforeCount, matches: results.length });
                 }
             }
             
@@ -154,7 +150,7 @@ export async function coordinateSearch(params) {
             };
         }
         
-        logger.info(`[coordinator] Stopping search: ${phase2Decision.reason}`);
+        search.at('title').debug('Search stopped', { mode: phase2Decision.reason });
         return [];
     }
 
@@ -162,8 +158,6 @@ export async function coordinateSearch(params) {
     let matches = [];
     
     if (titleMatches.length > 0) {
-        logger.info('[coordinator] Phase 2: Deep content analysis for episode matching');
-        
         const addresses = buildEpisodeAddresses({
             season: parseInt(season),
             episode: parseInt(episode),
@@ -179,12 +173,8 @@ export async function coordinateSearch(params) {
             performContentAnalysis(titleMatches, addresses, aliasVocabularies));
 
         tracker.note('selected', matches.length);
-        logger.debug(`[coordinator] Phase 2 complete: ${matches.length} matching episodes found`);
-    } else {
-        logger.debug('[coordinator] Phase 2 skipped: No title matches from Phase 1');
+        search.at('content').debug('Episodes matched', { input: titleMatches.length, selected: matches.length });
     }
-    
-    logger.debug(`[coordinator] Performance summary: ${allRawResults.length} total → ${titleMatches.length} title matches → ${matches.length} final results`);
 
     return {
         results: matches,

@@ -4,7 +4,9 @@
 import { coordinateSearch } from './search/coordinator.js';
 import { filterYear, optimizedStreamCreation } from './stream/stream-builder.js';
 import { sortStreamsByRank, deduplicateStreams } from './stream/quality-processor.js';
-import { logger } from './utils/logger.js';
+import { logger, setLogOutcome } from './utils/logger.js';
+
+const stream = logger.for('STREAM');
 import { ValidationError, BadRequestError } from './utils/error-handler.js';
 import { getApiConfig } from './config/configuration.js';
 import { createTracker } from './utils/perf-tracker.js';
@@ -17,11 +19,7 @@ import { authErrorStreams } from './stream/error-stream.js';
 import { getCacheRecorder } from './utils/cache-recorder.js';
 
 const StreamHelpers = {
-    logBulkProcessing(torrentCount, contentType) {
-        logger.info(`[stream-provider] 🚀 Bulk fetching ${torrentCount} ${contentType} torrents`);
-    },
-
-    performDeduplication(searchResults, contentType) {
+    performDeduplication(searchResults) {
         // Deduplicate by torrent ID first, then by name + size as fallback
         const seenTorrents = new Set();
         const seenFiles = new Set();
@@ -30,7 +28,6 @@ const StreamHelpers = {
         const deduplicatedResults = searchResults.filter(result => {
             // Primary deduplication: by torrent ID
             if (result.id && seenTorrents.has(result.id)) {
-                logger.info(`[stream-provider] 🔄 Filtered duplicate torrent: ${result.name} (ID: ${result.id}) - same torrent ID`);
                 duplicateCount++;
                 return false;
             }
@@ -38,7 +35,6 @@ const StreamHelpers = {
             // Secondary deduplication: by name + size (for torrents without IDs)
             const fileKey = `${result.name || 'unknown'}|${result.size || 0}`;
             if (seenFiles.has(fileKey)) {
-                logger.info(`[stream-provider] 🔄 Filtered duplicate file: ${result.name} (${result.size} bytes) - same name+size`);
                 duplicateCount++;
                 return false;
             }
@@ -48,8 +44,8 @@ const StreamHelpers = {
             return true;
         });
 
-        if (deduplicatedResults.length !== searchResults.length) {
-            logger.info(`[stream-provider] 📊 Deduplication: ${searchResults.length} → ${deduplicatedResults.length} results (filtered ${duplicateCount} duplicates)`);
+        if (duplicateCount > 0) {
+            stream.at('dedupe').debug('Duplicate torrents dropped', { input: searchResults.length, duplicates: duplicateCount, remaining: deduplicatedResults.length });
         }
 
         return deduplicatedResults;
@@ -61,7 +57,6 @@ class StreamProvider {
     static async getMovieStreams(config, type, id) {
         const startTime = Date.now();
         const tracker = createTracker(id);
-        logger.info(`[stream-provider] Starting movie stream search for ${id}`);
 
         try {
             if (!config || !type || !id) {
@@ -77,7 +72,7 @@ class StreamProvider {
             }
 
             if (!config.DebridProvider || !config.DebridApiKey) {
-                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                setLogOutcome({ code: 'UNCONFIGURED' });
                 return [];
             }
 
@@ -85,7 +80,7 @@ class StreamProvider {
 
             const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
-                logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
+                setLogOutcome({ degraded: true, failedAt: 'cinemeta.fetch', code: 'NO_METADATA' });
                 return [];
             }
 
@@ -108,24 +103,22 @@ class StreamProvider {
             const searchResults = searchResponse?.results || searchResponse || [];
             const searchContext = searchResponse?.searchContext || null;
 
-            logger.debug(`[stream-provider] Search found ${searchResults?.length || 0} results for movie ${imdbId}`);
 
-            const deduplicatedResults = StreamHelpers.performDeduplication(searchResults, 'movie');
+            const deduplicatedResults = StreamHelpers.performDeduplication(searchResults);
 
             if (!deduplicatedResults || deduplicatedResults.length === 0) {
-                logger.info(`[stream-provider] No streams found for movie ${imdbId}`);
                 return [];
             }
 
-            logger.debug(`[stream-provider] Starting parallel stream processing for ${deduplicatedResults.length} results`);
 
             const streamData = [];
+            let noVideo = 0;
+            let yearRejected = 0;
 
             // The same corroboration the movie filter used, so what is displayed agrees with what
             // was kept: a film the filter recognised is not then titled as an episode.
             const parseContext = movieParseContext(cinemetaDetails.name);
 
-            StreamHelpers.logBulkProcessing(deduplicatedResults.length, 'movie');
 
             const bulkDetails = await tracker.span('fetch', () =>
                 fetchTorrentDetails(config.DebridProvider, config.DebridApiKey, deduplicatedResults));
@@ -135,14 +128,12 @@ class StreamProvider {
                     const torrentDetails = attachParse(bulkDetails.get(result.id), parseContext);
 
                     if (!torrentDetails || !torrentDetails.videos || torrentDetails.videos.length === 0) {
-                        logger.debug(`[stream-provider] No videos found in torrent ${result.id} (${result.name})`);
+                        noVideo++;
                         continue;
                     }
 
                     if (!filterYear(torrentDetails, cinemetaDetails)) {
-                        const torrentYear = torrentDetails?.parsed?.year;
-                        const movieYear = cinemetaDetails?.year;
-                        logger.debug(`[stream-provider] 📅 Year filter rejected torrent: ${result.name?.substring(0, 50)}... (torrent year: ${torrentYear}, movie year: ${movieYear})`);
+                        yearRejected++;
                         continue;
                     }
 
@@ -153,27 +144,25 @@ class StreamProvider {
                         searchContext: searchContext
                     });
                 } catch (error) {
-                    logger.warn(`[stream-provider] Failed to prepare stream data: ${error.message}`);
+                    stream.at('prepare').warn('Torrent unusable', { id: result.id, error: error.name });
                 }
             }
+            stream.at('prepare').debug('Torrents prepared', { input: deduplicatedResults.length, usable: streamData.length, noVideo, yearRejected });
 
             const streams = await tracker.span('build', () => streamData.flatMap(data => {
                 try {
                     return optimizedStreamCreation(data.details, data.type, data.knownSeasonEpisode, data.searchContext);
                 } catch (error) {
-                    logger.warn(`[stream-provider] Failed to build streams for ${data.details?.name}: ${error.message}`);
+                    stream.at('build').warn('Stream build failed', { id: data.details?.id, error: error.name });
                     return [];
                 }
             }).filter(Boolean));
 
-            logger.debug(`[stream-provider] Applying stream-level deduplication to ${streams.length} streams`);
             const deduplicatedStreams = deduplicateStreams(streams);
 
             const sortedStreams = sortStreamsByRank(deduplicatedStreams);
             tracker.note('streams', sortedStreams.length);
 
-            const duration = Date.now() - startTime;
-            logger.info(`[stream-provider] Movie search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId}`);
 
             // Record cache data
             try {
@@ -186,15 +175,13 @@ class StreamProvider {
                     torrents: streamData.map(sd => sd.details)
                 });
             } catch (recErr) {
-                logger.debug(`[stream-provider] Cache recording skipped: ${recErr.message}`);
+                logger.for('CACHE').at('record').debug('Recording skipped', { error: recErr.name });
             }
 
             return sortedStreams;
 
         } catch (error) {
-            const duration = Date.now() - startTime;
-            const log = isProviderError(error) ? logger.warn : logger.error;
-            log(`[stream-provider] Movie search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
+            reportFailure('Movie search failed', { type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
@@ -206,7 +193,6 @@ class StreamProvider {
     static async getSeriesStreams(config, type, id) {
         const startTime = Date.now();
         const tracker = createTracker(id);
-        logger.info(`[stream-provider] Starting series stream search for ${id}`);
 
         try {
             if (!config || !type || !id) {
@@ -225,7 +211,7 @@ class StreamProvider {
             // An install without a configuration reaches here with an empty config object, which is
             // truthy. Answering empty is correct; letting it fall through raises deep in the search.
             if (!config.DebridProvider || !config.DebridApiKey) {
-                logger.debug(`[stream-provider] No debrid configuration for ${id}, returning no streams`);
+                setLogOutcome({ code: 'UNCONFIGURED' });
                 return [];
             }
 
@@ -247,7 +233,7 @@ class StreamProvider {
 
             const cinemetaDetails = await tracker.span('meta', () => Cinemeta.getMeta(type, imdbId));
             if (!cinemetaDetails || !cinemetaDetails.name) {
-                logger.warn(`[stream-provider] No metadata found for ${imdbId}`);
+                setLogOutcome({ degraded: true, failedAt: 'cinemeta.fetch', code: 'NO_METADATA' });
                 return [];
             }
 
@@ -270,36 +256,16 @@ class StreamProvider {
             const searchResults = searchResponse.results || [];
             const searchContext = searchResponse?.searchContext || null;
 
-            logger.debug(`[stream-provider] Search found ${searchResults.length} results for series ${imdbId} S${season}E${episode}`);
-            
-            // Check for duplicate torrent IDs in search results
-            const torrentIdCounts = {};
-            searchResults.forEach(result => {
-                const id = result.id;
-                torrentIdCounts[id] = (torrentIdCounts[id] || 0) + 1;
-            });
-            
-            const duplicateIds = Object.entries(torrentIdCounts).filter(([id, count]) => count > 1);
-            if (duplicateIds.length > 0) {
-                logger.warn(`[stream-provider] 🔍 Found duplicate torrents in search results:`);
-                duplicateIds.forEach(([id, count]) => {
-                    logger.warn(`[stream-provider] 🔍 Torrent ${id}: appears ${count} times`);
-                });
-            }
-
-            const deduplicatedResults = StreamHelpers.performDeduplication(searchResults, 'series');
+            const deduplicatedResults = StreamHelpers.performDeduplication(searchResults);
 
             if (!deduplicatedResults || deduplicatedResults.length === 0) {
-                logger.info(`[stream-provider] No streams found for series ${imdbId} S${season}E${episode}`);
                 return [];
             }
 
-            logger.debug(`[stream-provider] Starting controlled concurrent stream processing for ${deduplicatedResults.length} series results`);
 
             let streamTasks = [];
             const collectedTorrents = []; // Collect torrent details for cache recording
 
-            StreamHelpers.logBulkProcessing(deduplicatedResults.length, 'series');
 
             const missing = deduplicatedResults.filter(result => !result.torrentDetails);
             const bulkDetails = missing.length
@@ -342,14 +308,11 @@ class StreamProvider {
             const allStreamResults = await tracker.span('build', () => Promise.all(streamPromises));
             streamTasks = allStreamResults.filter(result => result !== null).flat();
 
-            logger.debug(`[stream-provider] Applying stream-level deduplication to ${streamTasks.length} streams`);
             const deduplicatedStreamTasks = deduplicateStreams(streamTasks);
 
             const sortedStreams = sortStreamsByRank(deduplicatedStreamTasks);
             tracker.note('streams', sortedStreams.length);
 
-            const duration = Date.now() - startTime;
-            logger.info(`[stream-provider] Series search completed in ${duration}ms. Found ${sortedStreams.length} streams for ${imdbId} S${season}E${episode}`);
 
             // Fire-and-forget: record cache data
             try {
@@ -362,17 +325,13 @@ class StreamProvider {
                     torrents: collectedTorrents
                 });
             } catch (recErr) {
-                logger.debug(`[stream-provider] Cache recording skipped: ${recErr.message}`);
+                logger.for('CACHE').at('record').debug('Recording skipped', { error: recErr.name });
             }
 
-            const { formatStreamsForDisplay } = await import('./stream/stream-builder.js');
-            const formattedOutput = formatStreamsForDisplay(sortedStreams);
             return sortedStreams;
 
         } catch (error) {
-            const duration = Date.now() - startTime;
-            const log = isProviderError(error) ? logger.warn : logger.error;
-            log(`[stream-provider] Series search failed in ${duration}ms for ${id}: ${error.name}: ${error.message}`);
+            reportFailure('Series search failed', { type, id, error, duration: Date.now() - startTime });
 
             // A rejected key is the one failure a user can act on, so it gets a row of its own.
             return authErrorStreams(error);
@@ -391,8 +350,6 @@ class StreamProvider {
      * @returns {Promise<string>} The direct download URL
      */
     static async resolveUrl(debridProvider, debridApiKey, itemId, hostUrl, clientIp) {
-        logger.info(`[stream-provider] Resolving URL for ${debridProvider}: ${hostUrl}`);
-
         // The route logs the failure with the request that caused it, so nothing is caught here.
         const provider = getProvider(debridProvider);
         if (!provider) throw new Error(`Unsupported debrid provider: ${debridProvider}`);
@@ -404,9 +361,16 @@ class StreamProvider {
         }
 
         const url = await provider.resolveStream(debridApiKey, { link: hostUrl, torrentId: itemId }, clientIp);
-        logger.info(`[stream-provider] Successfully resolved URL for ${debridProvider}`);
         return url;
     }
+}
+
+/** The one terminal line of a failed search: handled provider failures are WARN, the rest ERROR. */
+function reportFailure(message, { type, id, error, duration }) {
+    const fields = { type, id, failedAt: 'search', error: error.name, code: error.code, duration: `${duration}ms` };
+    if (isProviderError(error)) stream.at('complete').warn(message, fields);
+    else stream.at('failed').error(message, fields);
+    setLogOutcome({ terminal: true });
 }
 
 export default StreamProvider;

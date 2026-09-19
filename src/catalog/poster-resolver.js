@@ -2,7 +2,6 @@ import { parseName, frozenParse, statesReleaseFields } from '../parsing/parser.j
 import { statesEpisode, statesSeasonWithoutEpisode } from '../utils/episode-address.js';
 import { extractKeywords } from '../search/keyword-extractor.js';
 import cache from '../utils/cache-manager.js';
-import { logger } from '../utils/logger.js';
 import {
     buildTMDbPosterUrl,
     fetchTMDbAlternativeTitles,
@@ -932,11 +931,6 @@ export async function resolveContentFromContext(context) {
     const storedResolution = persistResolution(persistentCache, resolution, context);
     writeCachedResolution(storedResolution);
 
-    if (storedResolution.isNegative) {
-        logger.debug(`[poster-resolver] No poster accepted for "${context.filename}" (${storedResolution.reason})`);
-    } else {
-        logger.debug(`[poster-resolver] Poster resolved for "${context.filename}" -> ${storedResolution.matchedTitle} [${storedResolution.mediaType}] (${storedResolution.reason})`);
-    }
 
     return storedResolution;
 }

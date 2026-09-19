@@ -4,7 +4,6 @@
 
 import { streamTitle, detectVariant, qualityRank } from './display.js';
 import { extractQuality } from './quality-processor.js';
-import { logger } from '../utils/logger.js';
 
 /**
  * How well the file's own name answers the requested address. Ranking prefers a release that states
@@ -39,8 +38,6 @@ const STREAM_NAME_MAP = {
 export function optimizedStreamCreation(details, type, knownSeasonEpisode = null, searchContext = null) {
     if (!details) return [];
 
-    logger.debug(`[optimizedStreamCreation] Processing ${type} content with ${details.videos?.length || 1} video(s), multi-stream enabled: ${ENABLE_MULTI_STREAM_PER_TORRENT}`);
-
     const singleVideo = !details.videos?.length || details.videos.length === 1;
 
     if (!ENABLE_MULTI_STREAM_PER_TORRENT || singleVideo) {
@@ -48,7 +45,6 @@ export function optimizedStreamCreation(details, type, knownSeasonEpisode = null
         return stream ? [stream] : [];
     }
 
-    logger.debug(`[optimizedStreamCreation] 🔄 Multi-stream mode enabled - processing all ${details.videos.length} videos`);
     return toStreams(details, type, knownSeasonEpisode, searchContext);
 }
 
@@ -59,10 +55,7 @@ export function toStreamSingle(details, type, knownSeasonEpisode = null, searchC
     // Phase 2 selected and ranked the files, so the first one is the one to show.
     const video = details.videos?.[0];
 
-    if (!video) {
-        logger.debug(`[toStreamSingle] No video found in torrent details`);
-        return null;
-    }
+    if (!video) return null;
 
     return createStream(details, video, type, '💾', knownSeasonEpisode, searchContext);
 }
@@ -70,8 +63,6 @@ export function toStreamSingle(details, type, knownSeasonEpisode = null, searchC
 /** Multi-video stream creation for torrent containers */
 export function toStreams(details, type, knownSeasonEpisode = null, searchContext = null) {
     if (!details) return [];
-
-    logger.debug(`[toStreams] Processing ${details.videos?.length || 0} videos for ${type} content`);
 
     const streams = [];
     for (const video of details.videos ?? []) {
@@ -135,21 +126,3 @@ export function filterYear(torrent, cinemetaDetails) {
 // DISPLAY UTILITIES
 // ================================================================================================
 
-/**
- * Format an array of stream objects for display - for terminal output only.
- */
-export function formatStreamsForDisplay(streams) {
-    if (!Array.isArray(streams)) return '';
-    return streams.map(stream => {
-        const nameLines = (stream.name || '').split('\n');
-        const titleLines = (stream.title || '').split('\n').map(line => '\t' + line);
-        const hintsLine = 'behaviorHints: ' + JSON.stringify(stream.behaviorHints || {});
-
-        // Display both lines of stream.name: provider tag and quality information
-        const nameDisplay = nameLines.length > 1 ?
-            nameLines[0] + '\n' + nameLines[1] :
-            nameLines[0];
-
-        return [nameDisplay, ...titleLines, hintsLine].join('\n');
-    }).join('\n\n');
-}

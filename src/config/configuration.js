@@ -1,22 +1,16 @@
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
 
+const parse = logger.for('CONFIG').at('parse');
+
 function validateConfig(config) {
-    if (!config || typeof config !== 'object') {
-        logger.debug('[CONFIG] Validation failed: config is not an object');
-        return false;
-    }
+    if (!config || typeof config !== 'object') return false;
     
     if (config.DebridProvider && config.DebridApiKey) {
         const validProviders = ['AllDebrid', 'RealDebrid', 'DebridLink', 'Premiumize', 'TorBox'];
-        const isValid = validProviders.includes(config.DebridProvider) && config.DebridApiKey.length >= 8;
-        logger.debug(`[CONFIG] Validation for encrypted format: ${isValid ? 'PASSED' : 'FAILED'}`);
-        return isValid;
+        return validProviders.includes(config.DebridProvider) && config.DebridApiKey.length >= 8;
     }
     
-    logger.debug('[CONFIG] Validation failed: no recognized configuration format found');
-    logger.debug('[CONFIG] Expected: DebridProvider and DebridApiKey properties');
-    logger.debug('[CONFIG] Config keys:', Object.keys(config));
     return false;
 }
 
@@ -27,7 +21,6 @@ function validateConfig(config) {
 class ConfigurationManager {
     constructor() {
         this._apiConfigCache = null;
-        this._hasLoggedApiConfig = false;
     }
 
     getEnvVar(key, defaultValue = null) {
@@ -42,17 +35,6 @@ class ConfigurationManager {
 
         const tmdbApiKey = this.getEnvVar('TMDB_API_KEY');
         const tvdbApiKey = this.getEnvVar('TVDB_API_KEY');
-
-        if (!this._hasLoggedApiConfig) {
-            if (tmdbApiKey) {
-                logger.info('[configuration] Using TMDb API key from environment variables');
-            }
-
-            if (tvdbApiKey) {
-                logger.info('[configuration] Using TVDB API key from environment variables');
-            }
-            this._hasLoggedApiConfig = true;
-        }
 
         this._apiConfigCache = {
             tmdbApiKey,
@@ -78,10 +60,6 @@ class ConfigurationManager {
     determineSearchCapabilities() {
         const tmdbApiKey = this.getEnvVar('TMDB_API_KEY');
         const tvdbApiKey = this.getEnvVar('TVDB_API_KEY');
-
-        if (!tmdbApiKey && tvdbApiKey) {
-            logger.warn('[configuration] Only TVDB API key available. TMDb API key is required for advanced search. Falling back to basic search.');
-        }
 
         return !!tmdbApiKey;
     }
@@ -172,7 +150,7 @@ function encryptConfig(config) {
         const combined = Buffer.concat([iv, Buffer.from(encrypted, 'base64')]);
         return combined.toString('base64url');
     } catch (error) {
-        logger.warn('[CONFIG] Encryption failed:', error.message);
+        logger.for('CONFIG').at('rejected').warn('Encryption failed', { error: error.name });
         return null;
     }
 }
@@ -181,22 +159,11 @@ function encryptConfig(config) {
  * Configuration utilities - handles addon configuration parsing and validation
  */
 function decryptConfig(encryptedConfig) {
-    if (!encryptedConfig || typeof encryptedConfig !== 'string') {
-        logger.warn('[CONFIG] Invalid encrypted config provided');
-        return null;
-    }
-    
-    if (!isEncryptedConfig(encryptedConfig)) {
-        logger.debug('[CONFIG] Configuration does not appear to be encrypted format');
-        return null;
-    }
+    if (!encryptedConfig || typeof encryptedConfig !== 'string' || !isEncryptedConfig(encryptedConfig)) return null;
     
     try {
         const combined = Buffer.from(encryptedConfig, 'base64url');
-        if (combined.length < 32) {
-            logger.warn('[CONFIG] Encrypted config too short to be valid');
-            return null;
-        }
+        if (combined.length < 32) return null;
         
         const iv = combined.slice(0, 16);
         const encrypted = combined.slice(16);
@@ -205,16 +172,8 @@ function decryptConfig(encryptedConfig) {
         decrypted += decipher.final('utf8');
         const config = JSON.parse(decrypted);
         
-        if (validateConfig(config)) {
-            logger.debug('[CONFIG] Successfully decrypted with environment-based key');
-            return config;
-        } else {
-            logger.warn('[CONFIG] Decrypted config failed validation');
-            return null;
-        }
-    } catch (error) {
-        logger.warn('[CONFIG] Decryption failed - config may be corrupted or from different deployment');
-        logger.debug('[CONFIG] Decryption error:', error.message);
+        return validateConfig(config) ? config : null;
+    } catch {
         return null;
     }
 }
@@ -238,59 +197,42 @@ function isEncryptedConfig(str) {
 export const configManager = new ConfigurationManager();
 
 export function parseConfiguration(configuration = '{}') {
-    if (!configuration || typeof configuration !== 'string') {
-        logger.debug('[configuration] Invalid configuration provided, using defaults');
-        return {};
-    }
-
-    if (configuration.trim() === '') {
-        logger.debug('[configuration] Empty configuration provided, using defaults');
-        return {};
-    }
+    if (!configuration || typeof configuration !== 'string' || configuration.trim() === '') return {};
 
     if (isEncryptedConfig(configuration)) {
-        logger.debug('[configuration] Detected encrypted configuration format');
-        
         const decryptedConfig = decryptConfig(configuration);
-        if (decryptedConfig && validateConfig(decryptedConfig)) {
-            logger.info('[configuration] Successfully decrypted and validated configuration');
+        if (decryptedConfig) {
+            parse.debug('Configuration parsed', { format: 'encrypted', valid: true, provider: decryptedConfig.DebridProvider });
             return decryptedConfig;
-        } else {
-            logger.warn('[configuration] Failed to decrypt or validate encrypted configuration, falling back to legacy format');
-            logger.debug(`[configuration] Problematic encrypted config (first 50 chars): ${configuration.substring(0, 50)}`);
-            
-            if (configuration.length <= 50) {
-                logger.warn('[configuration] Encrypted configuration appears truncated - this may indicate URL encoding issues');
-            }
         }
+        parse.warn('Configuration rejected', { format: 'encrypted', valid: false, code: configuration.length <= 50 ? 'TRUNCATED' : 'UNDECRYPTABLE' });
     }
 
     // Try to decode as standard base64-encoded JSON
     try {
         if (configuration.match(/^[A-Za-z0-9+/]+=*$/)) {  // Valid base64 pattern
-            logger.debug('[configuration] Attempting to decode as base64-encoded JSON');
             const decoded = Buffer.from(configuration, 'base64').toString('utf8');
             const parsed = JSON.parse(decoded);
             if (parsed && typeof parsed === 'object') {
-                logger.debug('[configuration] Successfully parsed base64-encoded JSON configuration');
+                parse.debug('Configuration parsed', { format: 'base64', valid: true, provider: parsed.DebridProvider });
                 return parsed;
             }
         }
-    } catch (error) {
-        logger.debug(`[configuration] Failed to decode as base64 JSON: ${error.message}`);
+    } catch {
+        // Not base64 JSON; the plain JSON attempt follows.
     }
 
     try {
         const parsed = JSON.parse(configuration);
         if (parsed && typeof parsed === 'object') {
-            logger.debug('[configuration] Successfully parsed as plain JSON configuration');
+            parse.debug('Configuration parsed', { format: 'json', valid: true, provider: parsed.DebridProvider });
             return parsed;
         }
-    } catch (error) {
-        logger.debug(`[configuration] Failed to parse as plain JSON: ${error.message}`);
+    } catch {
+        // Fall through: an unreadable configuration means defaults.
     }
 
-    logger.debug('[configuration] Configuration format not recognized or invalid');
+    parse.debug('Configuration unreadable', { format: 'unknown', valid: false });
     return {};
 }
 
@@ -316,34 +258,18 @@ export function getIsCatalogPosterEnabled() {
     return configManager.getIsCatalogPosterEnabled();
 }
 
-export function logApiStartupStatus() {
-    const apiConfig = configManager.getApiConfig();
-    const capabilities = configManager.getSearchCapabilities();
-    const isTmdbEnabled = configManager.getIsTmdbEnabled();
-    const isTvdbEnabled = configManager.getIsTvdbEnabled();
-    const hasAdvancedSearch = configManager.determineSearchCapabilities();
-    const isReleaseGroupEnabled = configManager.getIsReleaseGroupEnabled();
-    const isCatalogPosterEnabled = configManager.getIsCatalogPosterEnabled();
-    const enrichmentCacheConfig = configManager.getCatalogEnrichmentCacheConfig();
-    const isMetadataEnrichmentEnabled = isCatalogPosterEnabled;
-    const isPersistentCacheActive = isCatalogPosterEnabled && enrichmentCacheConfig.enabled;
-    
-    logger.info('[configuration] === 🔑 API Key Status 🔑 ===');
-    logger.info(`[configuration] TMDb API: ${isTmdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] TVDB API: ${isTvdbEnabled ? 'Available ✅' : 'Not configured ❌'}`);
-    logger.info(`[configuration] ⚡ Advanced search: ${hasAdvancedSearch ? 'Enabled ✅' : 'Disabled ❌'}`);
-    logger.info(`[configuration] 👥 Release groups: ${isReleaseGroupEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
-    logger.info(`[configuration] 🖼️  Catalog posters: ${isCatalogPosterEnabled ? 'Enabled ✅' : 'Disabled ❌'}`);
-    logger.info(`[configuration] 🧠 Catalog metadata enrichment: ${isMetadataEnrichmentEnabled ? 'Enabled ✅' : 'Disabled ❌'}${isMetadataEnrichmentEnabled ? '' : ' (follows catalog poster toggle)'}`);
-    logger.info(`[configuration] 💾 Persistent enrichment cache: ${enrichmentCacheConfig.enabled ? 'Enabled ✅' : 'Disabled ❌'}${enrichmentCacheConfig.enabled && !isPersistentCacheActive ? ' (inactive while catalog posters are disabled)' : ''}`);
-
-    if (enrichmentCacheConfig.enabled) {
-        logger.info(`[configuration] 🗃️  Enrichment cache DB path: ${enrichmentCacheConfig.dbPath}`);
-    }
-    
-    logger.info('[configuration] Search capabilities:');
-    logger.info(`  • Alternative titles: ${capabilities.alternativeTitles ? '✅' : '❌'}`);
-    logger.info(`  • Anime/absolute episodes: ${capabilities.animeSupport ? '✅' : '❌'}`);
+/** The capability booleans the startup line reports. */
+export function getStartupStatus() {
+    const catalogPosters = configManager.getIsCatalogPosterEnabled();
+    const enrichmentCache = configManager.getCatalogEnrichmentCacheConfig();
+    return {
+        tmdb: configManager.getIsTmdbEnabled(),
+        tvdb: configManager.getIsTvdbEnabled(),
+        advancedSearch: configManager.determineSearchCapabilities(),
+        releaseGroups: configManager.getIsReleaseGroupEnabled(),
+        catalogPosters,
+        cache: catalogPosters && enrichmentCache.enabled ? 'sqlite' : 'off'
+    };
 }
 
 export { encryptConfig, decryptConfig, isEncryptedConfig, validateConfig };

@@ -11,6 +11,8 @@ import packageInfo from '../../package.json' with { type: 'json' };
 import { createHash } from 'node:crypto';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { logger } from '../utils/logger.js';
+
+const retry = logger.for('PROVIDER').at('retry');
 import { isTransientNetworkError } from '../api/http.js';
 import { classify, isDefinitiveFailure, isErrorBody, retryAfterMs } from './errors.js';
 
@@ -84,7 +86,7 @@ async function withRetry(send, context) {
             return await send();
         } catch (cause) {
             if (!isTransientNetworkError(cause) || attempt === ATTEMPTS) throw classify({ ...context, status: 0, cause });
-            logger.debug(`[${context.provider}] ${context.operation} ${cause.code ?? cause.message} on attempt ${attempt}, retrying`);
+            retry.debug('Network retry', { provider: context.provider, code: cause.code, attempt });
             await wait(RETRY_DELAY_MS * attempt);
         }
     }
@@ -165,7 +167,7 @@ export async function request({ provider, operation, endpointClass = 'default', 
             if (isDefinitiveFailure(failure)) throw failure;
 
             const pause = retryAfterMs(response.headers) ?? RATE_LIMIT_PAUSE_MS;
-            logger.warn(`[${provider}] ${operation} got ${response.status} ${failure.code ?? ''}, retrying once in ${pause}ms`);
+            retry.warn('Status retry', { provider, status: response.status, code: failure.code, delay: `${pause}ms` });
             await wait(pause);
             continue;
         }

@@ -1,6 +1,8 @@
 import cache from '../utils/cache-manager.js';
 import { fetchWithRetry } from './http.js';
 import { logger } from '../utils/logger.js';
+
+const tmdb = logger.for('TMDB');
 import { extractKeywords } from '../search/keyword-extractor.js';
 
 /**
@@ -8,16 +10,11 @@ import { extractKeywords } from '../search/keyword-extractor.js';
  * Handles all TMDb API requests for movie/series metadata
  */
 
-const startupWarnings = new Set();
 
 function getTmdbApiKey(userProvidedKey = null) {
     const apiKey = process.env.TMDB_API_KEY;
     
     if (!apiKey) {
-        if (!startupWarnings.has('tmdb_missing')) {
-            logger.warn('[tmdb-api] TMDB_API_KEY is not set. TMDb-powered features will be disabled.');
-            startupWarnings.add('tmdb_missing');
-        }
         return null;
     }
     
@@ -31,18 +28,12 @@ export function isTmdbEnabled() {
 export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null, imdbId = null) {
     const resolvedApiKey = getTmdbApiKey();
     
-    if (!resolvedApiKey) {
-        logger.debug('[tmdb-api] TMDb API key not available, skipping alternative titles');
-        return [];
-    }
+    if (!resolvedApiKey) return [];
 
     const cacheKey = `tmdb_alt_titles_${tmdbId || imdbId}_${type}`;
     
     const cachedResult = cache.get(cacheKey);
-    if (cachedResult) {
-        logger.info(`[tmdb-api] Cache hit for alternative titles: ${cacheKey}`);
-        return cachedResult;
-    }
+    if (cachedResult) return cachedResult;
 
     try {
         let resolvedTmdbId = tmdbId;
@@ -67,7 +58,7 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
         }
 
         if (!resolvedTmdbId) {
-            logger.warn(`[tmdb-api] No TMDb ID available for ${type} ${imdbId}`);
+            tmdb.at('titles').debug('No TMDb entry', { type, id: imdbId, found: false });
             cache.set(cacheKey, [], 1800); // TMDb answered and knows nothing about it
             return [];
         }
@@ -101,19 +92,17 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
                     country,
                     normalizedTitle: normalizedOriginal
                 });
-                logger.info(`[tmdb-api] Added original title "${originalName}" (${country}) to alternatives`);
             }
         }
         
-    logger.info(`[tmdb-api] ✅ Found ${titlesWithCountry.length} alternative titles with countries.`);
-    logger.debug(`[tmdb-api] Alternative titles list: [\n${titlesWithCountry.map(t => `"${t.title}" (${t.country})`).join(',\n')}\n]`);
+    tmdb.at('titles').debug('Alternative titles fetched', { type, id: imdbId, found: true, titles: titlesWithCountry.length });
         
         // Cache result for 24 hours
         cache.set(cacheKey, titlesWithCountry, 24 * 3600);
         return titlesWithCountry;
 
     } catch (err) {
-        logger.error(`[tmdb-api] Failed to fetch alternative titles for ${type} ${tmdbId || imdbId}:`, err.message);
+        tmdb.at('titles').warn('Alternative titles failed', { type, id: imdbId, error: err.name });
         return [];
     }
 }
@@ -121,18 +110,12 @@ export async function fetchTMDbAlternativeTitles(tmdbId, type, tmdbApiKey = null
 export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
     const resolvedApiKey = getTmdbApiKey();
     
-    if (!resolvedApiKey || !searchTitle) {
-        logger.debug('[tmdb-api] TMDb API key not available or missing search title, skipping search');
-        return null;
-    }
+    if (!resolvedApiKey || !searchTitle) return null;
 
     const cacheKey = `tmdb_search_${searchTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     
     const cachedResult = cache.get(cacheKey);
-    if (cachedResult) {
-        logger.info(`[tmdb-api] Cache hit for search: ${searchTitle}`);
-        return cachedResult;
-    }
+    if (cachedResult) return cachedResult;
 
     try {
         const searchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${resolvedApiKey}&query=${encodeURIComponent(searchTitle)}`;
@@ -152,13 +135,13 @@ export async function searchTMDbByTitle(searchTitle, tmdbApiKey = null) {
             };
         }
 
-        logger.info(`[tmdb-api] Search result for "${searchTitle}":`, result ? `Found TV series ${result.name}` : 'No results');
-        
+        tmdb.at('fetch').debug('Series searched', { type: 'series', found: Boolean(result) });
+
         cache.set(cacheKey, result, 6 * 3600); // Cache result for 6 hours
         return result;
 
     } catch (err) {
-        logger.error(`[tmdb-api] Failed to search TMDb for "${searchTitle}":`, err.message);
+        tmdb.at('fetch').warn('Series search failed', { type: 'series', error: err.name });
         return null;
     }
 }
@@ -179,10 +162,7 @@ export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
     const resolvedApiKey = getTmdbApiKey();
     const endpoint = normalizeSearchType(mediaType);
 
-    if (!resolvedApiKey || !tmdbId || !endpoint) {
-        logger.debug('[tmdb-api] Missing TMDb API key, tmdbId, or mediaType for external ID lookup');
-        return null;
-    }
+    if (!resolvedApiKey || !tmdbId || !endpoint) return null;
 
     const cacheKey = `tmdb_external_ids_${endpoint}_${tmdbId}`;
     const cachedResult = cache.get(cacheKey);
@@ -210,7 +190,7 @@ export async function fetchTMDbExternalImdbId(tmdbId, mediaType) {
 
         return imdbId;
     } catch (err) {
-        logger.error(`[tmdb-api] Failed to fetch external IDs for ${endpoint}/${tmdbId}:`, err.message);
+        tmdb.at('external').warn('External ids failed', { type: endpoint, id: String(tmdbId), error: err.name });
         return null;
     }
 }
@@ -219,10 +199,7 @@ export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = 
     const resolvedApiKey = getTmdbApiKey();
     const endpoint = normalizeSearchType(type);
 
-    if (!resolvedApiKey || !title || !endpoint) {
-        logger.debug('[tmdb-api] Missing TMDb API key, title, or endpoint for media search');
-        return [];
-    }
+    if (!resolvedApiKey || !title || !endpoint) return [];
 
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/gi, '_');
     const cacheKey = `tmdb_media_search_${endpoint}_${normalizedTitle}_${year || 'none'}_${limit}`;
@@ -271,7 +248,7 @@ export async function searchTMDbMedia({ title, type, year = null, limit = 5 } = 
         cache.set(cacheKey, results, 6 * 3600);
         return results;
     } catch (err) {
-        logger.error(`[tmdb-api] Failed to search TMDb ${endpoint} for "${title}":`, err.message);
+        tmdb.at('fetch').warn('Media search failed', { type: endpoint, error: err.name });
         return [];
     }
 }
@@ -309,7 +286,7 @@ export async function fetchTMDbTVDetails(tmdbId) {
         cache.set(cacheKey, details, 24 * 3600);
         return details;
     } catch (err) {
-        logger.error(`[tmdb-api] Failed to fetch TV details for ${tmdbId}:`, err.message);
+        tmdb.at('fetch').warn('Series details failed', { type: 'series', id: String(tmdbId), error: err.name });
         return null;
     }
 }
@@ -317,5 +294,4 @@ export async function fetchTMDbTVDetails(tmdbId) {
 export function clearCache() {
     const entries = cache.getByPattern('^tmdb_');
     entries.forEach(entry => cache.delete(entry.key));
-    logger.info(`[tmdb-api] Cleared ${entries.length} cached entries`);
 }
