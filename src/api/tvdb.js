@@ -2,6 +2,8 @@ import cache from '../utils/cache-manager.js';
 import { fetchWithRetry } from './http.js';
 import { logger } from '../utils/logger.js';
 
+const tvdb = logger.for('TVDB');
+
 /**
  * TheTVDB v4 client for absolute episode numbering.
  *
@@ -22,16 +24,11 @@ const TOKEN_TTL = 24 * 3600;
 const EPISODES_TTL = 24 * 3600;
 const UNKNOWN_SERIES_TTL = 3600;
 
-let warnedAboutMissingKey = false;
 
 function getApiKey() {
     const apiKey = process.env.TVDB_API_KEY;
 
     if (!apiKey) {
-        if (!warnedAboutMissingKey) {
-            logger.warn('[tvdb-api] TVDB_API_KEY is not set. Absolute episode mapping will be disabled.');
-            warnedAboutMissingKey = true;
-        }
         return null;
     }
 
@@ -131,19 +128,19 @@ async function getEpisodes(imdbId) {
         const seriesId = await resolveSeriesId(imdbId, apiKey);
 
         if (!seriesId) {
-            logger.warn(`[tvdb-api] No TVDB series found for IMDb ID: ${imdbId}`);
+            tvdb.at('fetch').debug('No TVDB series', { id: imdbId, found: false });
             cache.set(cacheKey, [], UNKNOWN_SERIES_TTL, { type: 'tvdb-episodes' });
             return [];
         }
 
         const episodes = await fetchEpisodes(seriesId, apiKey);
-        logger.info(`[tvdb-api] Found TVDB ID: ${seriesId} for IMDb ID: ${imdbId} (${episodes.length} episodes)`);
+        tvdb.at('fetch').debug('Episodes fetched', { id: imdbId, found: true, episodes: episodes.length });
 
         cache.set(cacheKey, episodes, EPISODES_TTL, { type: 'tvdb-episodes' });
         return episodes;
     } catch (error) {
         // Deliberately not cached: a transient outage must not disable mapping for the whole TTL.
-        logger.error(`[tvdb-api] Failed to load episodes for ${imdbId}: ${error.message}`);
+        tvdb.at('fetch').warn('Episodes failed', { id: imdbId, error: error.name });
         return [];
     }
 }
@@ -164,7 +161,7 @@ export async function getEpisodeMapping(imdbId, season, episode) {
     const match = episodes.find(e => e.season === wantedSeason && e.episode === wantedEpisode);
 
     if (!match) {
-        logger.warn(`[tvdb-api] No episode mapping found for ${imdbId} S${season}E${episode}`);
+        tvdb.at('map').debug('Episode not mapped', { id: imdbId, found: false });
         return null;
     }
 
@@ -187,7 +184,7 @@ export async function getEpisodeByAbsolute(imdbId, absoluteEpisode) {
     const match = episodes.find(e => e.absoluteEpisode === wanted);
 
     if (!match) {
-        logger.warn(`[tvdb-api] Absolute episode ${wanted} not found for ${imdbId}`);
+        tvdb.at('map').debug('Absolute episode not mapped', { id: imdbId, found: false });
         return null;
     }
 
@@ -205,6 +202,5 @@ export async function getSeasonLength(imdbId, season) {
 export function clearCache() {
     const entries = cache.getByPattern('^tvdb_');
     entries.forEach(entry => cache.delete(entry.key));
-    logger.debug(`[tvdb-api] Cleared ${entries.length} cached entries`);
     return entries.length;
 }

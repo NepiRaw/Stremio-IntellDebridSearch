@@ -1,11 +1,11 @@
 {
 	"name": "intelligent-debrid-search",
-	"version": "2.1.1",
+	"version": "2.1.2",
 	"description": "A smarter Stremio add-on to search downloads and torrents in your Debrid cloud.",
 	"main": "server.js",
 	"scripts": {
-		"start": "node server.js",
-		"dev": "nodemon server.js"
+		"start": "node --env-file-if-exists=.env server.js",
+		"dev": "nodemon --exec \"node --env-file-if-exists=.env server.js\""
 	},
 	"author": "NepiRaw",
 	"license": "MIT",

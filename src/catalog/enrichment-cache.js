@@ -4,6 +4,8 @@ import Database from 'better-sqlite3';
 import { configManager } from '../config/configuration.js';
 import { logger } from '../utils/logger.js';
 
+const cacheLog = logger.for('CACHE');
+
 const RESOLVER_VERSION = 'catalog-resolution-v1';
 const METADATA_VERSION = 'catalog-metadata-v1';
 
@@ -105,17 +107,6 @@ export function buildFilenameAliasKey(filename) {
     return normalized ? `filename:${normalized}` : null;
 }
 
-function formatBytes(bytes) {
-    if (!Number.isFinite(bytes) || bytes <= 0) {
-        return '0 B';
-    }
-
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-    const value = bytes / (1024 ** exponent);
-    return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
-}
-
 export class CatalogEnrichmentCache {
     constructor(options = {}) {
         this.options = {
@@ -157,11 +148,7 @@ export class CatalogEnrichmentCache {
 
     logStartupReady() {
         const stats = this.getStats();
-        logger.info(
-            `[enrichment-cache] Cache database ${this.dbFileExisted ? 'loaded successfully' : 'created successfully'} ` +
-            `(path=${this.dbPath}, resolutions=${stats.resolutions}, metadata=${stats.metadata}, aliases=${stats.aliases}, ` +
-            `mainBytes=${formatBytes(stats.mainBytes)}, walLimit=${formatBytes(this.options.walSizeLimitBytes)})`
-        );
+        cacheLog.at('startup').debug('Enrichment cache ready', { name: 'enrichment', entries: stats.resolutions + stats.metadata + stats.aliases });
     }
 
     initializeSchema() {
@@ -463,7 +450,7 @@ export class CatalogEnrichmentCache {
             try {
                 this.runMaintenance(Date.now(), 'interval');
             } catch (error) {
-                logger.warn(`[enrichment-cache] Cleanup failed: ${error.message}`);
+                cacheLog.at('maintenance').warn('Enrichment cleanup failed', { name: 'enrichment', error: error.name });
             }
         }, this.options.cleanupIntervalSeconds * 1000);
 
@@ -490,7 +477,7 @@ export class CatalogEnrichmentCache {
         try {
             return this.db.pragma(`wal_checkpoint(${mode})`);
         } catch (error) {
-            logger.warn(`[enrichment-cache] WAL checkpoint (${mode}) failed: ${error.message}`);
+            cacheLog.at('maintenance').warn('WAL checkpoint failed', { name: 'enrichment', error: error.name });
             return null;
         }
     }
@@ -579,10 +566,7 @@ export class CatalogEnrichmentCache {
 
         const overLimit = metrics.mainBytes > maxDbSizeBytes;
         if (overLimit) {
-            logger.warn(
-                `[enrichment-cache] Cache database remains above configured soft limit (${metrics.mainBytes}B > ${maxDbSizeBytes}B). ` +
-                'Consider pruning more aggressively or rebuilding the cache database during a maintenance window.'
-            );
+            cacheLog.at('maintenance').warn('Enrichment cache above its size limit', { name: 'enrichment' });
         }
 
         return {
@@ -597,26 +581,7 @@ export class CatalogEnrichmentCache {
         const sizeLimit = this.enforceSizeLimit();
         const stats = this.getStats();
 
-        if (cleanup.deletedResolutions || cleanup.deletedMetadata || cleanup.deletedAliases) {
-            logger.info(
-                `[enrichment-cache] Removed expired rows ` +
-                `(resolutions=${cleanup.deletedResolutions}, metadata=${cleanup.deletedMetadata}, aliases=${cleanup.deletedAliases})`
-            );
-        }
-
-        if (sizeLimit.prunedEntries > 0) {
-            logger.info(
-                `[enrichment-cache] Pruned ${sizeLimit.prunedEntries} cached resolution entries ` +
-                `to respect the configured soft DB limit (mainBytes=${sizeLimit.metrics.mainBytes}, walBytes=${sizeLimit.metrics.walBytes})`
-            );
-        }
-
-        logger.info(
-            `[enrichment-cache] Maintenance summary ` +
-            `(source=${source}, cleanup=res:${cleanup.deletedResolutions}|meta:${cleanup.deletedMetadata}|alias:${cleanup.deletedAliases}, ` +
-            `pruned=${sizeLimit.prunedEntries}, resolutions=${stats.resolutions}, metadata=${stats.metadata}, aliases=${stats.aliases}, ` +
-            `mainBytes=${stats.mainBytes}, walBytes=${stats.walBytes}, totalBytes=${stats.totalBytes})`
-        );
+        cacheLog.at('maintenance').debug('Enrichment cache maintained', { name: 'enrichment', evicted: cleanup.deletedResolutions + cleanup.deletedMetadata + cleanup.deletedAliases + sizeLimit.prunedEntries, entries: stats.resolutions + stats.metadata + stats.aliases });
 
         return {
             cleanup,
@@ -850,7 +815,7 @@ export function getEnrichmentCache() {
         enrichmentCacheUnavailable = true;
         enrichmentCacheSingleton = null;
         enrichmentCacheSignature = null;
-        logger.error(`[enrichment-cache] Unavailable, serving without persistent enrichment: ${error.message}`);
+        cacheLog.at('startup').error('Enrichment cache unavailable', { name: 'enrichment', error: error.name });
         return null;
     }
 

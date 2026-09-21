@@ -2,7 +2,7 @@ import { addonBuilder } from "stremio-addon-sdk"
 import StreamProvider from './src/stream-provider.js'
 import { getManifest } from './src/config/manifest.js'
 import { enrichTorrentMeta } from './src/catalog/meta-enricher.js'
-import { logger } from './src/utils/logger.js';
+import { logger, setLogOutcome } from './src/utils/logger.js';
 import { getProvider, listProviderLibrary } from './src/providers/index.js';
 import { ProviderItemGoneError, isProviderError } from './src/providers/errors.js';
 import { searchProviderLibrary } from './src/search/provider-search.js';
@@ -13,16 +13,13 @@ const STALE_ERROR_AGE = 1 * 24 * 60 * 60 // 1 days
 const UNANSWERED = Symbol('unanswered')
 
 const builder = new addonBuilder(getManifest())
+const build = logger.for('STREAM').at('build')
+const convert = logger.for('CATALOG').at('convert')
 
 builder.defineCatalogHandler(async (args) => {
-    const debugArgs = structuredClone(args)
-    if (args.config?.DebridApiKey)
-        debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-    logger.info("Request for catalog with args: " + JSON.stringify(debugArgs))
-
     if (args.id == 'debridsearch' || args.id == 'IntellDebridSearch') {
         if (!(args.config?.DebridProvider && args.config?.DebridApiKey)) {
-            logger.debug('[CatalogHandler] No debrid configuration, returning an empty catalog')
+            setLogOutcome({ code: 'UNCONFIGURED' })
             return { metas: [] }
         }
 
@@ -49,29 +46,27 @@ builder.defineCatalogHandler(async (args) => {
                         tvdbApiKey: apiConfig.tvdbApiKey
                     });
                     torrents = Array.isArray(searchResult) ? searchResult : searchResult.results;
-                    logger.debug(`[CatalogHandler] Coordinated search returned ${torrents.length} torrents`);
+                    convert.debug('Converting items', { mode: 'search', items: torrents.length });
                 } else {
                     torrents = await searchProviderLibrary(providerName, args.config.DebridApiKey, args.extra.search);
-                    logger.debug(`[CatalogHandler] Library search returned ${torrents.length} torrents`);
+                    convert.debug('Converting items', { mode: 'basic', items: torrents.length });
                 }
             } else {
                 // Standard catalog request
                 if (args.config.ShowCatalog) {
                     torrents = await listProviderLibrary(providerName, args.config.DebridApiKey);
-                    logger.debug(`[CatalogHandler] library listing returned ${torrents.length} items`);
+                    convert.debug('Converting items', { mode: 'browse', items: torrents.length });
                 }
             }
         } catch (error) {
             if (!isProviderError(error)) throw error;
-            logger.warn(`[CatalogHandler] ${providerName} answered nothing: ${error.name}: ${error.message}`);
+            setLogOutcome({ degraded: true, failedAt: 'provider.list', error: error.name, code: error.code, reason: error.message });
             return { metas: [], ...enrichCacheParams() };
         }
 
         const { toMetas } = await import('./src/catalog-provider.js');
         const metas = await toMetas(torrents);
 
-        logger.info(`[CatalogHandler] Returning ${metas.length} catalog metas`);
-        
         return {
             metas,
             ...enrichCacheParams()
@@ -99,7 +94,7 @@ async function torrentVideos(config, providerNameLower, torrentId) {
     if (!provider) throw new Error(`Unsupported provider: ${providerName}`);
 
     if (providerNameLower !== providerName.toLowerCase() || !provider.ownsId(torrentId, config.DebridApiKey)) {
-        logger.debug(`[torrentVideos] ${providerNameLower}:${torrentId} is not a ${providerName} id, answering without a call`);
+        setLogOutcome({ code: 'FOREIGN_ID' });
         return null;
     }
 
@@ -107,7 +102,7 @@ async function torrentVideos(config, providerNameLower, torrentId) {
         .catch(error => {
             if (error instanceof ProviderItemGoneError) return null;
             if (isProviderError(error)) {
-                logger.warn(`[torrentVideos] ${providerName}:${torrentId} left unanswered: ${error.name}: ${error.message}`);
+                setLogOutcome({ degraded: true, failedAt: 'provider.fetch', error: error.name, code: error.code, reason: error.message });
                 return UNANSWERED;
             }
             throw error;
@@ -124,10 +119,12 @@ async function torrentVideos(config, providerNameLower, torrentId) {
     const byFilename = new Map(built.map(stream => [stream.behaviorHints?.filename, stream]));
 
     const videos = [];
+    let dropped = 0;
     (torrentDetails.videos || []).forEach((file, index) => {
         const stream = byFilename.get(file.fileName);
         if (!stream) {
-            logger.warn(`[torrentVideos] ${providerName}:${torrentId} dropped "${file?.fileName ?? '<no name>'}", ${dropReason(file, built)}`);
+            dropped += 1;
+            build.warn('File dropped', { provider: providerName, id: `${providerNameLower}:${torrentId}`, fileIndex: index, code: dropReason(file) });
             return;
         }
 
@@ -138,6 +135,7 @@ async function torrentVideos(config, providerNameLower, torrentId) {
         });
     });
 
+    if (dropped) setLogOutcome({ dropped });
     return { providerName, torrentDetails, videos };
 }
 
@@ -154,11 +152,6 @@ async function mintedStreams(config, { providerNameLower, torrentId, fileIndex }
 }
 
 builder.defineMetaHandler(async (args) => {
-    const debugArgs = structuredClone(args)
-    if (args.config?.DebridApiKey)
-        debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-    logger.info("Request for meta with args: " + JSON.stringify(debugArgs))
-
     if (!args.id.includes(':')) {
         return { meta: null };
     }
@@ -175,7 +168,7 @@ builder.defineMetaHandler(async (args) => {
     const { providerName, torrentDetails, videos } = found;
 
     if (!torrentDetails) {
-        logger.warn(`[MetaHandler] Torrent not found for ${providerName}:${torrentId}`);
+        setLogOutcome({ degraded: true, found: false, code: 'GONE' });
         return { meta: { id: args.id, type: 'other', name: 'Torrent not found', videos: [] } };
     }
 
@@ -200,13 +193,9 @@ builder.defineMetaHandler(async (args) => {
 // Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/requests/defineStreamHandler.md
 builder.defineStreamHandler(args => {
     return new Promise((resolve, reject) => {
-        const debugArgs = structuredClone(args)
-        if (args.config?.DebridApiKey)
-            debugArgs.config.DebridApiKey = '*'.repeat(args.config.DebridApiKey.length)
-        logger.info("Request for streams with args: " + JSON.stringify(debugArgs))
-
         const minted = parseMintedId(args.id)
         if (minted) {
+            if (minted.fileIndex !== null) setLogOutcome({ fileIndex: minted.fileIndex })
             mintedStreams(args.config, minted)
                 .then(streams => resolve({ streams, ...enrichCacheParams() }))
                 .catch(err => reject(err))
@@ -221,28 +210,12 @@ builder.defineStreamHandler(args => {
         switch (args.type) {
             case 'movie':
                 StreamProvider.getMovieStreams(args.config, args.type, args.id)
-                    .then(async streams => {
-                        const { formatStreamsForDisplay } = await import('./src/stream/stream-builder.js');
-                        const formatted = formatStreamsForDisplay(streams);
-                        logger.info("Response streams:\n" + formatted);
-                        resolve({
-                            streams,
-                            ...enrichCacheParams()
-                        })
-                    })
+                    .then(streams => resolve({ streams, ...enrichCacheParams() }))
                     .catch(err => reject(err))
                 break
             case 'series':
                 StreamProvider.getSeriesStreams(args.config, args.type, args.id)
-                    .then(async streams => {
-                        const { formatStreamsForDisplay } = await import('./src/stream/stream-builder.js');
-                        const formatted = formatStreamsForDisplay(streams);
-                        logger.info("Response streams:\n" + formatted);
-                        resolve({
-                            streams,
-                            ...enrichCacheParams()
-                        })
-                    })
+                    .then(streams => resolve({ streams, ...enrichCacheParams() }))
                     .catch(err => reject(err))
                 break
             default:
@@ -259,10 +232,10 @@ function enrichCacheParams() {
     }
 }
 
-function dropReason(file, built) {
-    if (!file?.fileName) return 'the file has no name'
-    if (!file.url) return 'the file has no url, buildSecureStreamUrl returned null'
-    return `no built stream carries that filename, built: ${built.map(stream => stream.behaviorHints?.filename).join(' | ')}`
+function dropReason(file) {
+    if (!file?.fileName) return 'NO_NAME'
+    if (!file.url) return 'NO_URL'
+    return 'NO_STREAM'
 }
 
 export default builder.getInterface()

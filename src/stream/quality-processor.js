@@ -6,6 +6,8 @@
 import { qualityLine, qualityRank } from './display.js';
 import { logger } from '../utils/logger.js';
 
+const dedupe = logger.for('STREAM').at('dedupe');
+
 export function extractQuality(video, details) {
     return qualityLine(video?.parsed, details?.parsed);
 }
@@ -61,13 +63,12 @@ export function deduplicateStreams(streams) {
             seen.add(uniqueKey);
             deduplicated.push(stream);
         } else {
-            logger.info(`[quality-processor] 🔄 Filtered duplicate stream: ${videoFileName} (${size})`);
             duplicateCount++;
         }
     }
     
     if (duplicateCount > 0) {
-        logger.info(`[quality-processor] 📊 Stream deduplication: ${streams.length} → ${deduplicated.length} streams (filtered ${duplicateCount} duplicates)`);
+        dedupe.debug('Duplicate streams dropped', { input: streams.length, duplicates: duplicateCount, remaining: deduplicated.length });
     }
     
     return deduplicated;

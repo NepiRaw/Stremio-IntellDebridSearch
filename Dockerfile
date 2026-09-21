@@ -1,4 +1,4 @@
-FROM node:24
+FROM node:24-bookworm-slim
 
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > /etc/apt/apt.conf.d/80-retries && \
     apt-get update && \
@@ -11,8 +11,9 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > /etc/apt/ap
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile --prod && rm -rf /root/.cache/node/corepack
 COPY . .
-RUN corepack enable && pnpm install --frozen-lockfile
 
 EXPOSE 3001
 

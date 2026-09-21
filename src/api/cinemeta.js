@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger.js';
+
+const fetchLog = logger.for('CINEMETA').at('fetch');
 import cache from '../utils/cache-manager.js';
 import { fetchWithRetry, isTransientNetworkError } from './http.js';
 
@@ -26,19 +28,13 @@ export async function fetchJson(url) {
  */
 async function getMeta(type, imdbId) {
     if (!type || !imdbId) {
-        logger.error('[cinemeta] Missing required parameters: type or imdbId');
         throw new Error('Missing required parameters: type or imdbId');
     }
 
     // Check cache first
     const cacheKey = `cinemeta:${type}:${imdbId}`;
     const cached = cache.get(cacheKey);
-    if (cached) {
-        logger.debug(`[cinemeta] Cache hit for ${type}/${imdbId}`);
-        return cached;
-    }
-
-    logger.debug(`[cinemeta] Fetching metadata for ${type}/${imdbId}`);
+    if (cached) return cached;
 
     try {
         const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
@@ -46,18 +42,18 @@ async function getMeta(type, imdbId) {
         const meta = body && body.meta;
 
         if (!meta) {
-            logger.warn(`[cinemeta] No metadata found for ${type}/${imdbId}`);
+            fetchLog.warn('No metadata', { type, id: imdbId, found: false });
             return null;
         }
 
         // Cache the result for 1 hour
         cache.set(cacheKey, meta, 3600);
         
-        logger.success(`[cinemeta] Successfully fetched metadata for "${meta.name}" (${type})`);
+        fetchLog.debug('Metadata fetched', { type, id: imdbId, found: Boolean(meta.name) });
         return meta;
 
     } catch (err) {
-        logger.error(`[cinemeta] Error fetching metadata for ${type}/${imdbId}: ${err.message}`);
+        fetchLog.warn('Fetch failed', { type, id: imdbId, error: err.name, code: err.code });
         throw new Error(`Error from Cinemeta: ${err.message}`);
     }
 }
@@ -69,18 +65,12 @@ async function getMeta(type, imdbId) {
  * @returns {Promise<object|null>} Map of season number → episode count info
  */
 async function getSeasonEpisodeCounts(imdbId) {
-    if (!imdbId) {
-        logger.warn('[cinemeta] getSeasonEpisodeCounts: Missing imdbId');
-        return null;
-    }
+    if (!imdbId) return null;
     
     try {
         const meta = await getMeta('series', imdbId);
         
-        if (!meta || !meta.videos) {
-            logger.warn(`[cinemeta] No videos found for ${imdbId}`);
-            return null;
-        }
+        if (!meta || !meta.videos) return null;
         
         const seasonMap = {};
         
@@ -113,16 +103,10 @@ async function getSeasonEpisodeCounts(imdbId) {
             }
         });
         
-        logger.debug(`[cinemeta] Season structure for ${imdbId}:`, 
-            Object.entries(seasonMap)
-                .map(([s, data]) => `S${s}: ${data.count} eps`)
-                .join(', ')
-        );
-        
         return seasonMap;
         
     } catch (err) {
-        logger.warn(`[cinemeta] Failed to get season episode counts for ${imdbId}: ${err.message}`);
+        fetchLog.warn('Season counts failed', { type: 'series', id: imdbId, error: err.name });
         return null;
     }
 }

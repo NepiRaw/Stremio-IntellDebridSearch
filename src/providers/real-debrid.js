@@ -14,6 +14,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const provider = logger.for('PROVIDER');
+
 export const name = 'RealDebrid';
 export const capabilities = { filesInline: false, bulkFiles: false, directLinks: false };
 
@@ -136,7 +138,7 @@ export async function listDownloads(apiKey) {
 export async function listLibraryItems(apiKey) {
     const downloadsTask = listDownloads(apiKey).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] download discovery unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('list').warn('Downloads unavailable', { provider: name, error: error.name, code: error.code });
         return [];
     });
     const [torrents, downloads] = await Promise.all([listTorrents(apiKey), downloadsTask]);
@@ -163,10 +165,11 @@ function pairLinks(item) {
 }
 
 /** One torrent's info payload to canonical video files. */
-function toVideos(item, apiKey) {
+function toVideos(item, apiKey, drops = null) {
     const { paired, reason } = pairLinks(item);
     if (reason) {
-        logger.debug(`[${name}] dropping torrent ${item.id}: ${reason} (${item.links?.length ?? 0} links, ${(item.files ?? []).filter(file => file.selected === 1).length} selected)`);
+        if (drops) drops.set(reason, (drops.get(reason) ?? 0) + 1);
+        else provider.at('fetch').debug('Torrent dropped', { provider: name, code: reason, files: (item.files ?? []).filter(file => file.selected === 1).length });
         return [];
     }
 
@@ -214,21 +217,26 @@ export async function fetchFiles(apiKey, torrents) {
         }
     }).catch(error => {
         if (error instanceof ProviderAuthError) throw error;
-        logger.warn(`[${name}] download files unavailable: ${error.name} ${error.code ?? ''}`);
+        provider.at('fetch').warn('Download files unavailable', { provider: name, error: error.name, code: error.code });
     }) : Promise.resolve();
 
+    const drops = new Map();
     await Promise.all([downloadsTask, ...torrentRows.map(async torrent => {
         const id = String(torrent.id);
         try {
-            files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey));
+            files.set(id, toVideos(await info(apiKey, id, 'fetchFiles'), apiKey, drops));
         } catch (error) {
             // A rejected key must reach the user; one unreachable torrent must not empty the search.
             if (error instanceof ProviderAuthError) throw error;
-            logger.debug(`[${name}] dropping torrent ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            const reason = error.code ?? error.status ?? error.name;
+            drops.set(reason, (drops.get(reason) ?? 0) + 1);
             files.set(id, []);
         }
     })]);
 
+    for (const [reason, count] of drops) {
+        provider.at('fetch').debug('Torrents dropped', { provider: name, code: reason, dropped: count, input: torrentRows.length });
+    }
     return files;
 }
 

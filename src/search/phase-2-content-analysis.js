@@ -23,6 +23,8 @@
  */
 
 import { logger } from '../utils/logger.js';
+
+const content = logger.for('SEARCH').at('content');
 import { getProvider, fetchTorrentDetails } from '../providers/index.js';
 import { analyzeTorrent, selectEpisodeFiles } from './torrent-analyzer.js';
 import { isSameWorkStrict } from './phase-1-title-matching.js';
@@ -36,7 +38,7 @@ import { buildEpisodeAddresses, couldContain } from '../utils/episode-address.js
  * @returns {Promise} Promise that resolves when all details are fetched
  */
 export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses = null, providerName = null) {
-    if (!getProvider(providerName)) return;
+    if (!getProvider(providerName)) return 0;
 
     const torrentsNeedingDetails = titleMatches.filter(match =>
         !match.item.videos &&
@@ -44,17 +46,15 @@ export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses =
     );
 
     if (torrentsNeedingDetails.length === 0) {
-        return;
+        return 0;
     }
-
-    logger.info(`[phase-2] Parallel batch fetching details for ${torrentsNeedingDetails.length} torrents`);
 
     const details = await fetchTorrentDetails(providerName, apiKey, torrentsNeedingDetails.map(match => match.item));
     for (const match of torrentsNeedingDetails) {
         const found = details.get(String(match.item.id));
         if (found) Object.assign(match.item, attachParse(found));
     }
-    logger.debug(`[phase-2] Bulk fetch completed for ${torrentsNeedingDetails.length} torrents`);
+    return torrentsNeedingDetails.length;
 }
 
 /**
@@ -66,8 +66,6 @@ export async function batchFetchTorrentDetails(titleMatches, apiKey, addresses =
  * @returns {Array} Array of matching episodes
  */
 export async function performContentAnalysis(titleMatches, addresses, aliasVocabularies = []) {
-    logger.info('[phase-2] Starting optimized parallel content analysis for episode matching');
-
     // Process torrents in parallel batches for optimal performance
     const PARALLEL_BATCH_SIZE = 15; // Process 15 torrents in parallel at a time
     const batches = [];
@@ -75,12 +73,8 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
         batches.push(titleMatches.slice(i, i + PARALLEL_BATCH_SIZE));
     }
     
-    logger.debug(`[phase-2] Processing ${titleMatches.length} torrents in ${batches.length} parallel batches`);
-    
     // Process ALL batches in parallel instead of sequential
     const allBatchPromises = batches.map(async (batch, batchIndex) => {
-        logger.debug(`[phase-2] Starting parallel batch ${batchIndex + 1}/${batches.length} with ${batch.length} torrents`);
-        
         const batchPromises = batch.map(async (match) => {
             try {
                 const torrent = match.item;
@@ -93,7 +87,7 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                     identityMatch: match.identityMatch === true
                 };
             } catch (error) {
-                logger.warn(`[phase-2] Failed to analyze torrent ${match.item.name}:`, error);
+                content.warn('Torrent analysis failed', { error: error.name });
                 return null;
             }
         });
@@ -110,7 +104,6 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                         : [result.torrent.name];
 
                     if (!names.some(name => isSameWorkStrict(parseName(name)?.title, aliasVocabularies))) {
-                        logger.debug(`[phase-2] Identity check rejected ${result.torrent.name}`);
                         return [];
                     }
                 }
@@ -120,7 +113,6 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                     : selectEpisodeFiles(result.torrent.videos, addresses);
 
                 if (!streamFiles.length) {
-                    logger.debug(`[phase-2] No usable file for ${result.torrent.name}`);
                     return [];
                 }
 
@@ -150,7 +142,6 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
                 }
             });
         
-        logger.debug(`[phase-2] Parallel batch ${batchIndex + 1} completed: ${batchMatches.length} matches found`);
         return batchMatches;
     });
     
@@ -158,6 +149,5 @@ export async function performContentAnalysis(titleMatches, addresses, aliasVocab
     const allBatchResults = await Promise.all(allBatchPromises);
     const allMatches = allBatchResults.flat();
     
-    logger.debug(`[phase-2] TRUE parallel content analysis complete: ${allMatches.length} matching episodes found`);
     return allMatches;
 }

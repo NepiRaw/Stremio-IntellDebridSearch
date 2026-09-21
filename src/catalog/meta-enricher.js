@@ -5,6 +5,8 @@ import { createPosterLookupContext, isCatalogPosterEnabled, resolveContentFromCo
 import cache from '../utils/cache-manager.js';
 import { logger } from '../utils/logger.js';
 
+const enrich = logger.for('META').at('enrich');
+
 const META_ENRICHMENT_CACHE_PREFIX = 'meta_enrichment:';
 const META_ENRICHMENT_TTL_SECONDS = Number.parseInt(process.env.META_ENRICHMENT_TTL_SECONDS || '600', 10);
 const META_ENRICHMENT_NEGATIVE_TTL_SECONDS = Math.min(META_ENRICHMENT_TTL_SECONDS, 300);
@@ -316,7 +318,7 @@ async function getMetaEnrichment(providerName, torrentDetails) {
     try {
         return await computeMetaEnrichment(providerName, torrentDetails);
     } catch (error) {
-        logger.warn(`[meta-enricher] Failed to enrich meta for "${torrentDetails?.name || torrentDetails?.id || 'unknown'}": ${error.message}`);
+        enrich.warn('Enrichment failed', { id: torrentDetails?.id, error: error.name });
         return null;
     }
 }
@@ -331,6 +333,6 @@ export async function enrichTorrentMeta(baseMeta, { providerName, torrentDetails
         return baseMeta;
     }
 
-    logger.debug(`[meta-enricher] Enriched meta for "${torrentDetails.name}" with ${enrichment.reason}`);
+    enrich.debug('Meta enriched', { id: torrentDetails.id, reason: enrichment.reason });
     return applyEnrichment(baseMeta, enrichment.fields);
 }

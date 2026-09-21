@@ -20,6 +20,8 @@
  */
 
 import { logger } from '../utils/logger.js';
+
+const title = logger.for('SEARCH').at('title');
 import { extractKeywords } from './keyword-extractor.js';
 import { parseName } from '../parsing/parser.js';
 import Fuse from 'fuse.js';
@@ -91,8 +93,6 @@ export function isSameWorkStrict(parsedTitle, vocabularies = []) {
  * @returns {Promise<Array>} Array of matched torrents with scores
  */
 export async function performTitleMatching(allRawResults, uniqueSearchTerms, threshold = 0.3, aliasVocabularies = []) {
-    logger.debug('[phase-1] Starting fast title matching');
-    
     const normalizedResults = allRawResults.map(result => ({ // Normalize results for Fuse.js processing
         ...result,
         normalizedName: extractKeywords(result.name),
@@ -115,10 +115,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
         return new Promise((resolve) => {
             const matches = titleFuse.search(term);
             
-            if (matches.length > 0) {
-                logger.info(`[phase-1] Found ${matches.length} matches for normalized term: "${term}"`);
-            }
-            
             resolve({ term, matches });
         });
     });
@@ -139,7 +135,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
                     item: match.item.originalResult,
                     matchedTerm: term // Store which search term actually matched this torrent
                 });
-                logger.debug(`[phase-1] Added torrent: ${originalName} (ID: ${torrentId}, Size: ${size})`);
             }
         });
     });
@@ -157,9 +152,7 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
         }
     }
 
-    const parallelDuration = Date.now() - startTime;
-
-    logger.info(`[phase-1] Title matching complete: ${titleMatches.length} matches out of ${allRawResults.length} total results (${identityMatches} by title identity)`);
+    title.debug('Titles matched', { input: allRawResults.length, titleMatches: titleMatches.length, identityMatches, duration: `${Date.now() - startTime}ms` });
 
     return titleMatches;
 }
@@ -174,8 +167,6 @@ export async function performTitleMatching(allRawResults, uniqueSearchTerms, thr
  */
 export function shouldProceedToPhase2(titleMatches, type, season, episode) {
     if (titleMatches.length === 0) {
-        logger.info('[phase-1] ❌ No title matches found in Phase 1');
-
         return {
             shouldProceed: false,
             reason: type === 'movie' ? 'movie-no-matches' : 'series-no-matches'

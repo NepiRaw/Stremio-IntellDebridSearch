@@ -18,6 +18,8 @@ import { buildResolveUrl } from './resolve-url.js';
 import { isVideo } from '../utils/file-types.js';
 import { logger } from '../utils/logger.js';
 
+const provider = logger.for('PROVIDER');
+
 export const name = 'Premiumize';
 export const capabilities = { filesInline: true, bulkFiles: false, directLinks: false };
 
@@ -194,7 +196,7 @@ export async function fetchFiles(apiKey, items) {
             }
         } catch (error) {
             if (error instanceof ProviderAuthError) throw error;
-            logger.warn(`[${name}] drive listing unavailable: ${error.name} ${error.code ?? ''}`);
+            provider.at('list').warn('Drive unavailable', { provider: name, error: error.name, code: error.code });
             for (const item of groups) files.set(String(item.id), []);
         }
     }
@@ -205,7 +207,7 @@ export async function fetchFiles(apiKey, items) {
             files.set(id, toVideos(item, await legacyRows(apiKey, id, 'fetchFiles'), apiKey));
         } catch (error) {
             if (error instanceof ProviderAuthError) throw error;
-            logger.debug(`[${name}] dropping library item ${id}: ${error.name} ${error.code ?? error.status ?? ''}`);
+            provider.at('fetch').debug('Item dropped', { provider: name, error: error.name, code: error.code ?? error.status });
             files.set(id, []);
         }
     }), WALK_CONCURRENCY);

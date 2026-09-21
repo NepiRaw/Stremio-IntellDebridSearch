@@ -5,6 +5,8 @@
 
 import Fuse from 'fuse.js';
 import { logger } from '../utils/logger.js';
+
+const search = logger.for('SEARCH');
 import { listProviderLibrary } from '../providers/index.js';
 import { extractKeywords } from './keyword-extractor.js';
 import { isSameWork } from './phase-1-title-matching.js';
@@ -17,15 +19,12 @@ import { parseName } from '../parsing/parser.js';
  * @returns {Array} Array of normalized torrents
  */
 export async function fetchProviderTorrents(providerName, apiKey) {
-    logger.info(`[provider-search] Fetching all torrents from ${providerName}`);
-
     const items = await listProviderLibrary(providerName, apiKey);
     if (!items) {
-        logger.error(`[provider-search] Unsupported provider: ${providerName}`);
         throw new Error(`Unsupported provider: ${providerName}`);
     }
 
-    logger.info(`[provider-search] Retrieved ${items.length} total library items from ${providerName}`);
+    logger.for('PROVIDER').at('list').debug('Library listed', { provider: providerName, items: items.length });
     return items;
 }
 
@@ -120,7 +119,7 @@ export async function preFilterTorrentsByKeywords(allTorrents, keywords, aliasVo
     });
 
     const endTime = Date.now();
-    logger.info(`[provider-search] Pre-filter: ${allTorrents.length} → ${relevantTorrents.length} relevant torrents (${rescued} by title identity, ${endTime - startTime}ms)`);
+    search.at('prefilter').debug('Keywords matched', { input: allTorrents.length, keywordHits: relevantTorrents.length, identityMatches: rescued, duration: `${endTime - startTime}ms` });
 
     return relevantTorrents;
 }
@@ -136,6 +135,6 @@ export async function searchProviderLibrary(providerName, apiKey, searchKey, thr
     const fuse = new Fuse(torrents, { keys: ['name', 'filename'], threshold, minMatchCharLength: 2, includeScore: true });
     const found = fuse.search(searchKey).map(result => ({ ...result.item, searchScore: result.score }));
 
-    logger.debug(`[provider-search] Library search for "${searchKey}": ${found.length} of ${torrents.length} torrents`);
+    search.at('title').debug('Titles matched', { mode: 'basic', input: torrents.length, titleMatches: found.length });
     return found;
 }

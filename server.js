@@ -1,18 +1,13 @@
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import serverless from './serverless.js'
-import requestIp from 'request-ip'
-import rateLimit from 'express-rate-limit'
 import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 import { initializeEnrichmentCacheForStartup } from './src/catalog/enrichment-cache.js';
 import { getCacheRecorder } from './src/utils/cache-recorder.js';
 
 import { logger } from './src/utils/logger.js';
-import { logApiStartupStatus } from './src/config/configuration.js';
-
-dotenv.config({ quiet: true })
+import { getStartupStatus } from './src/config/configuration.js';
 
 const app = express()
 app.enable('trust proxy')
@@ -30,15 +25,6 @@ app.use(swStats.getMiddleware({
             && (password === process.env.SWAGGER_PASSWORD)))
     },
 }))
-
-const rateLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hours
-    limit: 300, // Limit each IP to 300 requests per window
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    keyGenerator: (req) => requestIp.getClientIp(req)
-})
-app.use(rateLimiter)
 
 app.use((req, res, next) => {
     const currentAddonUrl = process.env.ADDON_URL;
@@ -83,23 +69,21 @@ try {
 }
 
 app.listen(serverPort, () => {
-    logger.info(`Started addon server on port ${serverPort}`);
-    logger.info(`Addon URL: ${process.env.ADDON_URL}`);
-    logger.info(`Configure page: ${process.env.ADDON_URL}/configure`);
-    
-    logApiStartupStatus();
+    const system = logger.for('SYSTEM').at('startup')
 
     try {
         initializeEnrichmentCacheForStartup();
     } catch (error) {
-        logger.error(`[enrichment-cache] Startup initialization failed: ${error.message}`);
+        system.error('Enrichment cache failed to start', { module: 'enrichment-cache', error: error.name });
     }
 
     try {
         getCacheRecorder();
     } catch (error) {
-        logger.error(`[cache-recorder] Startup initialization failed: ${error.message}`);
+        system.error('Cache recorder failed to start', { module: 'cache-recorder', error: error.name });
     }
+
+    system.info('Addon ready', { port: serverPort, environment: process.env.NODE_ENV || 'production', ...getStartupStatus() }, { symbol: 'ready' });
 })
 
 export default app;

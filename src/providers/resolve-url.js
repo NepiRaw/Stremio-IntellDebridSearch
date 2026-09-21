@@ -6,8 +6,8 @@
 
 import crypto from 'crypto';
 import { encode } from 'urlencode';
-import { encryptConfig } from '../config/configuration.js';
-import { logger } from '../utils/logger.js';
+import { encryptConfig, isEncryptedConfig } from '../config/configuration.js';
+import { getLogContext } from '../utils/logger.js';
 
 const TOKEN_LENGTH = 16;
 const secureTokenMapping = new Map();
@@ -23,11 +23,7 @@ export class ApiKeySecurityManager {
         if (token === 'null') return null;
 
         const apiKey = secureTokenMapping.get(`${providerName}:${token}`);
-        if (!apiKey) {
-            logger.warn(`[SECURITY] Token resolution failed for ${providerName}:${token}`);
-            return null;
-        }
-        return apiKey;
+        return apiKey ?? null;
     }
 
     static isSecureToken(value) {
@@ -39,7 +35,9 @@ export function buildResolveUrl(provider, apiKey, torrentId, hostUrl) {
     if (!hostUrl) return null;
 
     const token = ApiKeySecurityManager.generateSecureToken(provider, apiKey);
-    const config = encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
+    const context = getLogContext();
+    const config = context?.segment && isEncryptedConfig(context.segment) ? context.segment : encryptConfig({ DebridProvider: provider, DebridApiKey: apiKey });
     const prefix = config ? `/${config}` : '';
-    return `${process.env.ADDON_URL}${prefix}/resolve/${provider}/${token}/${torrentId}/${encode(hostUrl)}`;
+    const origin = context?.requestId ? `?r=${context.requestId}` : '';
+    return `${process.env.ADDON_URL}${prefix}/resolve/${provider}/${token}/${torrentId}/${encode(hostUrl)}${origin}`;
 }
