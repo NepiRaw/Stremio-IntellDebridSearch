@@ -1,8 +1,6 @@
 import express from 'express'
 import cors from 'cors'
 import serverless from './serverless.js'
-import requestIp from 'request-ip'
-import rateLimit from 'express-rate-limit'
 import swStats from 'swagger-stats'
 import addonInterface from "./addon.js"
 import { initializeEnrichmentCacheForStartup } from './src/catalog/enrichment-cache.js';
@@ -27,24 +25,6 @@ app.use(swStats.getMiddleware({
             && (password === process.env.SWAGGER_PASSWORD)))
     },
 }))
-
-const RATE_LIMIT = 300
-const RATE_WINDOW_MS = 60 * 60 * 1000
-const rateLimiter = rateLimit({
-    windowMs: RATE_WINDOW_MS,
-    limit: RATE_LIMIT,
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    keyGenerator: (req) => requestIp.getClientIp(req),
-    handler: (req, res, next, options) => {
-        if (req.rateLimit.used === RATE_LIMIT + 1) {
-            const segment = req.url.split('/')[1] ?? ''
-            logger.for('HTTP').at('limited').warn('Client over the rate limit', { cfg: /^[A-Za-z0-9_-]{60,}$/.test(segment) ? segment.slice(0, 8) : undefined, limit: RATE_LIMIT, window: '1h' })
-        }
-        res.status(options.statusCode).send(options.message)
-    }
-})
-app.use(rateLimiter)
 
 app.use((req, res, next) => {
     const currentAddonUrl = process.env.ADDON_URL;

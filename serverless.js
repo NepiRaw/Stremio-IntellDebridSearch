@@ -5,6 +5,7 @@ import StreamProvider from './src/stream-provider.js'
 import { decode } from 'urlencode'
 import qs from 'querystring'
 import requestIp from 'request-ip'
+import rateLimit from 'express-rate-limit'
 import { getManifest } from './src/config/manifest.js'
 import { parseConfiguration, encryptConfig } from './src/config/configuration.js'
 import { BadTokenError, BadRequestError, AccessDeniedError } from './src/utils/error-handler.js'
@@ -33,7 +34,22 @@ router.get('/encryption-data', (req, res) => {
     })
 })
 
-router.post('/encrypt-config', async (req, res) => {
+const ENCRYPT_LIMIT = 50
+const encryptLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: ENCRYPT_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => requestIp.getClientIp(req),
+    handler: (req, res) => {
+        if (req.rateLimit.used === ENCRYPT_LIMIT + 1) {
+            logger.for('HTTP').at('limited').warn('Client over the install limit', { limit: ENCRYPT_LIMIT, window: '1h' })
+        }
+        res.status(429).json({ error: 'Too many install attempts from your network. Please try again in an hour.' })
+    }
+})
+
+router.post('/encrypt-config', encryptLimiter, async (req, res) => {
     res.setHeader('content-type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
